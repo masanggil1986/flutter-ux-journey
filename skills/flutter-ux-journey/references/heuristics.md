@@ -145,7 +145,14 @@ Run them over the whole walk after the per-step checks:
 4. Sort by severity descending, then by first step index ascending.
 5. A `STATIC` candidate that no walked screen confirmed stays in the report at low confidence with the
    caveat written out — it is not deleted and it is not promoted.
-6. **`RUNTIME` refutes `STATIC`.** A measurement beats a source-pattern guess, always. The static pass
+6. **The guideline beats the dump.** Both are RUNTIME, and they can disagree: the semantics dump
+   accumulates transforms by hand, so a clipped or off-screen node can read as a few pixels tall
+   when the framework's own measurement says otherwise. Measured: a screen's date chips read
+   `48.2 x 7.4` in the dump while `androidTapTargetGuideline` did not flag them at all. When they
+   disagree, **the guideline is right and the dump is an artifact** — the guidelines are the
+   framework's own, calibrated code. Never report a size from the dump that no guideline flagged;
+   cross-check first, and say so if the two disagree.
+7. **`RUNTIME` refutes `STATIC`.** A measurement beats a source-pattern guess, always. The static pass
    reads an *unresolved* AST: it matches constructor names and cannot see what a widget's children
    contribute. So a tap target the static rule calls unlabeled is genuinely labeled if the walked
    semantics tree shows a label on it — measured on the demo fixture, where two `InkWell`s are

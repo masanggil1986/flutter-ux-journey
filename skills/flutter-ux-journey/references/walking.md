@@ -235,6 +235,25 @@ Future<List<Map<String, Object?>>> _evaluateGuidelines(WidgetTester tester) asyn
 }
 ```
 
+### The app's own errors are findings, not a reason to abort
+
+A production app fires background requests that outlive a step. One late async exception fails the
+test and **discards the entire report** — measured: a voucher fetch completing after the walk threw
+away a nine-step journey. Collect them instead, before `app.main()`:
+
+```dart
+final List<String> appErrors = <String>[];
+FlutterError.onError = (FlutterErrorDetails details) {
+  appErrors.add(details.exceptionAsString());
+};
+...
+report['appErrors'] = appErrors;
+```
+
+What lands there is evidence in its own right. An app that shows the user
+`type 'Null' is not a subtype of type ...` is leaking internals into the UI — a real severity-3
+finding, measured on a production app.
+
 ### Bounded settle — never call `pumpAndSettle` on a real app
 
 `pumpAndSettle` waits for the frame queue to go quiet, and only gives up after a

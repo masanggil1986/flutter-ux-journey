@@ -40,6 +40,13 @@ void main() {
     // Never assume semantics are already on. Cheap, and required by the docs.
     final SemanticsHandle handle = tester.ensureSemantics();
 
+    // An app's own errors are FINDINGS, not a reason to abort. Without this, a
+    // late async exception fails the test and discards the whole report.
+    final List<String> appErrors = <String>[];
+    FlutterError.onError = (FlutterErrorDetails details) {
+      appErrors.add(details.exceptionAsString());
+    };
+
     app.main();
     // NOT pumpAndSettle: it waits out a 10-minute timeout on any app that
     // animates continuously. This fixture does not, but the generated walker
@@ -140,6 +147,7 @@ void main() {
     // A journey whose entry screen never settles is already telling you
     // something — record it rather than dropping it.
     report['entrySettled'] = entrySettled;
+    report['appErrors'] = appErrors;
   });
 }
 

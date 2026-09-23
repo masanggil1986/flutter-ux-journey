@@ -77,18 +77,22 @@ To walk *past* sign-in, stub the HTTP layer from inside the test, before `app.ma
 not modified: `HttpOverrides.global` intercepts `dart:io` `HttpClient`, which is what Dio, `http`,
 and most clients sit on.
 
-Response shapes are app-specific, so this is model work, not a fixed script: read the app's own
-auth service and response models, then write a stub that returns the success shape they parse.
-Reuse the app's existing test fixtures when it has them.
+`references/network-stub.md` carries the working template and the two mistakes that each cost a
+run. Only the route table is app-specific: stub the sign-in endpoint, run, read `networkCalls` and
+the failing step, add what it names, repeat. Three or four rounds is typical — that loop is faster
+than reading the app's API surface up front.
 
-Set it before the app boots:
-
-```dart
-HttpOverrides.global = _StubOverrides();   // before app.main()
-```
+Run it with the device offline (`adb shell cmd connectivity airplane-mode enable`). If a response
+arrives at all, the stub is intercepting — a real request could not have succeeded. That is also
+the guarantee that the audit never touches production.
 
 If the stub is wrong, the journey step fails and says so — the oracle still holds. Never reach for
 a real account to make a red step go green.
+
+**Walk the whole app, not the doorstep.** A journey that stops at sign-in measures a login form,
+not a product. Once past the gate, walk the tabs and flows a real user moves between: the defects
+that only a journey can find — a control that is too small on *every* screen, terminology that
+drifts between tabs, state lost on return — are invisible from any single screen.
 
 ## Output location
 
