@@ -7,6 +7,12 @@ what it finds against that journey's goal (Nielsen 0–4 severity).
 evidence pulled out of a live app — real pixel `Rect`s, real contrast ratios, real semantics labels —
 not a model's estimate of what a screenshot probably looks like.
 
+That now extends past per-screen polish to the thing people actually mean by UX — **the flow**.
+Where a control sits on the surface, whether the user can get back out of a screen, whether the tap
+the walk just made changed anything at all, and whether the task you said the app is for is the
+sixth thing on its own home screen. A worked example, produced by a real run rather than written by
+hand: [`example/report.md`](example/report.md).
+
 > **Platform, stated up front: simulators and emulators only, and screenshots differ per platform.**
 > The pipeline was built and run end to end on an iOS simulator (iPhone SE, iOS 18.6) and on an
 > Android emulator (API 36, arm64), both on Flutter 3.47.2 stable. Measurement — the four guidelines
@@ -41,7 +47,14 @@ packages, in any language.** Everything the skill uses — `package:analyzer`, `
    3. Tap "Add to cart" — the cart badge reads 1.
    4. Tap "Checkout" — the payment form appears.
    5. Tap "Pay" — a confirmation screen names the order.
+
+   ## Priorities (optional)
+   1. buy something
+   2. check an order's status
    ```
+
+   `## Priorities` is the only thing that makes "this is buried" sayable, and it is never inferred.
+   Leave it out and the report says so instead of guessing.
 
 2. Boot a simulator, then ask Claude: **"audit journey.md against this app"**.
 3. Read `report.md`. Each finding names its evidence layer (`STATIC` / `RUNTIME` / `VISUAL` /
@@ -84,7 +97,36 @@ simulator and return a node, a pixel `Rect`, the measured value and the required
 | `labeledTapTargetGuideline` | every tappable node with no semantic label |
 | `textContrastGuideline` | `Expected contrast ratio of at least 4.5 but found 3.68 for a font size of 14.0` — computed from real rendered pixels |
 
-Plus, per step: the full semantics tree as JSON, a PNG screenshot, and wall-clock timing.
+Plus, per step: the full semantics tree as JSON, a PNG screenshot, and wall-clock timing — and,
+for the flow half of the report, measurements the guidelines do not provide:
+
+| measured | what it answers |
+|---|---|
+| `viewport` — `foldY`, `contentTop`, `keyboardInset` | what is on screen without scrolling. `physicalSize` alone is the whole display, so system padding and the keyboard inset are subtracted; in a plain `flutter test` it is Flutter's hardcoded 800×600 and the report blanks the column rather than quoting a fold for a phone that does not exist |
+| `effectivePct` / `centreCovered` per tap target | whether a control that passes every size check is actually hittable. A 48 dp CTA under a banner keeps a 16 dp strip — and its own rect still reads 48 dp |
+| `canPop` / `tappableCount` / `modalOpen` per step | `DEAD-END` as a measurement rather than a guessed label that failed to match |
+| `dispatched` / `semanticsUnchanged` / screen signature | dead taps, revisits, state lost on the way back |
+| `onScreen` / `coversSurface` per node | what is really on the surface. A scrollable builds rows past the viewport into the dump; a full-screen keyboard-dismiss `GestureDetector` is always first and always largest. Counting either wrecks every placement number |
+| `tapsSoFar` | reach cost **on the declared path** — never a minimum, because a minimum needs paths nobody declared |
+
+### Placement, without guessing what matters
+
+"This feature is important but buried" needs two halves, and only one of them is measurable.
+Feature importance is in no artifact — not the source, not the semantics tree, not the router — so
+the tool never ranks anything. It compares two **declarations**: an optional `## Priorities` block
+in `journey.md` (what the app is for, from the person who knows) against the entry screen's tap
+targets in reading order, with their rects and fold position (what the app actually promotes). The
+finding is the disagreement, and it reads like one:
+
+> The entry screen carries 8 tap targets and this journey traverses 1. Your rank-1 task is the 6th
+> of those 8, at y=239 lpx. Five controls sit above it, and none of the five appears in any
+> declared priority.
+
+Declare nothing and the report says `not declared` and caps the affected findings — it does not
+infer a ranking from tab order, label size or route depth. And "N taps deep" never carries a
+severity on its own: the 3-click rule is disproved (Porter 2003; NN/g measured no increase in
+dropoff past three clicks), so depth is paired with a declared priority or an observed backtrack,
+or it is printed as an observation.
 
 ## What this cannot see
 
@@ -107,6 +149,16 @@ not be assessed is listed as `not assessable` instead of quietly omitted.
   is not on by default, and profiling is explicitly out of scope.
 - **Taste.** "Is this pretty" is not a heuristic. Neither is automatic code fixing — the report tells
   you; it does not edit your app.
+- **What matters to your users.** Feature importance is in no artifact. The tool compares what you
+  declared against what the app promotes; it never ranks features itself, and "not declared" is a
+  real answer it will give you.
+- **The shortest path to anything.** Reach cost is counted on the path the journey declared. A
+  minimum would require exploring paths nobody declared, which is a crawl.
+- **Whether a different layout would be better.** That is a counterfactual and nothing in a run
+  measures it. Findings state the contradiction; exactly one proposal per audit is allowed, in the
+  Direction section, naming the measurement it stands on and what would disprove it.
+- **How the app is doing overall.** One report covers one journey. There is no cross-journey score,
+  because averaging several by hand would be worse than not having the number.
 
 ## Prior art
 

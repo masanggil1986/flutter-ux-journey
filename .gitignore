@@ -35,6 +35,9 @@ report.md
 !example/ux_demo_app/**
 !example/screens/
 !example/screens/*.png
+# 공개 데모 앱을 대상으로 한 worked example 리포트. 위의 report.md 전역 차단에 걸리므로
+# 여기서만 명시적으로 negate 한다 — 이 파일에는 데모 앱 외의 내용이 없어야 한다.
+!example/report.md
 
 # eval 케이스는 프롬프트·픽스처·그레이더를 통째로 실어 나른다.
 # 데모 앱을 대상으로 한 케이스만 예외적으로 negate 해서 추가한다.

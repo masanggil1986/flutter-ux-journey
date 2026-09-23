@@ -1,24 +1,238 @@
 {
-  "_about": "Golden regression fixture for example/journey.md against example/ux_demo_app. The six seeded defects, the Named Check IDs and the goal-relative severities a correct run must produce. Produced from a real `flutter drive` run on iPhone SE (3rd gen) / iOS 18.6 (Flutter 3.47.2): every rect, ratio, label and guideline reason below was measured, not authored. Step timings are deliberately absent — heuristics.md never scores them and a run-varying number in a fixture is a false diff waiting to happen.",
+  "_about": "Golden regression fixture for example/journey.md against example/ux_demo_app. The six seeded defects, the Named Check IDs and the goal-relative severities a correct run must produce. Produced from a real `flutter drive` run on iPhone SE (3rd gen) / iOS 18.6 (Flutter 3.47.2): every rect, ratio, label, guideline reason and surface field below was measured, not authored. Step timings are deliberately absent — heuristics.md never scores them and a run-varying number in a fixture is a false diff waiting to happen. The worked report this corresponds to is example/report.md.",
   "goal": "Remove one product from the saved list and get back to the list to keep browsing.",
   "result": "not reached",
-  "environment": {"flutter": "3.47.2", "device": "iPhone SE (3rd gen)", "platform": "iOS 18.6", "date": "2026-09-22"},
+  "environment": {
+    "flutter": "3.47.2",
+    "device": "iPhone SE (3rd gen)",
+    "platform": "iOS 18.6",
+    "date": "2026-09-23"
+  },
+  "viewport": {
+    "widthLogicalPx": 375.0,
+    "heightLogicalPx": 667.0,
+    "devicePixelRatio": 2.0,
+    "contentTop": 20.0,
+    "padBottom": 0.0,
+    "foldY": 667.0,
+    "isTestDefault": false,
+    "textDirection": "ltr"
+  },
+  "reach": {
+    "tapsLanded": 2,
+    "screens": 3,
+    "basis": "the declared path, not a minimum; a gesture that never dispatched is not reach cost"
+  },
+  "priorities": {
+    "source": "example/journey.md",
+    "declared": [
+      "open a saved product and check its details",
+      "remove a product I no longer want",
+      "get back to the list and keep browsing"
+    ]
+  },
+  "entrySurface": {
+    "_about": "Step 1's tap targets before its tap, in reading order (top, then the leading edge). This is the app's own statement of what it promotes, and it is half of every placement finding. Every entry measured effectivePct 1.00, centreCovered false and coversSurface false — nothing on this app is covered, and nothing here is the full-screen keyboard-dismiss GestureDetector that placement checks must exclude.",
+    "tappableCount": 8,
+    "tappableAboveFold": 8,
+    "order": [
+      {
+        "n": 1,
+        "rectLogicalPx": [
+          279.0,
+          24.0,
+          48.0,
+          48.0
+        ],
+        "name": null,
+        "note": "the unlabelled search icon — finding 7"
+      },
+      {
+        "n": 2,
+        "rectLogicalPx": [
+          327.0,
+          24.0,
+          48.0,
+          48.0
+        ],
+        "name": "Sort",
+        "note": "tooltip only, no label"
+      },
+      {
+        "n": 3,
+        "rectLogicalPx": [
+          16.0,
+          92.0,
+          319.0,
+          48.0
+        ],
+        "name": "Autumn sale — 20% off every side table"
+      },
+      {
+        "n": 4,
+        "rectLogicalPx": [
+          335.0,
+          104.0,
+          24.0,
+          24.0
+        ],
+        "name": "Dismiss promotion",
+        "note": "finding 5"
+      },
+      {
+        "n": 5,
+        "rectLogicalPx": [
+          16.0,
+          175.0,
+          343.0,
+          48.0
+        ],
+        "name": "View cart (3 items)",
+        "note": "the control that passes every check"
+      },
+      {
+        "n": 6,
+        "rectLogicalPx": [
+          16.0,
+          239.0,
+          343.0,
+          108.0
+        ],
+        "name": "Walnut Side Table\n189,000 KRW\nOnly 2 left",
+        "note": "the journey's own rank-1 target — 6th of 8"
+      },
+      {
+        "n": 7,
+        "rectLogicalPx": [
+          16.0,
+          347.0,
+          343.0,
+          108.0
+        ],
+        "name": "Oak Side Table\n164,000 KRW\nIn stock"
+      },
+      {
+        "n": 8,
+        "rectLogicalPx": [
+          16.0,
+          455.0,
+          343.0,
+          108.0
+        ],
+        "name": "Linen Floor Cushion\n72,000 KRW\nIn stock"
+      }
+    ]
+  },
   "steps": [
-    {"index": 1, "action": "tap \"Walnut Side Table\"", "expected": "189,000 KRW", "status": "OK", "screenshot": "screens/step_1.png"},
-    {"index": 2, "action": "tap \"Remove from list\"", "expected": "Cancel", "status": "FAILED", "error": "Bad state: no semantics node matches \"Cancel\"", "screenshot": "screens/step_2.png"},
-    {"index": 3, "action": "tap \"Back\"", "expected": "Saved items", "status": "FAILED", "error": "Bad state: no semantics node matches \"Back\"", "screenshot": "screens/step_3.png"}
+    {
+      "index": 1,
+      "action": "tap \"Walnut Side Table\"",
+      "expected": "189,000 KRW",
+      "status": "OK",
+      "tapsSoFar": 1,
+      "settled": true,
+      "dispatched": true,
+      "semanticsUnchanged": false,
+      "screenSig": "a9582ba2",
+      "surface": {
+        "canPop": false,
+        "navigatorCount": 1,
+        "tappableCount": 8,
+        "coverNodes": 0,
+        "tappableAboveFold": 8,
+        "modalOpen": false
+      },
+      "screenshot": "screens/step_1.png"
+    },
+    {
+      "index": 2,
+      "action": "tap \"Remove from list\"",
+      "expected": "Cancel",
+      "status": "FAILED",
+      "error": "Bad state: no semantics node matches \"Cancel\"",
+      "tapsSoFar": 2,
+      "settled": false,
+      "dispatched": true,
+      "semanticsUnchanged": false,
+      "screenSig": "4ddc18db",
+      "surface": {
+        "canPop": true,
+        "navigatorCount": 1,
+        "tappableCount": 2,
+        "coverNodes": 0,
+        "tappableAboveFold": 2,
+        "modalOpen": false
+      },
+      "screenshot": "screens/step_2.png",
+      "_note": "settled false is correct and is evidence: the walk waited out its whole bound for a 'Cancel' that never existed."
+    },
+    {
+      "index": 3,
+      "action": "tap \"Back\"",
+      "expected": "Saved items",
+      "status": "FAILED",
+      "error": "Bad state: no semantics node matches \"Back\"",
+      "tapsSoFar": 2,
+      "settled": true,
+      "dispatched": false,
+      "semanticsUnchanged": null,
+      "screenSig": "3afe0168",
+      "surface": {
+        "canPop": false,
+        "navigatorCount": 1,
+        "tappableCount": 0,
+        "coverNodes": 0,
+        "tappableAboveFold": 0,
+        "modalOpen": false
+      },
+      "screenshot": "screens/step_3.png",
+      "_note": "dispatched false: the step failed while RESOLVING its target, so no gesture reached the app. tapsSoFar therefore stays 2, and semanticsUnchanged is null rather than true — a selector miss is not a dead control."
+    },
+    {
+      "index": 4,
+      "action": "outcome",
+      "expected": null,
+      "status": "OK",
+      "tapsSoFar": 2,
+      "settled": true,
+      "dispatched": false,
+      "semanticsUnchanged": null,
+      "screenSig": "3afe0168",
+      "surface": {
+        "canPop": false,
+        "navigatorCount": 1,
+        "tappableCount": 0,
+        "coverNodes": 0,
+        "tappableAboveFold": 0,
+        "modalOpen": false
+      },
+      "screenshot": "screens/step_4.png"
+    }
   ],
   "findings": [
     {
       "id": 1,
       "check": "TRUST-GAP",
       "severity": 4,
-      "layers": ["JOURNEY", "VISUAL"],
+      "layers": [
+        "JOURNEY",
+        "VISUAL"
+      ],
       "confidence": "high",
-      "steps": [2],
+      "steps": [
+        2
+      ],
       "where": "\"Remove from list\" on the product detail screen",
-      "measurement": null,
-      "evidence": "Step 2 required a way to back out before the data was destroyed and found none: 'no semantics node matches \"Cancel\"'. The tap deleted the product and replaced the whole navigation stack in one frame — no dialog, no undo, no snackbar. screens/step_3.png is the state one tap later.",
+      "measurement": {
+        "rectLogicalPx": [
+          16.0,
+          603.0,
+          343.0,
+          48.0
+        ],
+        "unit": "logical px"
+      },
+      "evidence": "Step 2 required a way to back out before the data was destroyed and found none: 'no semantics node matches \"Cancel\"'. The detail screen carries exactly 2 tap targets — \"Back\" (48x48) and \"Remove from list\" (343x48 at y=603) — and neither is a confirmation. The tap deleted the product and replaced the whole navigation stack in one frame: no dialog, no undo, no snackbar. screens/step_3.png is the state one tap later.",
       "screenshot": "screens/step_3.png",
       "rationale": "The goal is to remove a product AND keep browsing. An irreversible delete with no confirmation means a mis-tap costs the user data they cannot get back, so reaching the goal safely depends on never making a mistake.",
       "seededDefect": 6
@@ -27,25 +241,50 @@
       "id": 2,
       "check": "DEAD-END",
       "severity": 4,
-      "layers": ["JOURNEY", "VISUAL"],
+      "layers": [
+        "RUNTIME",
+        "JOURNEY",
+        "VISUAL"
+      ],
       "confidence": "high",
-      "steps": [3],
+      "steps": [
+        3
+      ],
       "where": "the confirmation screen reached after removing an item",
-      "measurement": null,
-      "evidence": "Step 3 found no back affordance: 'no semantics node matches \"Back\"'. The screen's 7 semantics nodes contain no tappable node at all, and every one of the four accessibility guidelines PASSES on it — the defect is invisible per-screen and only exists at journey level. screens/step_3.png shows an app bar with no leading control.",
+      "measurement": {
+        "canPop": false,
+        "tappableCount": 0,
+        "modalOpen": false,
+        "semanticsNodes": 7
+      },
+      "evidence": "RUNTIME: the DEAD-END predicate holds on every term — canPop false, tappableCount 0, modalOpen false, and this is not the journey's entry screen. Seven semantics nodes, none of them tappable. What the screen says, in full: 'Removed' and 'Removed from your list' — a confirmation with no next step attached. All four accessibility guidelines PASS on this screen: the defect is invisible per-screen and exists only at journey level. JOURNEY: step 3 failed with 'no semantics node matches \"Back\"'; the push that landed here used pushAndRemoveUntil so there is no route below. VISUAL: screens/step_3.png shows an app bar with no leading control.",
       "screenshot": "screens/step_3.png",
-      "rationale": "The goal's second half — get back to the list to keep browsing — is unreachable. The push that landed here cleared the stack, so the system back gesture has nowhere to go either.",
-      "seededDefect": 5
+      "rationale": "The goal's second half — get back to the list to keep browsing — is unreachable, with no workaround short of killing the app.",
+      "seededDefect": 5,
+      "_note": "Before the predicate existed this finding rode on a selector miss, which is evidence that the journey's author guessed a label, not evidence about the app. canPop + tappableCount is the measurement that replaced it."
     },
     {
       "id": 3,
       "check": "FAKE-AFFORDANCE",
       "severity": 3,
-      "layers": ["RUNTIME", "VISUAL"],
+      "layers": [
+        "RUNTIME",
+        "VISUAL"
+      ],
       "confidence": "high",
-      "steps": [1],
+      "steps": [
+        1
+      ],
       "where": "product cards on the saved list (the same shape on all three, and on the promo row)",
-      "measurement": {"rectLogicalPx": [16.0, 239.0, 343.0, 108.0], "unit": "logical px"},
+      "measurement": {
+        "rectLogicalPx": [
+          16.0,
+          239.0,
+          343.0,
+          108.0
+        ],
+        "unit": "logical px"
+      },
       "evidence": "RUNTIME: the card is one semantics node with tappable=true but flags ['isFocusable'] — no isButton, no role. Its label is the three child Texts merged: \"Walnut Side Table\\n189,000 KRW\\nOnly 2 left\". A screen reader announces three lines of product text and never says it can be activated.",
       "screenshot": "screens/step_1.png",
       "rationale": "Tapping a card is the only entry to this journey — step 1 has no alternative route to the detail screen. A user who cannot tell the card is actionable never starts.",
@@ -53,41 +292,127 @@
     },
     {
       "id": 4,
+      "check": "HIERARCHY-FLAT",
+      "severity": 2,
+      "layers": [
+        "RUNTIME"
+      ],
+      "confidence": "high",
+      "steps": [
+        1
+      ],
+      "where": "the saved list's entry surface",
+      "measurement": {
+        "ordinal": 6,
+        "ofTappable": 8,
+        "rectLogicalPx": [
+          16.0,
+          239.0,
+          343.0,
+          108.0
+        ],
+        "aboveFold": true,
+        "controlsAhead": 5,
+        "rankedControlsAhead": 0,
+        "coversSurface": false,
+        "unit": "logical px"
+      },
+      "evidence": "RUNTIME: the entry surface carries 8 tap targets, all fully above the fold (viewport 375x667 lpx @ dpr 2.0, contentTop 20.0, foldY 667.0, textDirection ltr). In reading order the journey's own step-1 target is 6th, at y=239 lpx, and ALL FIVE controls ahead of it are unranked — which is the predicate. None of the eight is coversSurface, so nothing here is the full-screen keyboard-dismiss GestureDetector that would make this check fire on any app.",
+      "screenshot": "screens/step_1.png",
+      "rationale": "Severity 2, not 4: the goal is still reachable and the card is visible without scrolling, so the cost is ordering on the path rather than a block. It would be 4 if the card were below the fold.",
+      "seededDefect": null,
+      "_note": "This finding does not correspond to a seeded defect — it falls out of comparing the declared ## Priorities against the measured surface, and it is the check the flow/IA upgrade exists for. It cannot fire when no priorities are declared; the report then says 'not declared' instead of guessing."
+    },
+    {
+      "id": 5,
       "check": "TOUCH-TARGET",
       "severity": 2,
-      "layers": ["RUNTIME", "VISUAL"],
+      "layers": [
+        "RUNTIME",
+        "VISUAL"
+      ],
       "confidence": "high",
-      "steps": [1],
+      "steps": [
+        1
+      ],
       "where": "\"Dismiss promotion\" — the × on the promo banner",
-      "measurement": {"rectLogicalPx": [335.0, 104.0, 24.0, 24.0], "required": [44.0, 44.0], "unit": "logical px"},
-      "evidence": "iOSTapTargetGuideline: SemanticsNode#7(Rect.fromLTRB(319.0, 12.0, 343.0, 36.0), actions: [tap], flags: [isButton], label: \"Dismiss promotion\", textDirection: ltr): expected tap target size of at least Size(44.0, 44.0), but found Size(24.0, 24.0) — androidTapTargetGuideline fails the same node against Size(48.0, 48.0).",
+      "measurement": {
+        "rectLogicalPx": [
+          335.0,
+          104.0,
+          24.0,
+          24.0
+        ],
+        "required": [
+          44.0,
+          44.0
+        ],
+        "effectivePct": 1.0,
+        "centreCovered": false,
+        "unit": "logical px"
+      },
+      "evidence": "iOSTapTargetGuideline: SemanticsNode#7(Rect.fromLTRB(319.0, 12.0, 343.0, 36.0), actions: [tap], flags: [isButton], label: \"Dismiss promotion\", textDirection: ltr): expected tap target size of at least Size(44.0, 44.0), but found Size(24.0, 24.0) — androidTapTargetGuideline fails the same node against Size(48.0, 48.0). effectivePct 1.00: it is small, not covered, so the defect is size alone.",
       "screenshot": "screens/step_1.png",
       "rationale": "Off the goal path: dismissing the promo is not needed to remove an item, and ignoring the banner works. Would be 4 if this were the control that advanced the journey.",
       "seededDefect": 1
     },
     {
-      "id": 5,
+      "id": 6,
       "check": "CONTRAST-FAIL",
       "severity": 2,
-      "layers": ["RUNTIME", "VISUAL"],
+      "layers": [
+        "RUNTIME",
+        "VISUAL"
+      ],
       "confidence": "high",
-      "steps": [1],
+      "steps": [
+        1
+      ],
       "where": "\"Free returns within 14 days\", above the cart button",
-      "measurement": {"rectLogicalPx": [16.0, 140.0, 343.0, 35.0], "fontSize": 13.0, "requiredRatio": 4.5, "authoredRatio": 1.36, "authoredColors": ["#DDDDDD", "#FFFFFF"], "unit": "logical px"},
-      "evidence": "textContrastGuideline: SemanticsNode#8(Rect.fromLTRB(16.0, 64.0, 359.0, 99.0), tags: [RenderViewport.twoPane], label: \"Free returns within 14 days\", textDirection: ltr, indexInParent: 1): Expected contrast ratio of at least 4.5 but found 1.03 for a font size of 13.0. VISUAL: screens/step_1.png — the line is barely visible against the white scaffold. The guideline's ratio is advisory (its light/dark partition returned #FCFCFC as the 'dark' colour, not the authored #DDDDDD, which is 1.36:1 on white); the NODE is the signal and both numbers are far under 4.5.",
+      "measurement": {
+        "rectLogicalPx": [
+          16.0,
+          140.0,
+          343.0,
+          35.0
+        ],
+        "fontSize": 13.0,
+        "requiredRatio": 4.5,
+        "authoredRatio": 1.36,
+        "authoredColors": [
+          "#DDDDDD",
+          "#FFFFFF"
+        ],
+        "unit": "logical px"
+      },
+      "evidence": "textContrastGuideline: SemanticsNode#8(Rect.fromLTRB(16.0, 64.0, 359.0, 99.0), tags: [RenderViewport.twoPane], label: \"Free returns within 14 days\", textDirection: ltr, indexInParent: 1): Expected contrast ratio of at least 4.5 but found 1.03 for a font size of 13.0. VISUAL: screens/step_1.png — the line is barely visible against the white scaffold. The guideline's ratio is advisory (its light/dark partition returned #FFFFFF as the 'dark' colour, not the authored #DDDDDD, which is 1.36:1 on white); the NODE is the signal and both numbers are far under 4.5.",
       "screenshot": "screens/step_1.png",
       "rationale": "Informational copy, not on the goal path, and the journey completes without reading it. Would be 3 if this text carried the information the goal needs.",
       "seededDefect": 4
     },
     {
-      "id": 6,
+      "id": 7,
       "check": "RECALL-TAX",
       "severity": 2,
-      "layers": ["STATIC", "RUNTIME", "VISUAL"],
+      "layers": [
+        "STATIC",
+        "RUNTIME",
+        "VISUAL"
+      ],
       "confidence": "high",
-      "steps": [1],
+      "steps": [
+        1
+      ],
       "where": "the unlabelled search icon button in the app bar",
-      "measurement": {"rectLogicalPx": [279.0, 24.0, 48.0, 48.0], "unit": "logical px"},
+      "measurement": {
+        "rectLogicalPx": [
+          279.0,
+          24.0,
+          48.0,
+          48.0
+        ],
+        "unit": "logical px"
+      },
       "evidence": "STATIC: lib/main.dart:75 IconButton — 'neither tooltip: nor semanticLabel: — the control has no name.' RUNTIME confirms it on a walked screen — labeledTapTargetGuideline: SemanticsNode#21(Rect.fromLTRB(279.0, 24.0, 327.0, 72.0), actions: [tap], flags: [isButton, hasEnabledState, isEnabled, isFocusable]): expected tappable node to have semantic label, but none was found. Its neighbour at the same size announces 'Sort' via tooltip, so the gap is this one control.",
       "screenshot": "screens/step_1.png",
       "rationale": "Off the goal path — the list holds three items and the target is visible without searching. STATIC alone would have been low confidence; the walk raises it by finding the same control unnamed on a screen the journey actually visited.",
@@ -95,15 +420,51 @@
     }
   ],
   "positives": [
-    {"check": "TOUCH-TARGET", "note": "\"View cart (3 items)\" is 343.0×48.0 logical px and labelled by its own text — it passes both tap-target guidelines. A report that flagged every control would be visibly wrong here.", "steps": [1]},
-    {"check": "DEAD-END", "note": "The product detail screen has a working back affordance (a 48×48 app-bar button tooltipped 'Back'). Confirmed by a negative-control run in which step 2's tap was made to miss: the app stayed on the detail screen and step 3 then returned to 'Saved items' successfully. The dead end is created by the removal flow, not by the detail screen.", "steps": [2]}
+    {
+      "check": "TOUCH-TARGET",
+      "note": "\"View cart (3 items)\" is 343.0x48.0 logical px and labelled by its own text — it passes both tap-target guidelines and the label guideline. A report that flagged every control would be visibly wrong here.",
+      "steps": [
+        1
+      ]
+    },
+    {
+      "check": "DEAD-END",
+      "note": "The product detail screen has a working back affordance (48x48 lpx at y=24, tooltip 'Back') and measures canPop true. The dead end is created by the removal flow, not by the detail screen.",
+      "steps": [
+        2
+      ]
+    },
+    {
+      "check": "TOUCH-TARGET",
+      "note": "Every tap target on every walked screen measured effectivePct 1.00 and centreCovered false — nothing in this app is covered by an overlay.",
+      "steps": [
+        1,
+        2,
+        3
+      ]
+    },
+    {
+      "check": "PROGRESS-BLIND",
+      "note": "The app raised no errors of its own (appErrors []). The single settled:false is step 2 waiting out its bound for a control that does not exist, which is the measurement working, not a defect in the app.",
+      "steps": [
+        1,
+        2,
+        3
+      ]
+    }
   ],
-  "notAssessable": [
-    "Steps 2 and 3 did not reach their expected screens, so nothing past the removal confirmation screen was walked. Whether a real confirmation dialog would itself be accessible is unknown.",
-    "Static candidates the walk refuted, kept here rather than deleted: lib/main.dart:126 and lib/main.dart:163 (InkWell with onTap and no enclosing Semantics, confidence low). At runtime both nodes carry non-empty merged labels ('Autumn sale — 20% off every side table' and the product card text), so the probe's name-matching missed the labels its children supply. Not findings.",
-    "lib/main.dart:251 (Icon with no tooltip or semanticLabel) is the decorative check mark on the removal screen; it produces no semantics node of its own and needs no name. Not a finding.",
-    "Screen-reader announcement order, focus order, keyboard navigation, dynamic type, motion and reduced-motion: not measured by this run.",
-    "Platform: iOS simulator only (iPhone SE 3rd gen, iOS 18.6), one device size, one theme, devicePixelRatio 2.0. Android is untested.",
-    "Step timings are recorded in the walk data as evidence and are deliberately not part of this fixture: they measure a host round-trip under a test harness, not user-perceived latency."
-  ]
+  "notAssessable": {
+    "notDeclared": [
+      "## Priorities ranks this journey's three tasks and nothing else. The five controls ahead of the rank-1 task are unranked because nobody ranked the entry surface, not because they are unimportant — rank them and the next run can say which of the five belongs there and which is taking the slot."
+    ],
+    "notReached": [
+      "Steps 2 and 3 did not reach their expected screens, so nothing past the removal confirmation screen was walked. Whether a real confirmation dialog would itself be accessible is untested, not clean.",
+      "The app drives Navigator directly, so there is no declared route table, no route names and no navigation graph. Screens are identified by their semantics signature instead.",
+      "Static candidates the walk refuted, kept here rather than deleted: lib/main.dart:126 and lib/main.dart:163 (InkWell with onTap and no enclosing Semantics, confidence low). At runtime both nodes carry non-empty merged labels ('Autumn sale — 20% off every side table' and the product card text), so the probe's name-matching missed the labels its children supply. Not findings.",
+      "lib/main.dart:251 (Icon with no tooltip or semanticLabel) is the decorative check mark on the removal screen; it produces no semantics node of its own and needs no name. Not a finding.",
+      "Screen-reader announcement order, focus order, keyboard navigation, dynamic type, motion and reduced-motion: not measured by this run.",
+      "Platform: iOS simulator only (iPhone SE 3rd gen, iOS 18.6), one device size, one theme, devicePixelRatio 2.0. Android is untested. The SE has a home button, so padBottom is genuinely 0.0 here; a notched device would move the fold line and this run cannot say by how much.",
+      "Step timings are recorded in the walk data as evidence and are deliberately not part of this fixture: they measure a host round-trip under a test harness, not user-perceived latency."
+    ]
+  }
 }

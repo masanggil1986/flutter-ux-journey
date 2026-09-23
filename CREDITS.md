@@ -65,3 +65,23 @@ SOFTWARE.
   dependencies of the audited app, not vendored here.
 - Prior art surveyed in [`docs/day1/prior-art.md`](docs/day1/prior-art.md); the ones this project
   competes with rather than borrows from are listed in the README.
+
+## Research cited
+
+Method and numbers, cited rather than copied. None of these is licensed material; each is named so
+a reader can check the claim rather than take the report's word for it.
+
+- **Josh Porter (2003), User Interface Engineering** — *Testing the Three-Click Rule*. The
+  measurement that disproves depth-as-a-defect, and the reason this tool never scores "N taps deep"
+  on its own. See also Nielsen Norman Group's summary of the same result.
+- **Nielsen Norman Group** — the eye-tracking study behind "prime real estate is the first
+  viewport" (120 users, ~130,000 fixations; 57% of viewing time above the fold), and *Interaction
+  Cost*.
+- **Pirolli & Card (1999)** — information foraging and information scent. Cited as the reason this
+  tool does **not** compute a scent score: substring overlap is not semantic proximity, and
+  borrowing the citation would borrow validation that was never performed on that operation.
+- **Smith (1996)** — the lostness measure. Cited in `heuristics.md` as a metric deliberately not
+  shipped: its `R` term needs the whole navigation graph, which would require crawling.
+- **W3C, WCAG 2.2** — 2.4.5 Multiple Ways, 3.3.7 Redundant Entry, 3.2.3 Consistent Navigation,
+  3.2.4 Consistent Identification. The normative home for flow- and IA-shaped findings that would
+  otherwise be invented heuristics.

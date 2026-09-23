@@ -10,7 +10,9 @@ The mechanism is generic; only `_routes` is app-specific. `HttpOverrides` interc
 ## How to fill in `_routes` — iterate, do not read everything first
 
 1. Stub the sign-in endpoint only. Run the walk.
-2. The walk reports `networkCalls` (every path the app requested, in order) and the step that
+2. The walk reports `networkCalls` (every path the app requested, in order) — **wire it**: the
+   template's list is called `stubCalls`, and the walker's `networkCalls` starts empty, so assign
+   one to the other or the field ships empty and the report quietly loses a layer. Then the step that
    failed. That tells you exactly what to add next.
 3. Repeat. Three or four rounds is typical.
 
