@@ -338,7 +338,24 @@ Future<void> _typeInto(WidgetTester tester, String needle, String text) async {
 
 Text entered is always ARBITRARY — see "Credentials: never ask for them" in SKILL.md.
 
-### Ambiguity: prefer an exact match, otherwise fail
+### Ambiguity: exact match, then `nth`, then fail loudly
+
+A substring selector legitimately matches both a label and a longer label containing it — a password
+field and a "forgot password" link. When exactly one hit matches **exactly**, that is the one meant.
+
+But two nodes can match EXACTLY and both be real: a shortcut tile and a bottom-nav tab often carry
+the same word. No matching cleverness can guess which; the journey must say. Give each step an
+optional 1-based `nth`, and make the error name the candidates and the fix:
+
+```
+ambiguous: 5 nodes match "Orders" — 1=Your Orders @85x27, 2=No orders yet @149x21,
+3=View orders @371x56, 4=Orders @79x53 ... Add nth: N to pick one.
+```
+
+A bare "ambiguous" makes the author guess and re-run; each re-run is a full build. Listing the
+candidates with their sizes turns two runs into one.
+
+### Ambiguity resolution order (unchanged rule below)
 
 A substring selector legitimately matches both a label and a longer label containing it — a
 password field and a "forgot password" link, measured on a real app. When exactly one hit matches

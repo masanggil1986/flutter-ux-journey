@@ -4,6 +4,7 @@
 
 import 'dart:io';
 
+
 import 'package:flutter/rendering.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -17,15 +18,16 @@ import 'package:ux_demo_app/main.dart' as app;
 /// [action] is 'tap' or 'type'. For 'type', [text] is the value entered —
 /// always ARBITRARY data. The walker never receives real credentials: an audit
 /// tool must not ask for them, and must not authenticate against production.
-typedef Step = ({String action, String target, String? text, String expected});
+/// [nth] disambiguates when a label legitimately appears more than once — a
+/// shortcut tile and a nav tab can carry the SAME text, and no amount of
+/// matching cleverness can guess which one a journey means. 1-based; null
+/// means "there must be exactly one".
+typedef Step = ({String action, String target, int? nth, String? text, String expected});
 
 const List<Step> journey = <Step>[
-  // 1. Open a saved product.
-  (action: 'tap', target: 'Walnut Side Table', text: null, expected: '189,000 KRW'),
-  // 2. Remove it — the journey demands a confirmation before data is destroyed.
-  (action: 'tap', target: 'Remove from list', text: null, expected: 'Cancel'),
-  // 3. Get back to the list to keep browsing.
-  (action: 'tap', target: 'Back', text: null, expected: 'Saved items'),
+  (action: 'tap', target: 'Walnut Side Table', nth: null, text: null, expected: '189,000 KRW'),
+  (action: 'tap', target: 'Remove from list', nth: null, text: null, expected: 'Cancel'),
+  (action: 'tap', target: 'Back', nth: null, text: null, expected: 'Saved items'),
 ];
 
 /// iOS only. See the note at convertFlutterSurfaceToImage below.
@@ -40,8 +42,14 @@ void main() {
     // Never assume semantics are already on. Cheap, and required by the docs.
     final SemanticsHandle handle = tester.ensureSemantics();
 
-    // An app's own errors are FINDINGS, not a reason to abort. Without this, a
-    // late async exception fails the test and discards the whole report.
+    // This fixture has no backend, so no network stub is needed. A real app
+    // usually does — see references/network-stub.md.
+
+    // An app's own errors are FINDINGS, not a reason to abort the audit. A
+    // production app fires background requests that outlive a step; without
+    // this, one late async exception fails the test and discards the entire
+    // report — measured: a voucher fetch completing after the walk threw away
+    // a nine-step journey. Collect them as evidence instead.
     final List<String> appErrors = <String>[];
     FlutterError.onError = (FlutterErrorDetails details) {
       appErrors.add(details.exceptionAsString());
@@ -86,9 +94,9 @@ void main() {
       try {
         switch (step.action) {
           case 'type':
-            await _typeInto(tester, step.target, step.text!);
+            await _typeInto(tester, step.target, step.text!, step.nth);
           case 'tap':
-            await _tapTarget(tester, step.target);
+            await _tapTarget(tester, step.target, step.nth);
           default:
             throw StateError('unknown action "\${step.action}"');
         }
@@ -104,6 +112,7 @@ void main() {
         'index': i,
         'action': step.action,
         'target': step.target,
+        'nth': step.nth,
         'text': step.text,
         'expected': step.expected,
         'status': status,
@@ -228,7 +237,7 @@ String _norm(String s) => s.replaceAll(RegExp(r'\s+'), ' ').trim().toLowerCase()
 
 /// Matches over label ∪ tooltip ∪ value (Trap 2), normalised substring, and
 /// ERRORS on ambiguity instead of silently auditing a different widget.
-Map<String, Object?> _resolve(WidgetTester tester, String needle) {
+Map<String, Object?> _resolve(WidgetTester tester, String needle, [int? nth]) {
   final Map<String, Object?> dump = _dumpSemantics(tester);
   final String n = _norm(needle);
   final List<Map<String, Object?>> hits =
@@ -249,11 +258,24 @@ Map<String, Object?> _resolve(WidgetTester tester, String needle) {
       return <Object?>[node['label'], node['tooltip'], node['value']]
           .any((Object? v) => v is String && _norm(v) == n);
     }).toList();
+    if (nth != null) {
+      if (nth < 1 || nth > hits.length) {
+        throw StateError('nth: $nth is out of range — "$needle" matches ${hits.length}');
+      }
+      return hits[nth - 1];
+    }
     if (exact.length == 1) {
       return exact.single;
     }
-    throw StateError('ambiguous: ${hits.length} nodes match "$needle" — '
-        '${hits.map((Map<String, Object?> h) => h['label']).toList()}');
+    // Say how to fix it. A bare "ambiguous" makes the author guess.
+    final String opts = hits
+        .asMap()
+        .entries
+        .map((MapEntry<int, Map<String, Object?>> e) =>
+            '${e.key + 1}=${e.value['label']} @${(e.value['rect']! as List<double>)[2].toStringAsFixed(0)}x${(e.value['rect']! as List<double>)[3].toStringAsFixed(0)}')
+        .join(', ');
+    throw StateError('ambiguous: ${hits.length} nodes match "$needle" — $opts. '
+        'Add nth: N to pick one.');
   }
   return hits.single;
 }
@@ -267,8 +289,8 @@ Map<String, Object?> _resolve(WidgetTester tester, String needle) {
 ///
 /// enterText needs a Finder, but the selector model is label-based, so the
 /// semantics node is mapped to its EditableText by geometry.
-Future<void> _typeInto(WidgetTester tester, String needle, String text) async {
-  final Map<String, Object?> node = _resolve(tester, needle);
+Future<void> _typeInto(WidgetTester tester, String needle, String text, [int? nth]) async {
+  final Map<String, Object?> node = _resolve(tester, needle, nth);
   final List<double> r = node['rect']! as List<double>;
   final Offset centre = Offset(r[0] + r[2] / 2, r[1] + r[3] / 2);
 
@@ -290,8 +312,8 @@ Future<void> _typeInto(WidgetTester tester, String needle, String text) async {
   await tester.enterText(find.byElementPredicate((Element e) => e == target), text);
 }
 
-Future<void> _tapTarget(WidgetTester tester, String needle) async {
-  final Map<String, Object?> node = _resolve(tester, needle);
+Future<void> _tapTarget(WidgetTester tester, String needle, [int? nth]) async {
+  final Map<String, Object?> node = _resolve(tester, needle, nth);
   if (node['tappable'] != true) {
     throw StateError('"$needle" carries no tap action');
   }

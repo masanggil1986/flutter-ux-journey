@@ -113,6 +113,19 @@ Screenshots and semantics labels are verbatim product copy. They stay in the aud
 
 ---
 
+## [0a] FEATURE MAP — what the app says it does
+
+Before any journey, read the app's **router** and list its declared routes. That is the app's own
+statement of its feature surface — no crawling, no guessing, and it is static so it costs nothing.
+For GoRouter, that is usually a file of route constants plus the `GoRoute` tree.
+
+Group the routes into feature areas and present the map with a coverage column. A route the walk
+never reached is **not audited**, and the report must say so — a score over 20% of an app that
+reads like a score over the app is the single most misleading thing this tool could produce.
+
+Use the map to choose journeys: the revenue path and the daily path first, then settings and edge
+flows. Personas matter — an app with a second persona behind a profile switch has a second map.
+
 ## [0] PREFLIGHT — restate, then stop
 
 Read `journey.md` and restate it back as a checklist: the goal in one sentence, the setup steps, the
@@ -187,7 +200,30 @@ prominent thing on screen, an element styled as tappable that carries no tap act
 When eye and measurement disagree, **geometry is settled by the measurement** (rects, ratios) and
 **meaning is settled by the eye** (is this actually the primary action?).
 
-## [4] MERGE + RESCORE — one report
+## [4] MERGE + RESCORE — one report, scored, with a direction
+
+Score only what was measured, and make the arithmetic visible. Each dimension is a pass/fail count
+from the framework's own guidelines, not an opinion:
+
+| Dimension | Measurement |
+|---|---|
+| Tap target ≥48dp | screens with zero violations / screens measured; plus unique nodes passing |
+| Text contrast | screens passing `textContrastGuideline` / screens measured |
+| Accessible name | screens passing `labeledTapTargetGuideline` / screens measured |
+| Screen stability | steps that settled / steps measured |
+| Error handling | qualitative — mark it as such |
+
+Publish the weighting inline so a reader can disagree with it, and state plainly what the score does
+NOT cover (information architecture, copy, visual design, conversion). A number without its method
+is a claim, not a measurement.
+
+Then give a **direction**, ordered by effort against reach, not by severity alone. A theme-level
+colour fix that clears two contrast findings across every screen outranks a severity-3 defect on one
+screen. Three buckets is enough: now (effort S, global reach), next (effort M), structural (effort L
+or needs a decision). Name the concrete next step for anything you could not finish — "find the
+repeating animation on these four screens" beats "improve performance".
+
+
 
 Follow `references/heuristics.md`: assign each observation a Named Check ID, merge the layers, dedupe,
 then rescore every finding **against the journey's goal**. No script; the scoring is the judgement.

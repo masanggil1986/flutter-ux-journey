@@ -123,3 +123,16 @@ Same content, machine-readable, same order as the report. One object per merged 
 
 `elapsedMs` is carried for traceability and has no `severity`. Positives use `✓` in the report and
 appear under `positives` here, never in `findings`.
+
+
+## Required sections, in order
+
+1. **Feature map** — the app's declared routes grouped into areas, with a coverage column and an
+   explicit "walked N of M routes (X%)" line. The score is valid only over that range.
+2. **Score** — per-dimension pass rates with the weighting shown inline, and a sentence naming what
+   the score does not cover.
+3. **Findings** — severity-ordered, each with its measured evidence quoted verbatim.
+4. **Direction** — now / next / structural, ordered by effort against reach.
+5. **Not Assessable** — everything unmeasured, including the routes not walked.
+6. **Tool notes** — anything the run revealed about the audit itself, including any dump-vs-guideline
+   disagreement that was cross-checked out of the findings.
