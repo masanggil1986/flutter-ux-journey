@@ -1,0 +1,20 @@
+{
+  "name": "flutter-ux-journey",
+  "displayName": "Flutter UX Journey",
+  "version": "0.1.0",
+  "description": "Audits a running Flutter app at the user-journey level, merging static, runtime and visual evidence into a heuristic UX report scored against the journey's goal.",
+  "author": {
+    "name": "Samuel",
+    "url": "https://github.com/masanggil1986"
+  },
+  "homepage": "https://github.com/masanggil1986/flutter-ux-journey",
+  "repository": "https://github.com/masanggil1986/flutter-ux-journey",
+  "license": "MIT",
+  "keywords": [
+    "flutter",
+    "ux",
+    "accessibility",
+    "audit",
+    "integration-test"
+  ]
+}

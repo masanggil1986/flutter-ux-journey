@@ -1,0 +1,22 @@
+name: ux_demo_app
+description: "Demo app with six deliberately seeded UX defects — the public example and regression fixture for flutter-ux-journey."
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.13.2
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  # The journey walk is a generated integration_test run by `flutter drive`.
+  integration_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+
+flutter:
+  uses-material-design: true

@@ -1,0 +1,10 @@
+name: astprobe
+description: Static evidence pass for flutter-ux-journey. Four rules over a lib/ tree, JSON out.
+publish_to: none
+
+environment:
+  sdk: ^3.9.0
+dependencies:
+  analyzer: ^14.4.0
+dev_dependencies:
+  test: ^1.32.0

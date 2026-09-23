@@ -1,0 +1,21 @@
+{
+  "name": "flutter-ux-journey",
+  "owner": {
+    "name": "Samuel",
+    "url": "https://github.com/masanggil1986"
+  },
+  "description": "Journey-level UX auditing for Flutter apps, measured from a running app.",
+  "plugins": [
+    {
+      "name": "flutter-ux-journey",
+      "source": "./",
+      "description": "Audits a running Flutter app at the user-journey level, merging static, runtime and visual evidence into a heuristic UX report scored against the journey's goal.",
+      "category": "development",
+      "tags": [
+        "flutter",
+        "ux",
+        "accessibility"
+      ]
+    }
+  ]
+}
