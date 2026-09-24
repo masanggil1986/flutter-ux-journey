@@ -227,6 +227,9 @@ void main() {
     report['appErrors'] = appErrors;
     report['networkCalls'] = networkCalls;
     report['taps'] = taps;
+    // The scope clause in the report quotes this. Without it the clause is
+    // a claim about a condition nobody recorded.
+    report['conditions'] = conditionsOf(tester);
   });
 }
 
@@ -355,6 +358,76 @@ Map<String, Object?> viewportOf(WidgetTester tester) {
     // is not on screen at all.
     'foldY': isTestDefault ? null : h - (insetBottom > padBottom ? insetBottom : padBottom),
     'isTestDefault': isTestDefault,
+  };
+}
+
+/// True when two onstage `Navigator`s are SIBLINGS rather than nested — a
+/// tablet master-detail `Row`, not a tab shell.
+///
+/// This is the only case in which the dump is knowingly incomplete. Every
+/// `ModalRoute` wraps its barrier in `BlockSemantics`, which drops the
+/// semantics of everything painted before it under the same boundary, and a
+/// plain `Row`/`Expanded` introduces no boundary — so the LAST-PAINTED pane is
+/// the only one in `nodes`. Measured on a 1032x1376 surface: a two-pane Row
+/// dumps 2 of the 4 labels on screen; reversing the children reverses which
+/// pane survives; replacing the LAST-PAINTED pane's `Navigator` with a plain
+/// `Scaffold` brings both back, while replacing the first's does not. The
+/// app-side remedy is `Semantics(container: true)` around each pane, which
+/// also restores both — but nothing inside the walker can recover them, so it
+/// reports the condition instead of pretending.
+///
+/// Nesting is the common case and blocks nothing: a tab shell mounts the root
+/// `Navigator` and the active tab's, one inside the other. Counting navigators
+/// would flag every such app and push its real findings to `not assessable`,
+/// which is why this asks about ancestry instead.
+bool hasSiblingNavigators(WidgetTester tester) {
+  final List<Element> navs = tester.elementList(find.byType(Navigator)).toList();
+  if (navs.length < 2) {
+    return false;
+  }
+  final Element deepest = navs.last;
+  final Set<Element> ancestors = <Element>{};
+  deepest.visitAncestorElements((Element e) {
+    ancestors.add(e);
+    return true;
+  });
+  return navs.any((Element e) => e != deepest && !ancestors.contains(e));
+}
+
+/// The conditions the run was measured under.
+///
+/// Every number in a report is conditional on these, and until they were
+/// recorded the report could only *assert* its scope. Measured on this fixture:
+/// the same build walked at the system text size and at
+/// `accessibility-extra-extra-extra-large` produces a byte-identical
+/// `viewport` — 375x667, fold 667, dpr 2 — while the third product row leaves
+/// the semantics tree entirely and the second drops below the fold. The two
+/// artifacts are otherwise indistinguishable, so a reader comparing them
+/// concludes the app changed.
+///
+/// `platformBrightness` is what the OS told the app, NOT the theme the app
+/// chose. An app that declares no `darkTheme` renders light under a dark
+/// platform, and this field will still read `dark` — correctly, because it
+/// reports the condition, not the outcome. The outcome is in the contrast
+/// measurements and the screenshots.
+Map<String, Object?> conditionsOf(WidgetTester tester) {
+  final TestPlatformDispatcher pd = tester.platformDispatcher;
+  final AccessibilityFeatures a11y = pd.accessibilityFeatures;
+  return <String, Object?>{
+    'platform': Platform.operatingSystem,
+    'platformVersion': Platform.operatingSystemVersion,
+    'platformBrightness': pd.platformBrightness.name,
+    'textScaleFactor': pd.textScaleFactor,
+    'locale': pd.locale.toLanguageTag(),
+    // Each of these changes what the guidelines measure: boldText and
+    // highContrast repaint text, invertColors inverts the pixels the contrast
+    // guideline samples, and disableAnimations changes what `settled` means.
+    'boldText': a11y.boldText,
+    'highContrast': a11y.highContrast,
+    'invertColors': a11y.invertColors,
+    'reduceMotion': a11y.reduceMotion,
+    'disableAnimations': a11y.disableAnimations,
+    'accessibleNavigation': a11y.accessibleNavigation,
   };
 }
 
@@ -636,6 +709,10 @@ Map<String, Object?> dumpSemantics(WidgetTester tester) {
     'devicePixelRatio': dpr,
     'viewport': viewport,
     'semanticsEnabled': root != null,
+    // When true, `nodes` covers only the last-painted pane — see
+    // hasSiblingNavigators. Every check derived from the dump must be reported
+    // `not assessable` for the other pane rather than as an absence of findings.
+    'panesPossiblyBlocked': hasSiblingNavigators(tester),
     'nodes': nodes,
   };
 }

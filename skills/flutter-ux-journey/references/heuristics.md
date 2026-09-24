@@ -122,7 +122,7 @@ Static rules:
 
 ## Measurement predicates
 
-Five of the sixteen checks are flow- and layout-shaped, and until v0.2 all five were
+Five of the sixteen checks are flow- and layout-shaped, and before these predicates landed all five were
 `VISUAL`/`JOURNEY` only — which in practice means the model invented a threshold per run. Each now
 has a predicate over fields the walk measures. **A check listed here does not fire unless its
 predicate holds.** The other eleven have no predicate and are unchanged: they stay model judgements
@@ -131,9 +131,11 @@ and say so.
 | Check | Predicate (all terms come from the walk) | Layer it earns |
 |---|---|---|
 | `DEAD-END` | `surface.canPop == false` **and** `surface.tappableCount == 0` **and** `surface.modalOpen == false` **and** the screen is not the journey's entry. When `surface.navigatorCount > 1`, `canPop` is an answer about one navigator among several — require `VISUAL` before firing | `RUNTIME` |
-| `FAKE-AFFORDANCE` | `dispatched == true` **and** `semanticsUnchanged == true` **and** a second layer agrees (below) | `RUNTIME` + `VISUAL` |
+| `FAKE-AFFORDANCE` *(dead tap — looks tappable, no tap action)* | `dispatched == true` **and** `semanticsUnchanged == true` **and** a second layer agrees (below) | `RUNTIME` + `VISUAL` |
+| `FAKE-AFFORDANCE` *(silent control — the reverse: a tap action with no role)* | the node has a tap action but no role flag (`isButton`/`isLink`), **and** `VISUAL` agrees it does not read as a control. The dead-tap terms deliberately do not apply: the tap works, so `semanticsUnchanged` is false by construction, and gating this mode on them makes the "or the reverse" half of the check unfireable. `InkWell` alone is not the finding — without the `VISUAL` half this fires on every Material app | `RUNTIME` + `VISUAL` |
 | `TOUCH-TARGET` *(effective-area variant only)* | `effectivePct < 1.0` **or** `centreCovered == true`, on a node the journey needs. The ordinary size variant is not gated — it fires from a guideline `reason` like any other measurement | `RUNTIME` + `VISUAL` |
 | `HIERARCHY-FLAT` | the node the journey's own step taps is `aboveFold == false`, **or** tap targets that appear in no declared priority precede it in reading order | `RUNTIME` |
+| `STATE-GAP` | the walk establishes a state (text typed, a filter chosen, a scroll performed) whose `screenSig` is S2, leaves, and returns to a step whose `screenSig` equals the PRE-state signature S1 — i.e. S2 never recurs. Equal signature no longer *implies* equal state was lost; it implies the state itself is gone | `RUNTIME` |
 
 `aboveFold` means the node **starts** in the visible band (`top >= 0 && top < foldY`) — the user
 can see it without scrolling. `fullyVisible` is the stricter question and is a separate field:
@@ -141,7 +143,17 @@ requiring the whole rect inside the fold reads *false* for every bottom-pinned C
 taller than the fold, which is most apps on any device with a home indicator, and `aboveFold` is
 the only term in HIERARCHY-FLAT's first clause. Measured both ways on the same widget: a 88 lpx
 `Pay now` pinned to the bottom is `aboveFold: true, fullyVisible: false`.
-| `STATE-GAP` | the walk establishes a state (text typed, a filter chosen, a scroll performed) whose `screenSig` is S2, leaves, and returns to a step whose `screenSig` equals the PRE-state signature S1 — i.e. S2 never recurs. Equal signature no longer *implies* equal state was lost; it implies the state itself is gone | `RUNTIME` |
+
+**When `semantics.panesPossiblyBlocked` is true, the dump is half a screen.** Two sibling
+`Navigator`s — a tablet master-detail `Row` — let the later pane's `BlockSemantics` delete the
+earlier pane's semantics before the walker can read the tree, and nothing inside the walker can
+recover it. Every check derived from the dump (`TOUCH-TARGET`, `HIERARCHY-FLAT`, `FAKE-AFFORDANCE`,
+the placement table) is `not assessable` for the missing pane — **not** an absence of findings.
+`surface.canPop` and `modalOpen` answer for the wrong pane there too, which is what the
+`navigatorCount > 1` clause in `DEAD-END` above already guards. The app-side remedy, measured to
+work, is `Semantics(container: true)` around each pane. **False is not the converse** — one
+`ModalRoute` beside a plain `Scaffold` deletes a pane with this flag false, measured — so read
+it as a declared suspicion, never a clean bill.
 
 Two exclusions apply to every surface predicate and to the placement table, because without them
 both fire on nearly every real app:
@@ -181,7 +193,8 @@ both fire on nearly every real app:
    that only repaints — a selection chip, a tab highlight, a toggled icon colour — is byte-identical
    in semantics to one wired to nothing. Measured in the fixture's `walker_test.dart`. Confirm with
    the screenshots (`cmp -s screens/step_N.png screens/step_N+1.png`) before raising
-   `FAKE-AFFORDANCE`. **Identical semantics with differing pixels is its own finding**: a state
+   a **dead-tap** `FAKE-AFFORDANCE`. This rule is about that mode only — the silent-control mode is
+   a working tap with no role, and none of these terms apply to it. **Identical semantics with differing pixels is its own finding**: a state
    change invisible to assistive technology.
 4. **`semanticsUnchanged` is null unless the gesture went out.** A step that fails while *resolving*
    its target never touched the app. Read `dispatched` first, or every selector miss reads as a dead

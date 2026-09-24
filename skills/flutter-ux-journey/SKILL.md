@@ -24,7 +24,8 @@ Three rules hold for the whole run:
 - `journey.md` — the journey to walk (format below). If the user has not written one, draft it from
   what they describe and get it confirmed in step 0.
 - The Flutter app's project root.
-- A device id from `flutter devices` (a booted iOS simulator for v0.1).
+- A device id from `flutter devices` — a booted iOS simulator or Android emulator. Measurement is
+  verified on both; see the frontmatter for the one difference (screenshots).
 
 ### journey.md format
 
@@ -124,8 +125,12 @@ to the audited app's `.gitignore`:
 ```
 ux-audit-out/
 integration_test/ux_journey_test.dart
+integration_test/net_stub.dart
 test_driver/integration_test.dart
 ```
+
+`net_stub.dart` matters most of the four: it is the only generated file that holds the app's real
+endpoints and real response bodies.
 
 Screenshots and semantics labels are verbatim product copy. They stay in the audited project.
 
@@ -201,6 +206,8 @@ Per step the walk records, besides the semantics dump and the four guidelines:
 | per-node `effectivePct`, `centreCovered`, `obscuredBy` | controls that are nominally big enough but partly covered |
 | `tapsSoFar` | reach cost on the declared path |
 | `dispatched`, `semanticsUnchanged`, `screenSig` | dead taps, revisits, state loss |
+| `semantics.panesPossiblyBlocked` | true: the dump saw only the last-painted pane — two sibling `Navigator`s, so the report says `not assessable` for the other rather than clean. False is a declared *suspicion*, not a guarantee the dump is whole |
+| `conditions` (top level, once per run) | the brightness, text scale and accessibility flags the numbers above were measured under. The scope clause quotes this |
 
 `report['networkCalls']` must be filled from the stub's own call list when a stub is installed
 (`references/network-stub.md`) — the field is documented and the template's list is named
@@ -255,7 +262,8 @@ judgement. Five checks now have a **measurement predicate** and do not fire with
 
 **Open with a verdict, not a table.** Two or three sentences in the words a user would use, naming
 what happens to the person trying to do this and what stops them — no check IDs, no widget names.
-Then one clause of scope: one declared path, walked once, one device size, one theme. A reader who
+Then one clause of scope, quoting `conditions` from the walk data rather than asserting it: one
+declared path, walked once, one device size, the brightness and text scale the run recorded. A reader who
 meets a feature map and a score table before a single defect stops reading.
 
 **Flow and placement.** Report reach cost as `N taps on the declared path`, never "N taps deep" and

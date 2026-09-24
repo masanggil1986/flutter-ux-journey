@@ -1,7 +1,8 @@
 # flutter-ux-journey
 
 A Claude Agent Skill that audits a **running** Flutter app one *user journey* at a time, and scores
-what it finds against that journey's goal (Nielsen 0–4 severity).
+what it finds against that journey's goal (severity 4/3/2/1/✓, defined in
+[`heuristics.md`](skills/flutter-ux-journey/references/heuristics.md)).
 
 **The pitch: the only Flutter UX audit that measures instead of guessing.** Every finding carries
 evidence pulled out of a live app — real pixel `Rect`s, real contrast ratios, real semantics labels —
@@ -14,13 +15,16 @@ sixth thing on its own home screen. A worked example, produced by a real run rat
 hand: [`example/report.md`](example/report.md).
 
 > **Platform, stated up front: simulators and emulators only, and screenshots differ per platform.**
-> The pipeline was built and run end to end on an iOS simulator (iPhone SE, iOS 18.6) and on an
-> Android emulator (API 36, arm64), both on Flutter 3.47.2 stable. Measurement — the four guidelines
-> and the semantics dump — works on both; `textContrastGuideline` does run under Impeller.
-> **Screenshots are the exception.** On Android, `takeScreenshot` deadlocks, with no error and no
-> timeout, whenever the app embeds platform views (a webview, a media surface, a camera preview) —
-> measured against a production app. The walk still measures; the visual layer is captured from the
-> host instead (`adb exec-out screencap` / `xcrun simctl io`), or reported as not assessable.
+> The pipeline was built and run end to end on an iOS simulator (iPhone SE, iOS 18.6), an iPad Pro
+> 13" simulator, and an Android emulator (API 36), all on Flutter 3.47.2 stable — the public demo app
+> in [`example/ux_demo_app`](example/ux_demo_app) builds for both platforms, so every claim here is
+> reproducible. Measurement — the four guidelines and the semantics dump — works on all three;
+> `textContrastGuideline` does run under Impeller.
+> **Screenshots are the exception.** On Android the walk records `screenshot: null` by design:
+> `takeScreenshot` deadlocks there, with no error and no timeout, whenever the app embeds platform
+> views (a webview, a media surface, a camera preview) — measured against a production app. The walk
+> still measures; the visual layer is captured from the host instead (`adb exec-out screencap` /
+> `xcrun simctl io`), or reported as not assessable.
 > **Real devices are not verified and are not claimed.**
 
 ## Install
@@ -30,28 +34,41 @@ hand: [`example/report.md`](example/report.md).
 /plugin install flutter-ux-journey@flutter-ux-journey
 ```
 
-Requirements: the Flutter SDK (Dart comes with it) and a booted iOS simulator. **No third-party
-packages, in any language.** Everything the skill uses — `package:analyzer`, `package:integration_test`,
-`package:flutter_test` — ships inside the Flutter SDK you already have.
+Requirements: the Flutter SDK (Dart comes with it) and a booted iOS simulator or Android emulator.
+**Nothing from pub.dev runs inside your app.** The walk uses only `package:integration_test` and
+`package:flutter_test`, both inside the Flutter SDK you already have. pub.dev is touched once, on
+the host: a single `dart pub get` in `tools/astprobe` resolves `package:analyzer` for the static
+probe plus `package:test` for that probe's own unit test — 47 packages with transitives
+(`tools/astprobe/pubspec.lock`), none of them loaded into the app under audit.
 
 ## 60 seconds to a report
 
 1. Write a `journey.md` next to your app. A goal line and numbered steps, each with what should happen:
 
    ```markdown
-   # Journey: first purchase
-   Goal: a first-time user completes checkout in under 60 seconds without leaving the app.
+   # Goal
+   A first-time user completes checkout without leaving the app.
+   Done = a confirmation screen names the order.
 
-   1. Tap "Shop" — the product list appears.
-   2. Tap the first product — a price and an "Add to cart" button are visible.
-   3. Tap "Add to cart" — the cart badge reads 1.
-   4. Tap "Checkout" — the payment form appears.
-   5. Tap "Pay" — a confirmation screen names the order.
+   ## Setup (excluded from measurement and scoring)
+   1. dismiss the notification permission dialog
+
+   ## Steps
+   1. tap "Shop" — expect the product list
+   2. tap "Walnut Side Table" — expect a price and "Add to cart"
+   3. tap "Add to cart" — expect the cart badge to read 1
+   4. tap "Checkout" — expect the payment form
+   5. tap "Pay" — expect a confirmation naming the order
 
    ## Priorities (optional)
    1. buy something
    2. check an order's status
    ```
+
+   The four headings are the format, not decoration: `## Steps` is what the walker is generated
+   from, and `## Setup` is what keeps a permission dialog out of your score. Full spec in
+   [`SKILL.md`](skills/flutter-ux-journey/SKILL.md); a real one in
+   [`example/journey.md`](example/journey.md).
 
    `## Priorities` is the only thing that makes "this is buried" sayable, and it is never inferred.
    Leave it out and the report says so instead of guessing.
@@ -73,7 +90,7 @@ journey.md
      1. static      package:analyzer over the source — missing labels, unlabeled tap handlers
      2. walk        a generated integration_test, run with `flutter drive`
      3. visual      the model reads the screenshots the walk captured
-     4. merge       findings deduped, scored 0–4 against the goal, written up
+     4. merge       findings deduped, scored 4/3/2/1/✓ against the goal, written up
 ```
 
 Steps 3 and 4 are the model following written heuristics, not scripts. Scoring a tap target as fatal
@@ -159,6 +176,25 @@ not be assessed is listed as `not assessable` instead of quietly omitted.
   Direction section, naming the measurement it stands on and what would disprove it.
 - **How the app is doing overall.** One report covers one journey. There is no cross-journey score,
   because averaging several by hand would be worse than not having the number.
+- **Every theme and text size at once.** A run measures the one it was given. It now *records* which
+  one — `conditions.platformBrightness`, `conditions.textScaleFactor` and the accessibility flags go
+  into the walk data, so the report quotes its conditions instead of asserting them. Measured on the
+  demo fixture: at `accessibility-extra-extra-extra-large` the third product row leaves the semantics
+  tree and the second drops below the fold, while the viewport JSON is byte-identical to the default
+  run.
+  Comparing two conditions is two runs, and the reader has to ask for the second.
+
+## Tests
+
+```bash
+flutter test --no-pub                  # in example/ux_demo_app — the walker's measurement helpers,
+                                       # the fixture's own oracle, and the recipe/implementation pin
+dart test                              # in tools/astprobe — the four static rules
+```
+
+The demo app doubles as the regression fixture: its six seeded defects are the thing the helpers
+are pinned against, so "someone fixed the demo app" fails loudly rather than silently invalidating
+[`example/expected-findings.json`](example/expected-findings.json).
 
 ## Prior art
 

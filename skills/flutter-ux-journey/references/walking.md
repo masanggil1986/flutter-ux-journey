@@ -44,8 +44,9 @@ dev_dependencies:
 
 Nothing else. No third-party package is needed at any point.
 
-Tell the user to gitignore the two generated paths (see SKILL.md). They are regenerated on every run;
-a team that wants them as a regression test promotes them deliberately.
+Tell the user to gitignore the generated paths (see SKILL.md) — including `net_stub.dart` when a
+stub is used, which is the only one that holds their real endpoints. They are regenerated on every
+run; a team that wants them as a regression test promotes them deliberately.
 
 ## File 1 — test_driver/integration_test.dart
 
@@ -102,7 +103,7 @@ ${CLAUDE_PLUGIN_ROOT}/example/ux_demo_app/integration_test/ux_journey_test.dart
 ```
 
 Read it and copy it. It is not sketched here on purpose — a second copy in prose drifts from the
-one that was executed, and every trap below was found by executing it. It is ~480 lines, it has no
+one that was executed, and every trap below was found by executing it. It is ~900 lines, it has no
 dependency outside the Flutter SDK, and it carries its own comments explaining every non-obvious
 line.
 
@@ -394,7 +395,16 @@ Plus, for the flow and placement half of the report:
 | `surface.canPop`, `tappableCount`, `tappableAboveFold`, `modalOpen` | per step | can the user leave, and what else is here |
 | `tapsSoFar` | per step | reach cost on the declared path — never a minimum |
 | `dispatched`, `semanticsUnchanged`, `screenSig` | per step | dead taps, revisits, state loss |
+| `panesPossiblyBlocked` | per dump | **true** means `nodes` is only the LAST-PAINTED pane: two SIBLING `Navigator`s (a tablet master-detail `Row`) let the later pane's `BlockSemantics` delete the earlier one before the dump can reach it — nested navigators, i.e. a tab shell, do not, which is why this asks about ancestry and not about a count. **False is not a promise the dump is whole**: measured, a `Row` of `[Scaffold, Navigator]` dumps only the `Navigator` pane while this reads false, because one `ModalRoute` is enough to delete an earlier sibling. It is a declared *suspicion*, never a clean bill |
 | `taps`, `networkCalls`, `appErrors`, `entrySettled` | per run | totals and the app's own complaints |
+| `conditions` | per run | `platformBrightness`, `textScaleFactor`, locale and the accessibility flags. The report's scope clause quotes these; measured, the same build at `accessibility-extra-extra-extra-large` produces a byte-identical `viewport` while a product row leaves the tree, so nothing else in the artifact distinguishes the two runs |
+
+**`screenSig` is not portable across platforms.** It is built from the screen's labels, and
+platform-adaptive widgets label themselves differently: measured on the same build and the same
+screen, Material's `BackButton` carries `label: "Back"` **and** `tooltip: "Back"` on Android, but on
+iOS only the tooltip — so the detail screen hashes to `4ddc18db` on an iPhone SE and `70ed0c2e` on an
+Android emulator. Nothing in the audit compares signatures across runs, so no check is affected; a
+*golden file* pinned to one platform's signatures is, and must say which platform produced it.
 
 One caveat for step 4: `MinimumTextContrastGuideline` partitions foreground/background naively and
 picked a nearby button's colour in the verification run while still flagging the correct node. Treat

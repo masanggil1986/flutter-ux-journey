@@ -34,8 +34,9 @@
 
 - **`evals/`가 `examples/`보다 큰 유출 벡터다** — 케이스 파일에 프롬프트·픽스처·그레이더가 통째로 박힌다.
   커밋되는 케이스는 데모 앱 대상만(`evals/demo-app/`). 나머지는 gitignore.
-- **`claude plugin eval`은 기본값이 claude.ai에 리포트를 게시한다.** dogfood eval은 반드시 `--no-publish`.
-  CONTRIBUTING.md 문장이 아니라 make/npm 타깃 안에 넣어 집행한다.
+- **`claude plugin eval`은 기본값이 claude.ai에 리포트를 게시한다.** dogfood eval을 돌리게 되면 반드시
+  `--no-publish`. (아직 `evals/`도 실행 래퍼도 없다 — 만들 때 이 플래그를 래퍼 안에 박아 집행한다.
+  산문 규칙으로 두지 않는다.)
 - **정적 분석 출력이 그 자체로 유출이다** — file 경로와 suggestion 문자열이 기능명·화면명·UI 카피를
   그대로 실어 나른다. semantics 덤프의 모든 label은 제품 카피 원문이다.
 - **`ext.flutter.inspector.getRootWidgetTree`는 `creationLocation{file,line,column}`으로 절대 소스 경로를
@@ -110,22 +111,53 @@ v0.1은 데모 픽스처(iOS 시뮬)와 **실제 운영 앱(Android 에뮬레이
 
 - **`pumpAndSettle` 금지.** 기본 타임아웃이 10분이라 영구 애니메이션(스피너·셔머·네트워크 대기)이 있는
   앱에서 워크가 통째로 매달린다. 경계 있는 `_settle`로 교체했고 `settled`를 스텝 증거로 기록한다.
-  **데모 픽스처에는 영구 애니메이션이 없어 이 결함을 영영 못 잡는다** — 픽스처만 믿지 말 것.
+  (픽스처 앱 자체엔 영구 애니메이션이 없지만 `walker_test.dart`가 그 경로를 회귀 테스트한다.)
 - **Android `takeScreenshot` 데드락.** 앱이 플랫폼 뷰(웹뷰·미디어·카메라)를 품으면
   `convertFlutterSurfaceToImage()` 후 캡처가 오류 없이 멈춘다. 가이드라인·semantics는 정상이므로 측정은
   살아있다. VISUAL은 호스트 `adb exec-out screencap` / `xcrun simctl io` 로 우회한다.
 
+**닫힌 갭 (2026-09-23, 이후 커밋들)**
+
+- **인증 관문 통과.** `references/network-stub.md`가 동작하는 `HttpOverrides` 템플릿을 싣는다.
+  자격증명 0개로 관문을 넘어 20화면·4스텝을 측정했다(`843b1fc`, `0b80918`). 남은 것은 아래의
+  "공개 재현"뿐 — 메커니즘 자체는 검증됐다.
+- **영구 애니메이션.** 데모 픽스처가 "못 잡는다"던 결함은 이제 잡는다 —
+  `walker_test.dart`가 `CircularProgressIndicator`로 "never quiets" 경로를 회귀 테스트한다.
+- **디바이스·테마 다양성 (2026-09-23 실측).** 데모 픽스처를 네 조건으로 돌렸다.
+  - iPhone SE 375x667 @2.0 / iPad Pro 13" **1032x1376 @2.0** — fold 수학 정상(`foldY` 1356,
+    `padBottom` 20), 가이드라인 4종 전부 발화. 태블릿 폭은 이제 검증됨.
+  - Android 에뮬 411.4x731.4 @2.625 — `foldY` 707.4, 대비 가이드라인 Impeller에서 동작,
+    스텝마다 `screenshot: null`(설계대로).
+  - **텍스트 스케일 `accessibility-XXXL`** — 측정은 정상이고 실제 열화를 잡는다(세 번째 상품 행이
+    semantics 트리에서 사라지고 두 번째 행이 fold 아래로 내려간다). **그런데 `viewport` JSON이
+    기본 런과 바이트 단위로 동일**했다 → 산출물이 조건을 구분하지 못했다.
+  - **다크 모드** — iOS **시뮬레이터**(`simctl ui … appearance dark`) 런에서 `conditions.platformBrightness`가
+    `"dark"`로 기록되는 것 확인. 실기기는 아니다 — 이 저장소에 실기기 런은 하나도 없다.
+    픽스처가 `darkTheme`을 선언하지 않아 앱 렌더링은 그대로였다: 확인한 것은 **조건이 기록된다**는 것이지
+    다크 팔레트의 대비가 옳게 측정된다는 것이 아니다.
+  → 그래서 워커에 `conditions`(brightness·textScaleFactor·a11y 플래그·플랫폼)를 추가했고,
+    리포트 scope 절은 이제 단언하지 않고 **인용한다**.
+
+**새로 열린 갭 — 기록만, 코드 수정 안 함 (Strict YAGNI)**
+
+- **태블릿 2-pane에서 덤프는 반쪽이다.** 형제 `Navigator` 둘(master-detail `Row`)이면 나중에 그려진
+  pane의 `BlockSemantics`가 앞 pane의 semantics를 지운다. 워커 밖의 프레임워크 동작이라 안에서
+  복구 불가 — 그래서 `panesPossiblyBlocked`로 **선언**하고, 덤프 기반 체크는 사라진 pane에 대해
+  `not assessable`로 보고한다. 중첩(탭 셸)은 해당 없음이라 ancestry로 판정한다(테스트 3종).
+  앱 쪽 해법은 pane마다 `Semantics(container: true)` — 실측으로 둘 다 복구된다.
+- **`screenSig`는 플랫폼 간 이식 불가.** Material `BackButton`이 Android에선 label+tooltip,
+  iOS에선 tooltip만 → 같은 화면이 `70ed0c2e` / `4ddc18db`. 런 내부 비교만 하므로 체크는 무영향이고,
+  **골든 파일**은 어느 플랫폼 산출인지 반드시 밝혀야 한다.
+
 **여전히 미검증**
 
-- **로그인 성공 이후의 저니.** 2026-09-23에 **자격증명 0개·네트워크 요청 0건**으로 4스텝 저니를
-  완주해 실패 경로를 감사했고(오류 배너가 주 CTA를 덮어 가시 타깃이 56dp→17.2dp로 줄어드는 결함을
-  실측), 저니 레벨 결함을 실제로 잡을 수 있음은 증명됐다. 다만 **성공 경로 너머**는 아직이다 —
-  `HttpOverrides` 스텁을 앱의 응답 모델에서 작성해야 한다. 실계정은 필요 없다.
-- **iOS 실기기.** iOS 시뮬레이터는 데모 앱으로만 검증했다. 네이티브 SDK가 시뮬레이터 슬라이스를
-  제외하는 앱(도그푸드 앱이 그렇다)은 **iOS 시뮬레이터 클린 빌드 자체가 불가**하므로, iOS 경로는
-  실기기에서 한 번도 돌려보지 않았다.
-- **디바이스·테마 다양성.** iPhone SE(DPR 2.0), Android API 36(DPR 2.625) 2종뿐. 다크 모드,
-  텍스트 스케일 확대, 태블릿 폭 미검증.
+- **iOS 실기기.** 시뮬레이터 전용이다. (구 메모가 "데모 앱은 시뮬레이터 슬라이스 때문에 못 돈다"고
+  적었는데 그건 **비공개 앱** 사정이고 공개 데모 앱엔 해당 없다 — 데모 앱은 시뮬에서 잘 돈다.)
+- **관문 통과의 공개 재현.** 메커니즘은 검증됐지만 공개 픽스처엔 HTTP 의존성이 없어
+  `## Setup`·스텁·`networkCalls`가 공개적으로 행사되지 않는다. 픽스처에 가짜 관문을 달지 말지는
+  **사람이 결정할 일** — 픽스처를 제품으로 키우는 쪽으로 넘어가는 선이다.
+- **골든 자동 대조.** `expected-findings.json`은 회귀 오라클인데 `recipe_sync_test.dart`는 **모양만**
+  검증한다. 런 출력과의 실제 diff는 아직 사람 손이다.
 - **`flutter drive`의 exit code는 오라클이 아니다.** 모든 스텝이 실패해도 0으로 끝난다.
   판단은 반드시 `integration_response_data.json`의 `steps[].status`로.
 
@@ -178,7 +210,6 @@ v0.1은 데모 픽스처(iOS 시뮬)와 **실제 운영 앱(Android 에뮬레이
 
 - 주석은 *why*를 설명한다. *what*은 코드로 표현한다.
 - 디버그용 `print()` / `console.log()` 남기지 않는다.
-- Python 파일: `snake_case.py` · 저니/스키마 YAML·JSON: `kebab-case`
 - 사용자 대면 문서(README, SKILL.md)는 **영어**. 저장소 내부 메모는 한국어 가능.
   → 공개 프로젝트이므로 SKILL.md와 README는 영어가 기본이다.
 
@@ -186,4 +217,9 @@ v0.1은 데모 픽스처(iOS 시뮬)와 **실제 운영 앱(Android 에뮬레이
 
 - 스크립트에 로직(분기·파싱·병합·채점)이 있으면 실행 가능한 체크를 하나 남긴다.
   단순 패스스루는 테스트 대상이 아니다.
-- 저니 YAML 스키마 변경 시 `_template.yaml`이 여전히 통과하는지 확인한다.
+- 워커·픽스처를 건드렸으면 `cd example/ux_demo_app && flutter test` (48종), 정적 룰을 건드렸으면
+  `cd tools/astprobe && dart test` (7종). 둘 다 통과해야 한다.
+- `references/walking.md`와 워커 구현은 `recipe_sync_test.dart`로 서로 고정돼 있다 — 레시피에 워커를
+  다시 베껴 넣으면 실패한다. 포인터를 고치지, 사본을 만들지 않는다.
+- 저니 포맷(`# Goal` / `## Setup` / `## Steps` / `## Priorities`)을 바꿨으면 `example/journey.md`와
+  README·SKILL.md의 예시 셋이 같이 움직여야 한다.

@@ -8,6 +8,19 @@
     "platform": "iOS 18.6",
     "date": "2026-09-23"
   },
+  "conditions": {
+    "platform": "ios",
+    "platformVersion": "Version 18.6 (Build 22G86)",
+    "platformBrightness": "light",
+    "textScaleFactor": 1.0,
+    "locale": "en-US",
+    "boldText": false,
+    "highContrast": false,
+    "invertColors": false,
+    "reduceMotion": false,
+    "disableAnimations": false,
+    "accessibleNavigation": false
+  },
   "viewport": {
     "widthLogicalPx": 375.0,
     "heightLogicalPx": 667.0,
@@ -216,6 +229,7 @@
       "severity": 4,
       "layers": [
         "JOURNEY",
+        "RUNTIME",
         "VISUAL"
       ],
       "confidence": "high",
@@ -463,7 +477,9 @@
       "Static candidates the walk refuted, kept here rather than deleted: lib/main.dart:126 and lib/main.dart:163 (InkWell with onTap and no enclosing Semantics, confidence low). At runtime both nodes carry non-empty merged labels ('Autumn sale — 20% off every side table' and the product card text), so the probe's name-matching missed the labels its children supply. Not findings.",
       "lib/main.dart:251 (Icon with no tooltip or semanticLabel) is the decorative check mark on the removal screen; it produces no semantics node of its own and needs no name. Not a finding.",
       "Screen-reader announcement order, focus order, keyboard navigation, dynamic type, motion and reduced-motion: not measured by this run.",
-      "Platform: iOS simulator only (iPhone SE 3rd gen, iOS 18.6), one device size, one theme, devicePixelRatio 2.0. Android is untested. The SE has a home button, so padBottom is genuinely 0.0 here; a notched device would move the fold line and this run cannot say by how much.",
+      "Platform, quoted from conditions: iOS 18.6 simulator (iPhone SE 3rd gen, devicePixelRatio 2.0), platformBrightness light, textScaleFactor 1.0, no accessibility flags set. One device size. The SE has a home button, so padBottom is genuinely 0.0 here; a notched device would move the fold line and this run cannot say by how much.",
+      "Other themes and text sizes: a separate run each, and this is not one of them. Measured on this same fixture at accessibility-extra-extra-extra-large, the third product row leaves the semantics tree entirely and the second drops below the fold, while the viewport JSON is byte-identical to this run — which is why conditions is recorded rather than described.",
+      "Android: this fixture ships an android/ target and the same journey was walked on an emulator (API 36, 411.4x731.4 logical at devicePixelRatio 2.625, foldY 707.4). All four guidelines fired there, textContrastGuideline included, and the journey ended the same way. The numbers in this file are the iOS run. Two differences, both measured: the walker captures no in-test screenshots on Android by design, so every step records screenshot null and the VISUAL layer comes from host capture; and screenSig is not portable across platforms, because Material BackButton carries both a label and a tooltip on Android but only a tooltip on iOS, so the detail screen hashes to 70ed0c2e there against 4ddc18db here.",
       "Step timings are recorded in the walk data as evidence and are deliberately not part of this fixture: they measure a host round-trip under a test harness, not user-perceived latency."
     ]
   }

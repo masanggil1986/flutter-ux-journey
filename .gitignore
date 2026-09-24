@@ -16,6 +16,7 @@ report.md
 
 # 감사 대상 앱에 생성했다가 회수한 파일 (대상 앱 소스가 섞여 들어올 수 있다)
 **/integration_test/ux_journey_test.dart
+**/integration_test/net_stub.dart
 **/test_driver/integration_test.dart
 
 # 화면 캡처·녹화 — 실 앱 화면은 그 자체가 제품 유출이다.

@@ -56,7 +56,11 @@
 <Two or three sentences, in the words a user would use, naming what happens to the person trying to
 do this and what stops them. No check IDs, no widget names, no framework vocabulary. Then one clause
 stating the scope, because it is the reader's second question and it belongs here rather than at the
-bottom: this is one declared path, walked once, on one device size in one theme.>
+bottom: this is one declared path, walked once, at one device size under one set of conditions.
+**Quote the conditions from `conditions` in the walk data — do not assert them.** The run records
+`platformBrightness`, `textScaleFactor` and the accessibility flags precisely so this clause is a
+measurement; without it, a walk on a dark emulator reports dark-theme contrast ratios under a
+sentence that says "light", and nothing in the artifact contradicts it.>
 
 > A user who removes a saved item cannot get back to the list: the screen the app lands on has no
 > way out, and the removal happened with no confirmation, so a mis-tap costs data permanently. One
@@ -198,7 +202,13 @@ Two buckets, split by what the reader can do about it. Never one list.
 - Steps 3–4 were never reached, so every check on those screens is untested, not clean.
 - Screen-reader announcement order, focus order, keyboard navigation, dynamic type, motion and
   reduced-motion: not measured by this run.
-- Platform: iOS simulator only, one device size, one theme. Real devices untested.
+- Platform: <platform and version from `conditions`>, one device size, `<platformBrightness>` at
+  text scale `<textScaleFactor>`. Any other theme or text size is a second run, not an inference —
+  name it here so the reader knows to ask. Real devices untested.
+- When `semantics.panesPossiblyBlocked` is true, the dump covers only the last-painted pane: two
+  sibling `Navigator`s (a tablet master-detail `Row`) let the later pane's `BlockSemantics` delete
+  the earlier one. Every dump-derived check — `TOUCH-TARGET`, `HIERARCHY-FLAT`, `FAKE-AFFORDANCE`,
+  the placement table — is `not assessable` for that pane, not clean.
 - <static candidates that no walked screen confirmed>
 
 ## Method
@@ -244,12 +254,15 @@ Same content, machine-readable, same order as the report. One object per merged 
   "goal": "Find the last order and see its delivery status.",
   "result": "reached with friction",
   "environment": {"flutter": "3.47.2", "device": "iPhone SE (3rd gen)", "platform": "iOS 18.6", "date": "2026-09-22"},
-  "reach": {"taps": 3, "screens": 3, "basis": "the declared path, not a minimum"},
+  "conditions": {"platformBrightness": "light", "textScaleFactor": 1.0, "boldText": false,
+                 "highContrast": false, "invertColors": false, "disableAnimations": false},
+  "reach": {"tapsLanded": 3, "screens": 3, "basis": "the declared path, not a minimum; a gesture that never dispatched is not reach cost"},
   "priorities": {"source": "journey.md", "declared": ["open a saved product", "remove a product"]},
   "steps": [
     {"index": 1, "action": "tap \"Orders\"", "expected": "order list", "status": "OK", "elapsedMs": 546,
      "tapsSoFar": 1, "dispatched": true, "semanticsUnchanged": false, "screenshot": "screens/step_1.png",
-     "surface": {"canPop": false, "tappableCount": 8, "tappableAboveFold": 8, "modalOpen": false}}
+     "surface": {"canPop": false, "tappableCount": 8, "tappableAboveFold": 8, "modalOpen": false,
+                 "navigatorCount": 1, "coverNodes": 0}}
   ],
   "findings": [
     {

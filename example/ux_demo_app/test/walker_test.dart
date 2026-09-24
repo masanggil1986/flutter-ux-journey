@@ -18,7 +18,9 @@ import '../integration_test/ux_journey_test.dart'
         areaOf,
         coversPoint,
         dumpSemantics,
+        hasSiblingNavigators,
         routeState,
+        conditionsOf,
         screenSignature,
         settle,
         subtractRects,
@@ -139,6 +141,135 @@ void main() {
       // max(padding.bottom, viewInsets.bottom) — a keyboard hides far more
       // than the home indicator, and a CTA under it is not on screen at all.
       expect(viewportOf(tester)['foldY'], 667.0 - 300.0);
+    });
+  });
+
+  group('hasSiblingNavigators — the dump knows when it saw half a screen', () {
+    Widget pane(String label) => Navigator(
+          onGenerateRoute: (RouteSettings _) => MaterialPageRoute<void>(
+            builder: (BuildContext _) => Scaffold(
+              body: Center(child: ElevatedButton(onPressed: () {}, child: Text(label))),
+            ),
+          ),
+        );
+
+    testWidgets('a phone app with one Navigator is not flagged', (WidgetTester tester) async {
+      await tester.pumpWidget(const UxDemoApp());
+      expect(hasSiblingNavigators(tester), isFalse);
+    });
+
+    testWidgets('a NESTED Navigator — a tab shell — is not flagged either',
+        (WidgetTester tester) async {
+      // This is the case a naive navigatorCount > 1 gets wrong, and getting it
+      // wrong would push every real finding on a perfectly ordinary tabbed app
+      // to `not assessable`.
+      await tester.pumpWidget(MaterialApp(home: pane('TAB')));
+      await tester.pumpAndSettle();
+      expect(tester.elementList(find.byType(Navigator)).length, greaterThan(1),
+          reason: 'the root Navigator plus the tab one — nested, not siblings');
+      expect(hasSiblingNavigators(tester), isFalse);
+    });
+
+    testWidgets('side-by-side panes are flagged, and the dump really is missing one',
+        (WidgetTester tester) async {
+      // iPad Pro 13", the surface the fold maths was verified on.
+      tester.view.physicalSize = const Size(2064, 2752);
+      tester.view.devicePixelRatio = 2.0;
+      addTearDown(tester.view.reset);
+      final SemanticsHandle handle = tester.ensureSemantics();
+
+      await tester.pumpWidget(MaterialApp(
+        home: Row(children: <Widget>[Expanded(child: pane('LEFT')), Expanded(child: pane('RIGHT'))]),
+      ));
+      await tester.pumpAndSettle();
+
+      expect(hasSiblingNavigators(tester), isTrue);
+      final Map<String, Object?> dump = dumpSemantics(tester);
+      expect(dump['panesPossiblyBlocked'], isTrue);
+      // The point of the flag: BlockSemantics has already deleted the
+      // earlier-painted pane by the time the dump can reach the tree.
+      final List<String> labels = (dump['nodes']! as List<Object?>)
+          .map((Object? n) => (n! as Map<String, Object?>)['label']! as String)
+          .where((String l) => l.isNotEmpty)
+          .toList();
+      expect(labels, contains('RIGHT'));
+      expect(labels, isNot(contains('LEFT')),
+          reason: 'if LEFT is back, Flutter changed and the flag can go');
+      // addTearDown runs after the framework's end-of-test handle check.
+      handle.dispose();
+    });
+
+    testWidgets('false is NOT a promise that the dump is whole', (WidgetTester tester) async {
+      // One ModalRoute is enough to delete an earlier sibling, so a Row of
+      // [plain Scaffold, Navigator] loses the Scaffold pane while the flag —
+      // which asks about two NAVIGATORS — reads false. The flag is a declared
+      // suspicion, never a clean bill, and the docs must not say otherwise.
+      tester.view.physicalSize = const Size(2064, 2752);
+      tester.view.devicePixelRatio = 2.0;
+      addTearDown(tester.view.reset);
+      final SemanticsHandle handle = tester.ensureSemantics();
+
+      await tester.pumpWidget(MaterialApp(
+        home: Row(children: <Widget>[
+          const Expanded(
+            child: Scaffold(body: Center(child: Text('LEFT'))),
+          ),
+          Expanded(child: pane('RIGHT')),
+        ]),
+      ));
+      await tester.pumpAndSettle();
+
+      final Map<String, Object?> dump = dumpSemantics(tester);
+      expect(dump['panesPossiblyBlocked'], isFalse);
+      final List<String> labels = (dump['nodes']! as List<Object?>)
+          .map((Object? n) => (n! as Map<String, Object?>)['label']! as String)
+          .where((String l) => l.isNotEmpty)
+          .toList();
+      expect(labels, contains('RIGHT'));
+      expect(labels, isNot(contains('LEFT')),
+          reason: 'the pane is gone with the flag false — that is the whole point of this test');
+      handle.dispose();
+    });
+  });
+
+  group('conditionsOf — the run reports what it was measured under', () {
+    testWidgets('reads the live dispatcher, not a constant', (WidgetTester tester) async {
+      // The failure this guards against is a conditions block wired to
+      // defaults: it would read `light` / 1.0 on every run and be worse than
+      // no block at all, because the report quotes it as measured fact.
+      tester.platformDispatcher.platformBrightnessTestValue = Brightness.dark;
+      tester.platformDispatcher.textScaleFactorTestValue = 3.0;
+      tester.platformDispatcher.accessibilityFeaturesTestValue =
+          const FakeAccessibilityFeatures(boldText: true, disableAnimations: true);
+      addTearDown(tester.platformDispatcher.clearAllTestValues);
+      await tester.pumpWidget(const UxDemoApp());
+
+      final Map<String, Object?> c = conditionsOf(tester);
+      expect(c['platformBrightness'], 'dark');
+      expect(c['textScaleFactor'], 3.0);
+      expect(c['boldText'], isTrue);
+      expect(c['disableAnimations'], isTrue);
+      expect(c['highContrast'], isFalse);
+    });
+
+    testWidgets('text scale is invisible in the viewport, which is why it is here',
+        (WidgetTester tester) async {
+      // Measured on a booted iPhone SE: default vs accessibility-XXXL produce
+      // an identical viewport while a product row leaves the semantics tree.
+      // If that ever stops being true the conditions block is redundant and
+      // this test should be the thing that says so.
+      tester.view.physicalSize = const Size(750, 1334);
+      tester.view.devicePixelRatio = 2.0;
+      addTearDown(tester.view.reset);
+      await tester.pumpWidget(const UxDemoApp());
+      final Map<String, Object?> plain = viewportOf(tester);
+
+      tester.platformDispatcher.textScaleFactorTestValue = 3.0;
+      addTearDown(tester.platformDispatcher.clearAllTestValues);
+      await tester.pumpWidget(const UxDemoApp());
+
+      expect(viewportOf(tester), plain, reason: 'if this fails, drop conditionsOf');
+      expect(conditionsOf(tester)['textScaleFactor'], 3.0);
     });
   });
 

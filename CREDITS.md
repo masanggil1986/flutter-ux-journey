@@ -27,8 +27,11 @@ this project has real pixel `Rect`s from a running app and no Pillow dependency 
    Miller, Jakob, Peak-End). 11 + 5 = 16.
 2. Its severity scale is **not** literally "Nielsen 0–4". The table reads
    `4 Critical / 3 Major / 2 Minor / 1 Cosmetic / ✓ Positive` — there is no "0 = not a problem" row;
-   `0` appears only as the *positive* colour in `annotate.py`. This project uses a true 0–4 scale
-   scored against the journey's goal, which is a different scale that happens to share the digits.
+   `0` appears only as the *positive* colour in `annotate.py`. This project inherits that same
+   `4 / 3 / 2 / 1 / ✓` shape — see
+   [`heuristics.md`](skills/flutter-ux-journey/references/heuristics.md) — and scores it against
+   the journey's goal rather than against the screen. Neither skill uses a literal Nielsen 0–4, and this file
+   used to claim one.
 
 ### MIT notice
 

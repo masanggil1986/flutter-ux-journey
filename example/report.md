@@ -14,8 +14,9 @@ A user who removes a saved item cannot get back to their list: the screen they l
 to tap and nowhere to go, so the second half of what they came to do is impossible. The removal
 itself happens on the first tap, with no confirmation and no undo, so a mis-tap costs the product
 permanently. On the way in, the thing they came for is the sixth control on the home screen, behind
-five the app was never declared to be for. One declared path, walked once, on one device size in
-one theme — nothing here says how often real users hit it.
+five the app was never declared to be for. One declared path, walked once, on one device size, in
+the light theme at text scale 1.0 as recorded by the run — nothing here says how often real users
+hit it.
 
 ## Journey walk
 
@@ -40,7 +41,7 @@ rects; sizes are comparable, positions are not. See Tool notes.
 
 | # | Check | Sev | Evidence Layer | Confidence | Step | Where | Screenshot |
 |---|---|---|---|---|---|---|---|
-| 1 | TRUST-GAP | 4 | JOURNEY, VISUAL | high | 2 | "Remove from list" on the product detail screen | `screens/step_3.png` |
+| 1 | TRUST-GAP | 4 | JOURNEY, RUNTIME, VISUAL | high | 2 | "Remove from list" on the product detail screen | `screens/step_3.png` |
 | 2 | DEAD-END | 4 | RUNTIME, JOURNEY, VISUAL | high | 3 | the screen reached after removing an item | `screens/step_3.png` |
 | 3 | FAKE-AFFORDANCE | 3 | RUNTIME, VISUAL | high | 1 | product cards on the saved list | `screens/step_1.png` |
 | 4 | HIERARCHY-FLAT | 2 | RUNTIME | high | 1 | the saved list's entry surface | `screens/step_1.png` |
@@ -116,6 +117,9 @@ cost is ordering rather than a block. It would be 4 if the card were below the f
 
 ### 5. TOUCH-TARGET — severity 2
 
+**What happened.** The × that closes the promotion banner is 24×24 lpx — roughly half the width a
+finger reliably hits. Aiming for it on step 1 lands beside it, and the banner stays.
+
 **Evidence.**
 - RUNTIME: `iOSTapTargetGuideline` — `SemanticsNode#7(...): expected tap target size of at least
   Size(44.0, 44.0), but found Size(24.0, 24.0)`, label `"Dismiss promotion"`.
@@ -128,6 +132,9 @@ ignoring the banner works. Would be 4 if this were the control that advanced the
 
 ### 6. CONTRAST-FAIL — severity 2
 
+**What happened.** "Free returns within 14 days" is light grey on white. On the step 1 screenshot it
+is very nearly invisible; a user skimming the saved list does not read it at all.
+
 **Evidence.**
 - RUNTIME: `textContrastGuideline` — `SemanticsNode#8(..., label: "Free returns within 14 days"):
   Expected contrast ratio of at least 4.5 but found 1.03 for a font size of 13.0`.
@@ -139,6 +146,10 @@ ignoring the banner works. Would be 4 if this were the control that advanced the
 it. Would be 3 if this text carried information the goal needs.
 
 ### 7. RECALL-TAX — severity 2
+
+**What happened.** The magnifier in the app bar has no name. A screen reader announces a button and
+nothing more, so a user who cannot see the icon has to press it to learn what it does — on the
+entry screen of the journey.
 
 **Evidence.**
 - STATIC: `lib/main.dart:75` `IconButton` — "neither `tooltip:` nor `semanticLabel:` — the control
@@ -223,9 +234,9 @@ dispatched, because the target could not be resolved. A selector miss is not a d
 
 **Proposal — one per audit.** Measured: the rank-1 task is the 6th of 8 tap targets at y=239 lpx,
 with five unranked controls above it, three of which (the promo row, its dismiss, the cart button)
-occupy 131 lpx of the first viewport. Proposal: move the promo row below the product list.
+occupy 96 lpx of the first viewport. Proposal: move the promo row below the product list.
 **Predicted effect:** the rank-1 task moves from 6th to 4th in reading order and from y=239 to
-y≈107 lpx; nothing crosses the fold, because on this device nothing is below it. **Disproved if**
+y≈191 lpx; nothing crosses the fold, because on this device nothing is below it. **Disproved if**
 the promo is the revenue path — in which case the ranking in `journey.md` is what is wrong, not the
 layout. The report cannot tell which; only the team can.
 
@@ -275,9 +286,14 @@ score does not cover copy, visual design, conversion, or any screen the journey 
   check mark on the removal screen; it produces no semantics node of its own.
 - Screen-reader announcement order, focus order, keyboard navigation, dynamic type, motion and
   reduced-motion: not measured by this run.
-- Platform: iOS simulator only (iPhone SE 3rd gen, iOS 18.6, dpr 2.0), one device size, one theme.
+- Platform, from `conditions`: iOS 18.6 simulator (iPhone SE 3rd gen, dpr 2.0),
+  `platformBrightness: light`, `textScaleFactor: 1.0`, no accessibility flags set. One device size.
   Real devices untested. The SE has a home button, so `padBottom` is genuinely 0.0 here — a notched
   device would move the fold line and this run cannot say by how much.
+- Other themes and text sizes: not measured here, and each is a separate run. Measured on this same
+  fixture at `accessibility-extra-extra-extra-large`, the third product row leaves the semantics
+  tree and the second drops below the fold — so a large-text reading of this report would be a
+  different report, not this one adjusted.
 
 ## Method
 
@@ -300,8 +316,10 @@ host round-trip under a test harness, not user-perceived latency.
   guideline `reason` prints the node's own rect plus one transform, not the accumulated chain, so
   **sizes are comparable and positions are not**. Positions above are taken from the dump.
 - The screenshots referenced here are produced by the run into
-  `example/ux_demo_app/screenshots/`. They are not committed; the report is written so it reads
-  without them, which is also what keeps an audit of a private app shareable.
+  `example/ux_demo_app/screenshots/` and copied to `example/screens/` for this public fixture,
+  which has no backend and no real data. **An audit of a real app keeps them local** — a screenshot
+  is verbatim product copy. The report is written so it reads without them either way, which is
+  what makes a private audit shareable.
 - Three measurements changed between runs while this report was being produced, each because the
   first version was wrong: taps counted gestures *attempted* rather than landed; the settle bound
   returned mid-transition and every rect on the next screen came back shifted by 244 lpx; and a
