@@ -9,6 +9,8 @@
 // writes into someone else's app must stay ONE file, so the alternative to a
 // public helper is an untested one.
 
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:ux_demo_app/main.dart';
@@ -19,6 +21,7 @@ import '../integration_test/ux_journey_test.dart'
         coversPoint,
         dumpSemantics,
         hasSiblingNavigators,
+        journey,
         performStep,
         recordedText,
         resolve,
@@ -28,7 +31,8 @@ import '../integration_test/ux_journey_test.dart'
         settle,
         StepOutcome,
         subtractRects,
-        viewportOf;
+        viewportOf,
+        walkJourney;
 
 void main() {
   // DEFECT 6 mutates a top-level list with no confirmation, so any test that
@@ -1258,6 +1262,109 @@ void main() {
         ), true),
         isNull,
       );
+    });
+  });
+  group('walkJourney — the two injection points', () {
+    testWidgets('a shot that throws costs that step its image, not the walk', (
+      WidgetTester tester,
+    ) async {
+      Map<String, Object?>? report;
+      await walkJourney(
+        tester,
+        launch: () => runApp(const UxDemoApp()),
+        journey: journey,
+        shot: (String name) async =>
+            throw const FileSystemException('disk full'),
+        publish: (Map<String, Object?> r) async => report = r,
+      );
+      final List<Object?> steps = report!['steps']! as List<Object?>;
+      expect(steps, hasLength(journey.length + 1));
+      for (final Object? raw in steps) {
+        expect((raw! as Map<String, Object?>)['screenshot'], isNull);
+      }
+      // The measurement is what must survive: a missing PNG is a missing
+      // evidence LAYER, not a missing audit.
+      expect(
+        (steps.first! as Map<String, Object?>)['guidelines'],
+        hasLength(4),
+      );
+    });
+
+    testWidgets('no shot at all means every step reports screenshot: null', (
+      WidgetTester tester,
+    ) async {
+      Map<String, Object?>? report;
+      await walkJourney(
+        tester,
+        launch: () => runApp(const UxDemoApp()),
+        journey: journey,
+        publish: (Map<String, Object?> r) async => report = r,
+      );
+      for (final Object? raw in report!['steps']! as List<Object?>) {
+        expect((raw! as Map<String, Object?>)['screenshot'], isNull);
+      }
+    });
+
+    testWidgets('shot is called once per step, named for that step', (
+      WidgetTester tester,
+    ) async {
+      final List<String> names = <String>[];
+      Map<String, Object?>? report;
+      await walkJourney(
+        tester,
+        launch: () => runApp(const UxDemoApp()),
+        journey: journey,
+        shot: (String name) async => names.add(name),
+        publish: (Map<String, Object?> r) async => report = r,
+      );
+      expect(names, <String>['step_1', 'step_2', 'step_3', 'step_4']);
+      expect(
+        ((report!['steps']! as List<Object?>).first!
+            as Map<String, Object?>)['screenshot'],
+        'step_1.png',
+      );
+    });
+
+    testWidgets('a publish that throws is never swallowed', (
+      WidgetTester tester,
+    ) async {
+      // Review Focus 4: every measurement is already made by the time publish
+      // runs, so a swallowed failure here is a green run with no artifact —
+      // the one outcome a reader cannot detect.
+      // Caught here rather than handed to `expectLater` as a future: an
+      // in-flight rejection reaches the test zone before the matcher subscribes
+      // to it, and the binding reports that as an uncaught error instead of a
+      // matched one. What is under test is that walkJourney rethrows at all.
+      Object? caught;
+      try {
+        await walkJourney(
+          tester,
+          launch: () => runApp(const UxDemoApp()),
+          journey: journey,
+          publish: (Map<String, Object?> r) async =>
+              throw const FileSystemException('read-only output dir'),
+        );
+      } catch (e) {
+        caught = e;
+      }
+      expect(caught, isA<FileSystemException>());
+    });
+
+    testWidgets('runContext lands in conditions beside the measured ones', (
+      WidgetTester tester,
+    ) async {
+      Map<String, Object?>? report;
+      await walkJourney(
+        tester,
+        launch: () => runApp(const UxDemoApp()),
+        journey: journey,
+        publish: (Map<String, Object?> r) async => report = r,
+        runContext: const <String, Object?>{'mode': 'widget-test'},
+      );
+      final Map<String, Object?> c =
+          report!['conditions']! as Map<String, Object?>;
+      expect(c['mode'], 'widget-test');
+      expect(c['textScaleFactor'], isNotNull); // the measured ones survive
     });
   });
 }

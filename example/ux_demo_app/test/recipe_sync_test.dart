@@ -16,6 +16,7 @@ import '../integration_test/ux_journey_test.dart' as walker show Step, journey;
 
 const String _recipe = '../../skills/flutter-ux-journey/references/walking.md';
 const String _walker = 'integration_test/ux_journey_test.dart';
+const String _driveEntry = 'integration_test/ux_journey_drive.dart';
 const String _golden = '../expected-findings.json';
 const String _journey = '../journey.md';
 const String _gatedJourney = '../journey-gated.md';
@@ -161,7 +162,7 @@ void main() {
     expect(reach['basis'], contains('declared'));
   });
 
-  test('the walker keeps the two habits that fail silently', () {
+  test('the walker keeps the habit that fails silently', () {
     // Both assertions are on the raw string rather than a matcher over the
     // source, so a failure prints the reason and not fifty kilobytes of walker.
     final String src = File(_walker).readAsStringSync();
@@ -174,14 +175,29 @@ void main() {
           'wait — never goes quiet and the walk hangs producing nothing. The '
           'bounded settle() exists for exactly that.',
     );
+    // The walk itself must not know about integration_test any more: that is
+    // the whole reason it can run under `flutter test`, and an import creeping
+    // back is the one change that would silently undo it.
     expect(
-      src.contains('reportData ??='),
-      isTrue,
+      src.contains('package:integration_test/'),
+      isFalse,
       reason:
-          "MUTATE, never replace: takeScreenshot appends each PNG into "
-          "reportData['screenshots'] and that list is how the driver gets the "
-          'bytes, so assigning a fresh map deletes every screenshot and the '
-          'run still passes.',
+          'the walk is binding-agnostic; only a drive entry may import '
+          'integration_test',
+    );
+  });
+
+  test('the drive entry keeps the habit that fails silently', () {
+    // The hazard is real but it is now the DRIVE path's alone: takeScreenshot
+    // appends each PNG into reportData['screenshots'] and that list is how the
+    // driver gets the bytes, so assigning a fresh map deletes every screenshot
+    // and the run still passes.
+    final String src = File(_driveEntry).readAsStringSync();
+    expect(src.contains('reportData ??='), isTrue);
+    expect(
+      src.contains('.addAll('),
+      isTrue,
+      reason: 'publish must merge into reportData, never replace it',
     );
   });
 

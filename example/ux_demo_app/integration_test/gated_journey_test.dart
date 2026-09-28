@@ -83,6 +83,15 @@ void main() {
   final IntegrationTestWidgetsFlutterBinding binding =
       IntegrationTestWidgetsFlutterBinding.ensureInitialized();
 
+  bool surfaceReady = false;
+  Future<void> shot(String name) async {
+    if (!surfaceReady) {
+      await binding.convertFlutterSurfaceToImage();
+      surfaceReady = true;
+    }
+    await binding.takeScreenshot(name);
+  }
+
   testWidgets('gated ux journey', (WidgetTester tester) async {
     // BEFORE app.main(), which walkJourney calls. The app fires its session
     // probe on the first frame, so an override installed afterwards is already
@@ -90,16 +99,29 @@ void main() {
     // instead of launching the app itself.
     HttpOverrides.global = StubHttpOverrides();
 
-    // Wire the stub's own call list into the report. It is not automatic: the
-    // walker's `networkCalls` defaults to empty, and an empty field costs the
-    // report the one layer that shows which calls the journey depended on.
     await walkJourney(
       tester,
-      binding,
       launch: app.main,
       setup: setup,
       journey: journey,
+      // Wire the stub's own call list into the report. It is not automatic:
+      // the walker's `networkCalls` defaults to empty, and an empty field
+      // costs the report the one layer that shows which calls the journey
+      // depended on.
       networkCalls: stubCalls,
+      // Android deadlocks on convertFlutterSurfaceToImage() when the app hosts
+      // a platform view; the host captures the visual layer there instead.
+      shot: Platform.isIOS ? shot : null,
+      // MUTATE, never replace: reportData['screenshots'] is how the driver
+      // gets the PNG bytes, and a fresh map deletes every one of them while
+      // the run still passes.
+      publish: (Map<String, Object?> report) async =>
+          (binding.reportData ??= <String, dynamic>{}).addAll(report),
+      runContext: <String, Object?>{
+        'mode': 'drive',
+        'renderer': 'device',
+        'targetPlatform': Platform.operatingSystem,
+      },
     );
   });
 }

@@ -1,0 +1,61 @@
+// The `flutter drive` entry. It exists as a separate file because the binding
+// has to be chosen before anything else runs, and
+// IntegrationTestWidgetsFlutterBinding is a LIVE binding — under `flutter test`
+// it would change the frame policy out from under the walk. The default mode is
+// the widget-test one in ux_journey_test.dart; this is the fallback for an app
+// whose plugins or platform views need a real device under them.
+//
+// Run:
+//   flutter drive --driver=test_driver/integration_test.dart \
+//                 --target=integration_test/ux_journey_drive.dart -d <device-id>
+
+import 'dart:io';
+
+import 'package:flutter_test/flutter_test.dart';
+import 'package:integration_test/integration_test.dart';
+
+import 'package:ux_demo_app/main.dart' as app;
+
+import 'ux_journey_test.dart' show journey, setup, walkJourney;
+
+void main() {
+  final IntegrationTestWidgetsFlutterBinding binding =
+      IntegrationTestWidgetsFlutterBinding.ensureInitialized();
+
+  // Android deadlocks in convertFlutterSurfaceToImage() + takeScreenshot()
+  // whenever the app hosts a platform view (webview, media, camera) — no error,
+  // no timeout. Measured twice on a production app. Guidelines and the
+  // semantics dump are unaffected, so the walk still measures; the VISUAL layer
+  // comes from a host capture (`adb exec-out screencap`) instead.
+  bool surfaceReady = false;
+  Future<void> shot(String name) async {
+    // Lazily, on the first capture: the conversion needs a frame to already
+    // exist, and every caller of this is after one.
+    if (!surfaceReady) {
+      await binding.convertFlutterSurfaceToImage();
+      surfaceReady = true;
+    }
+    await binding.takeScreenshot(name);
+  }
+
+  testWidgets('ux journey', (WidgetTester tester) async {
+    await walkJourney(
+      tester,
+      launch: app.main,
+      setup: setup,
+      journey: journey,
+      shot: Platform.isIOS ? shot : null,
+      // MUTATE, never replace: takeScreenshot appends each PNG into
+      // reportData['screenshots'], and that list is how the driver's
+      // onScreenshot gets the bytes. Assigning a fresh map here silently
+      // deletes every screenshot and the run still passes.
+      publish: (Map<String, Object?> report) async =>
+          (binding.reportData ??= <String, dynamic>{}).addAll(report),
+      runContext: <String, Object?>{
+        'mode': 'drive',
+        'renderer': 'device',
+        'targetPlatform': Platform.operatingSystem,
+      },
+    );
+  });
+}

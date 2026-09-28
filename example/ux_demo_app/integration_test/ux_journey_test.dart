@@ -11,9 +11,6 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:integration_test/integration_test.dart';
-
-import 'package:ux_demo_app/main.dart' as app;
 
 /// One journey step: perform [action] on [target], then require [expected] to
 /// be on screen. The `expected` check is the oracle — without it a walk reports
@@ -66,30 +63,35 @@ const List<Step> journey = <Step>[
 /// integration_test/gated_journey_test.dart is the worked instance that does.
 const List<Step> setup = <Step>[];
 
-/// iOS only. See the note at convertFlutterSurfaceToImage below.
-final bool _inTestScreenshots = Platform.isIOS;
-
-void main() {
-  final IntegrationTestWidgetsFlutterBinding binding =
-      IntegrationTestWidgetsFlutterBinding.ensureInitialized();
-
-  testWidgets('ux journey', (WidgetTester tester) async {
-    // This fixture has no backend, so no network stub is installed and
-    // `networkCalls` stays empty. A real app usually needs one — see
-    // references/network-stub.md, and gated_journey_test.dart for the worked
-    // instance that installs it before `app.main()`.
-    await walkJourney(
-      tester,
-      binding,
-      launch: app.main,
-      setup: setup,
-      journey: journey,
-    );
-  });
+/// Take one screenshot, or report that it could not be taken.
+///
+/// A capture that throws — a full disk, an unwritable path, a device-side
+/// deadlock that surfaces as an error — costs that step its IMAGE. It must not
+/// cost the step its measurements: by the time this runs, the semantics dump
+/// and all four guideline evaluations are already in hand.
+Future<String?> _capture(
+  Future<void> Function(String)? shot,
+  String name,
+) async {
+  if (shot == null) {
+    return null;
+  }
+  try {
+    await shot(name);
+    return '$name.png';
+  } catch (_) {
+    return null;
+  }
 }
 
-/// The whole walk: launch the app, run `## Setup`, walk the journey, fill
-/// `binding.reportData`.
+/// The whole walk: launch the app, run `## Setup`, walk the journey, hand the
+/// report to [publish].
+///
+/// It takes no binding. Everything the walk used to reach for on one — the
+/// screenshot mechanism, the place the report goes, the facts only the entry
+/// knows — arrives as [shot], [publish] and [runContext], which is what lets
+/// the same walk run under `flutter test` with no device and under
+/// `flutter drive` with one.
 ///
 /// Install `HttpOverrides.global` **before** calling this. The stub has to be
 /// in place before the app's first frame, and [launch] is what triggers it —
@@ -105,12 +107,22 @@ void main() {
 /// helper here public. No line count here on purpose: it would be a number
 /// about a neighbouring file that nothing checks.
 Future<void> walkJourney(
-  WidgetTester tester,
-  IntegrationTestWidgetsFlutterBinding binding, {
+  WidgetTester tester, {
   required void Function() launch,
   required List<Step> journey,
   List<Step> setup = const <Step>[],
   List<String> networkCalls = const <String>[],
+  // null means the VISUAL layer is not assessable on this run — the report
+  // must say so rather than leave the section empty. On Android under
+  // `flutter drive` this is null because convertFlutterSurfaceToImage() +
+  // takeScreenshot() deadlocks on any app hosting a platform view.
+  Future<void> Function(String name)? shot,
+  // Where the report goes. The drive entry mutates binding.reportData; the
+  // widget-test entry writes a file. The walk knows neither.
+  required Future<void> Function(Map<String, Object?> report) publish,
+  // What the ENTRY knows and the walk cannot measure: which mode, which
+  // renderer, which declared device, which fonts.
+  Map<String, Object?> runContext = const <String, Object?>{},
 }) async {
   // Never assume semantics are already on. Cheap, and required by the docs.
   final SemanticsHandle handle = tester.ensureSemantics();
@@ -136,16 +148,6 @@ Future<void> walkJourney(
     limit: const Duration(seconds: 12),
   );
 
-  // In-test screenshots are iOS-only here. On Android,
-  // convertFlutterSurfaceToImage() + takeScreenshot() deadlocks — no error,
-  // no timeout — whenever the app embeds platform views (webview, media,
-  // camera). Measured twice on a production app. Guidelines and the
-  // semantics dump are unaffected, so the walk still measures; the host
-  // captures the visual layer with `adb exec-out screencap` instead.
-  if (_inTestScreenshots) {
-    await binding.convertFlutterSurfaceToImage();
-  }
-
   // --- SETUP: excluded from measurement and scoring. ------------------------
   // A gate is not the product, so these steps get no semantics dump, no
   // guideline evaluation and no reach cost. They are recorded anyway, because
@@ -160,10 +162,9 @@ Future<void> walkJourney(
     sw.stop();
     // One screenshot, and only on failure: it is the whole evidence for "the
     // gate is what blocked this", and a passing setup step has nothing to show.
-    final bool shot = out.status != 'OK' && _inTestScreenshots;
-    if (shot) {
-      await binding.takeScreenshot('setup_$i');
-    }
+    final String? shotName = out.status != 'OK'
+        ? await _capture(shot, 'setup_$i')
+        : null;
     setupSteps.add(<String, Object?>{
       'index': i,
       'phase': 'setup',
@@ -177,7 +178,7 @@ Future<void> walkJourney(
       'elapsedMs': sw.elapsedMilliseconds,
       'settled': out.settled,
       'dispatched': out.dispatched,
-      'screenshot': shot ? 'setup_$i.png' : null,
+      'screenshot': shotName,
     });
     if (out.status != 'OK') {
       setupFailed = true;
@@ -205,9 +206,7 @@ Future<void> walkJourney(
         tester,
       );
       final String sigBefore = screenSignature(semantics);
-      if (_inTestScreenshots) {
-        await binding.takeScreenshot('step_$i');
-      }
+      final String? shotName = await _capture(shot, 'step_$i');
 
       final Stopwatch sw = Stopwatch()..start();
       final StepOutcome out = await performStep(tester, step);
@@ -231,7 +230,7 @@ Future<void> walkJourney(
         'elapsedMs': sw.elapsedMilliseconds, // EVIDENCE ONLY — never scored
         'settled': out.settled,
         'tapsSoFar': taps,
-        'screenshot': _inTestScreenshots ? 'step_$i.png' : null,
+        'screenshot': shotName,
         'screenSig': sigBefore,
         'dispatched': out.dispatched,
         // A tap that changed no semantics at all. Filled after the loop: the
@@ -254,9 +253,10 @@ Future<void> walkJourney(
     // captures the screen it starts from, so the final outcome — the error
     // state, the confirmation, the dead end — falls off the end. Measured:
     // without this, an audit of a failed sign-in never looks at the failure.
-    if (_inTestScreenshots) {
-      await binding.takeScreenshot('step_${steps.length + 1}');
-    }
+    final String? outcomeShot = await _capture(
+      shot,
+      'step_${steps.length + 1}',
+    );
     final Map<String, Object?> outcome = dumpSemantics(tester);
     steps.add(<String, Object?>{
       'index': steps.length + 1,
@@ -272,7 +272,7 @@ Future<void> walkJourney(
       // The outcome screen needs its own PNG, or the last real step has no
       // "after" image and the dead-tap confirmation (compare step N's PNG with
       // step N+1's) is impossible for exactly the step where the journey ended.
-      'screenshot': _inTestScreenshots ? 'step_${steps.length + 1}.png' : null,
+      'screenshot': outcomeShot,
       'screenSig': screenSignature(outcome),
       'dispatched': false,
       'semanticsUnchanged': null,
@@ -291,26 +291,29 @@ Future<void> walkJourney(
   }
 
   handle.dispose();
-  // MUTATE, never replace: takeScreenshot appends each PNG into
-  // reportData['screenshots'], and that list is how the driver's
-  // onScreenshot gets the bytes. Assigning a fresh map here silently
-  // deletes every screenshot and the run still passes.
-  final Map<String, dynamic> report = binding.reportData ??=
-      <String, dynamic>{};
-  report['steps'] = steps;
-  // Recorded even when empty, so a reader can tell "no gate" from "the gate
-  // was never walked".
-  report['setupSteps'] = setupSteps;
-  report['setupFailed'] = setupFailed;
-  // A journey whose entry screen never settles is already telling you
-  // something — record it rather than dropping it.
-  report['entrySettled'] = entrySettled;
-  report['appErrors'] = appErrors;
-  report['networkCalls'] = networkCalls;
-  report['taps'] = taps;
-  // The scope clause in the report quotes this. Without it the clause is
-  // a claim about a condition nobody recorded.
-  report['conditions'] = conditionsOf(tester);
+  final Map<String, Object?> report = <String, Object?>{
+    'steps': steps,
+    // Recorded even when empty, so a reader can tell "no gate" from "the gate
+    // was never walked".
+    'setupSteps': setupSteps,
+    'setupFailed': setupFailed,
+    // A journey whose entry screen never settles is already telling you
+    // something — record it rather than dropping it.
+    'entrySettled': entrySettled,
+    'appErrors': appErrors,
+    'networkCalls': networkCalls,
+    'taps': taps,
+    // The scope clause in the report quotes this. Without it the clause is
+    // a claim about a condition nobody recorded. runContext comes LAST: an
+    // entry may correct something the walk could only guess — `platform`
+    // reads the HOST under `flutter test` — and a silent disagreement between
+    // the two is worse than either value.
+    'conditions': <String, Object?>{...conditionsOf(tester), ...runContext},
+  };
+  // Never swallowed. Every measurement is already made by this point, so a
+  // publish that fails quietly means a green run with no artifact — the one
+  // outcome a reader cannot detect.
+  await publish(report);
 }
 
 /// What one step did. `tapped` is separate from `dispatched` because only a tap
