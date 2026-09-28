@@ -1350,6 +1350,56 @@ void main() {
       expect(caught, isA<FileSystemException>());
     });
 
+    testWidgets('a second walk in the same file runs (walk 1 of 2)', (
+      WidgetTester tester,
+    ) async {
+      Map<String, Object?>? report;
+      await walkJourney(
+        tester,
+        launch: () => runApp(const UxDemoApp()),
+        journey: journey,
+        publish: (Map<String, Object?> r) async => report = r,
+      );
+      expect(report!['steps'], isNotNull);
+    });
+
+    testWidgets('a second walk in the same file runs (walk 2 of 2)', (
+      WidgetTester tester,
+    ) async {
+      Map<String, Object?>? report;
+      await walkJourney(
+        tester,
+        launch: () => runApp(const UxDemoApp()),
+        journey: journey,
+        publish: (Map<String, Object?> r) async => report = r,
+      );
+      // If FlutterError.onError is still the first walk's, this test's own
+      // failures land in a dead list and the run hangs instead of reporting.
+      expect(report!['steps'], isNotNull);
+    });
+
+    testWidgets('an app error during the walk is evidence, not a failure', (
+      WidgetTester tester,
+    ) async {
+      Map<String, Object?>? report;
+      await walkJourney(
+        tester,
+        launch: () {
+          runApp(const UxDemoApp());
+          // What a production app does: a background request that fails while
+          // the walk is in flight. Without the walker's interception this
+          // fails the test and DISCARDS the whole report — measured, a voucher
+          // fetch completing after the walk threw away a nine-step journey.
+          FlutterError.reportError(
+            FlutterErrorDetails(exception: StateError('late voucher fetch')),
+          );
+        },
+        journey: journey,
+        publish: (Map<String, Object?> r) async => report = r,
+      );
+      expect(report!['appErrors'], contains(contains('late voucher fetch')));
+    });
+
     testWidgets('runContext lands in conditions beside the measured ones', (
       WidgetTester tester,
     ) async {
