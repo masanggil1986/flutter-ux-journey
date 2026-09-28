@@ -248,14 +248,20 @@ layout. The report cannot tell which; only the team can.
 
 ## Feature map
 
-| Area | Routes | Walked |
-|---|---|---|
-| Saved list | `/` (`ListScreen`) | ✓ |
-| Product detail | pushed `MaterialPageRoute` (`DetailScreen`) | ✓ |
-| Removal confirmation | pushed `MaterialPageRoute` (`RemovedScreen`) | ✓ |
+From `static.json`'s `routes` block — `declared: []`, `notAssessable: []`, three `inline-push`
+edges:
 
-Walked 3 of 3 declared screens (100%). The fixture uses plain `Navigator` with no declarative
-router, so there is no route table to reconcile against — see Not Assessable.
+| Area | Reached by | Walked |
+|---|---|---|
+| Saved list | entry point (`ListScreen`) | ✓ |
+| Product detail | `_ListScreenState` → `DetailScreen`, `push` (`main.dart:167`) | ✓ |
+| Removal confirmation | `DetailScreen` → `RemovedScreen`, `pushAndRemoveUntil` (`main.dart:219`) | ✓ |
+
+Walked 3 of 3 screens the probe found (100%). `declared` is empty and so is `notAssessable`: the
+fixture uses plain `Navigator` with no declarative router, so there is no route table to reconcile
+against — that is a fact about the app, not a failed scan. See Not Assessable.
+
+The coverage column is not the probe's: it compares the edges above against `walk.json`'s steps.
 
 ## Score
 

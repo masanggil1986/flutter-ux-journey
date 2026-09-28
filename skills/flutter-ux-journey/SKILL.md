@@ -165,18 +165,38 @@ Screenshots and semantics labels are verbatim product copy. They stay in the aud
 
 ## [0a] FEATURE MAP — what the app says it does
 
-Before any journey, read the app's **router** and list its declared routes. That is the app's own
-statement of its feature surface — no crawling, no guessing, and it is static so it costs nothing.
-For GoRouter, that is usually a file of route constants plus the `GoRoute` tree.
+Before any journey, list what the app says its feature surface is. That is the app's own statement
+— no crawling, no guessing — and the probe reads it for you. Run step [1]'s command now; it takes
+seconds, needs no device, and its `routes` block is this step's input:
 
-Many apps have no declarative router — the bundled `example/ux_demo_app` is one, pushing
-`MaterialPageRoute` inline — and then there is no route table at all. Enumerate the `Widget` classes
-pushed via `MaterialPageRoute`/`CupertinoPageRoute` instead, label the column for what it actually
-holds (`pushed MaterialPageRoute (DetailScreen)`, not a route name), and record in Not Assessable
-that there was no declared route table to reconcile the walk against. `example/report.md` does
-exactly this under *Feature map* and *Not Assessable*; copy its shape.
+```json
+"routes": {
+  "declared":  [{"kind":"go-route","path":"/detail","name":"detail","screen":"DetailScreen","file":"router.dart","line":12}],
+  "pushed":    [{"kind":"inline-push","from":"_ListScreenState","to":"DetailScreen","method":"push","file":"main.dart","line":167},
+                {"kind":"go-nav","from":"HomePage","target":"/detail","method":"go","file":"home.dart","line":40}],
+  "notAssessable": [{"reason":"onGenerateRoute resolves its routes from a runtime string …"}]
+}
+```
 
-Group the routes into feature areas and present the map with a coverage column. A route the walk
+`declared` is a GoRouter route table. `pushed` is what reaches a screen: `inline-push` for an app
+with no declarative router — the bundled `example/ux_demo_app` is one, and its whole graph comes
+out as three `inline-push` edges — and `go-nav` for a literal `context.go`/`pushNamed` target.
+
+**Read `notAssessable` before reading either.** An `onGenerateRoute`, an interpolated path, a
+builder that is a torn-off function: each is navigation the probe can see exists and cannot read,
+and each belongs in the report's Not Assessable section. `declared: []` with a non-empty
+`notAssessable` means the router is unreadable, not that the app has no routes — and an app with no
+declarative router at all has no route table to reconcile the walk against, which the report says
+out loud. `example/report.md` does exactly this under *Feature map* and *Not Assessable*; copy its
+shape.
+
+`from` is the enclosing class declaration verbatim — `_ListScreenState`, not `ListScreen`. The probe
+does not strip the underscore or the `State` suffix, because that is a guess about naming
+convention. Label the table by what reaches a screen (`to`), which is what a reader cares about.
+
+Group the routes into feature areas and present the map with a coverage column. **The coverage
+column is yours, not the probe's** — whether the walk reached a screen is a comparison against
+`walk.json`, and the probe never sees it. A route the walk
 never reached is **not audited**, and the report must say so — a score over 20% of an app that
 reads like a score over the app is the single most misleading thing this tool could produce.
 
@@ -204,6 +224,9 @@ mkdir -p <out>/screens          # nothing else creates <out>, and the redirect b
 PROBE="${CLAUDE_PLUGIN_ROOT:-<clone-root>}/tools/astprobe/bin/probe.dart"
 dart run "$PROBE" <app-root>/lib > <out>/static.json
 ```
+
+Two blocks come out: `findings` (the four rules below) and `routes` (the feature surface, consumed
+by step [0a] above — run this command before that step, not after).
 
 `CLAUDE_PLUGIN_ROOT` is set only when the skill was installed as a plugin; substitute
 `<clone-root>` — the directory holding `tools/astprobe` — when it is not, or the path collapses to
