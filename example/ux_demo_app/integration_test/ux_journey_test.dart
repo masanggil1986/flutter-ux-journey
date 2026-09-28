@@ -6,10 +6,12 @@
 // someone else's app has to stay one file, so the alternative to a public
 // helper is an untested one; test/walker_test.dart imports these directly.
 
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 /// One journey step: perform [action] on [target], then require [expected] to
@@ -559,6 +561,88 @@ void applyDevice(WidgetTester tester, DeviceProfile d) {
   );
   tester.view.padding = pad;
   tester.view.viewPadding = pad;
+}
+
+/// Give the run real text metrics, and say where they came from.
+///
+/// `flutter test` renders every glyph as an em square (the "Ahem" test font),
+/// which is not a cosmetic problem: measured against the simulator baseline,
+/// the fixture's title went 112.3px -> 242.0px, two text blocks wrapped to an
+/// extra line each, and the whole product list moved down 39px. Max drift
+/// 153.6px. With a real font loaded: max 18.9px, median 0.0px.
+///
+/// Returns what the report must disclose:
+/// - `'app'`          the app's own fonts, from its asset bundle. Exact.
+/// - `'sdk-fallback'` the SDK's Roboto standing in for the platform default.
+///                    Close, not exact — the placement caveat applies.
+/// - `'none'`         neither was available; fold and placement are NOT
+///                    assessable and the report says so.
+///
+/// Call this BEFORE `walkJourney`: the first frame already lays text out.
+Future<String> loadFonts(WidgetTester tester) async {
+  int appFamilies = 0;
+  await tester.runAsync(() async {
+    try {
+      final Object? manifest = await rootBundle.loadStructuredData<Object?>(
+        'FontManifest.json',
+        (String s) async => jsonDecode(s),
+      );
+      for (final Map<String, Object?> font
+          in (manifest! as List<Object?>).cast<Map<String, Object?>>()) {
+        // A packaged font is declared as `packages/<pkg>/<family>`, which is
+        // not the name a TextStyle asks for.
+        final String family = (font['family']! as String).split('/').last;
+        final FontLoader loader = FontLoader(family);
+        for (final Map<String, Object?> asset
+            in (font['fonts']! as List<Object?>).cast<Map<String, Object?>>()) {
+          loader.addFont(rootBundle.load(asset['asset']! as String));
+        }
+        await loader.load();
+        // MaterialIcons rides in on `uses-material-design: true` and is not
+        // the app declaring a typeface — without this every Material app would
+        // report 'app' and skip the fallback its TEXT still needs.
+        if (family != 'MaterialIcons') {
+          appFamilies++;
+        }
+      }
+    } catch (_) {
+      // No manifest, or an unreadable one. Being unable to measure text
+      // metrics is a missing evidence layer, not a reason to abandon the walk.
+    }
+  });
+  if (appFamilies > 0) {
+    return 'app';
+  }
+
+  // A null fontFamily resolves to the test font no matter what is loaded —
+  // measured: after loading, the default width was still 242.0 and only a
+  // NAMED style dropped to 119.7. So register over the families the themes
+  // actually name. Modern Flutter asks for CupertinoSystemDisplay/Text on iOS
+  // and Roboto on Android; the older `.SF UI *` spelling is never asked for
+  // and registering against it fails silently.
+  final String? root = Platform.environment['FLUTTER_ROOT'];
+  if (root == null) {
+    return 'none';
+  }
+  final File regular = File(
+    '$root/bin/cache/artifacts/material_fonts/Roboto-Regular.ttf',
+  );
+  if (!regular.existsSync()) {
+    return 'none';
+  }
+  final Uint8List bytes = regular.readAsBytesSync();
+  await tester.runAsync(() async {
+    for (final String family in <String>[
+      'Roboto',
+      'CupertinoSystemDisplay',
+      'CupertinoSystemText',
+    ]) {
+      final FontLoader loader = FontLoader(family)
+        ..addFont(Future<ByteData>.value(ByteData.sublistView(bytes)));
+      await loader.load();
+    }
+  });
+  return 'sdk-fallback';
 }
 
 /// The usable surface, in logical px.

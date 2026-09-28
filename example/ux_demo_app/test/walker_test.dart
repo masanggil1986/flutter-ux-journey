@@ -11,6 +11,8 @@
 
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:ux_demo_app/main.dart';
@@ -27,6 +29,7 @@ import '../integration_test/ux_journey_test.dart'
         hasSiblingNavigators,
         journey,
         kIphoneSe,
+        loadFonts,
         performStep,
         recordedText,
         resolve,
@@ -1308,6 +1311,66 @@ void main() {
         throwsA(isA<ArgumentError>()),
       );
       expect(deviceProfileByName('iphone-se'), kIphoneSe);
+    });
+  });
+
+  group('loadFonts — the metrics the device used to supply', () {
+    testWidgets('the fixture declares no font, so the SDK one stands in', (
+      WidgetTester tester,
+    ) async {
+      expect(await loadFonts(tester), 'sdk-fallback');
+    });
+
+    testWidgets('a loaded font gives the app its real text width back', (
+      WidgetTester tester,
+    ) async {
+      // Measured through the APP, not a bare Text: a widget with no theme
+      // above it asks for no font family at all, so it can never show whether
+      // the registration hit the family the theme names.
+      // Reset inline, NOT in addTearDown: the binding's _verifyInvariants runs
+      // at the END OF THE TEST BODY and fails on a foundation debug variable
+      // the test left set, while teardowns run after it.
+      debugDefaultTargetPlatformOverride = kIphoneSe.targetPlatform;
+      applyDevice(tester, kIphoneSe);
+      addTearDown(tester.view.reset);
+
+      // No "before" measurement: FontLoader registers into the engine's font
+      // collection for the whole test PROCESS, so any earlier test in this
+      // file has already loaded them. The assertion below is live regardless —
+      // a registration against a family the theme never names (the older
+      // `.SF UI Text` spelling does exactly this) leaves the title at Ahem's
+      // em-square 242.0, which is the silent failure being guarded.
+      await loadFonts(tester);
+      await tester.pumpWidget(const SizedBox());
+      await tester.pumpWidget(const UxDemoApp());
+      expect(
+        tester.getSize(find.text('Saved items')).width,
+        lessThan(150.0),
+        reason:
+            'an 11-character title at the AppBar\'s 22px measures 242.0 under '
+            'the test font and 112.3 on the simulator this preset reproduces',
+      );
+      debugDefaultTargetPlatformOverride = null;
+    });
+
+    testWidgets('a broken FontManifest costs the fold, never the walk', (
+      WidgetTester tester,
+    ) async {
+      // Review Focus 2: rootBundle.loadStructuredData throws on unparseable
+      // JSON. A run that cannot measure text metrics still measures tap
+      // targets, contrast, labels and every step outcome.
+      tester.binding.defaultBinaryMessenger.setMockMessageHandler(
+        'flutter/assets',
+        (ByteData? message) async =>
+            ByteData.sublistView(Uint8List.fromList('{ not json'.codeUnits)),
+      );
+      addTearDown(
+        () => tester.binding.defaultBinaryMessenger.setMockMessageHandler(
+          'flutter/assets',
+          null,
+        ),
+      );
+      expect(await loadFonts(tester), anyOf('sdk-fallback', 'none'));
     });
   });
 
