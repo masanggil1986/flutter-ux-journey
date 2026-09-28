@@ -62,7 +62,11 @@ import 'package:integration_test/integration_test_driver_extended.dart';
 Future<void> main() async {
   await integrationDriver(
     onScreenshot: (String name, List<int> bytes, [Map<String, Object?>? args]) async {
-      final File f = File('screenshots/$name.png');
+      // ONE output root, the one SKILL.md declares. `screenshots/` — the
+      // default this line used to carry — is a conventionally TRACKED
+      // directory in a Flutter app, so the walk dropped somebody's product
+      // screenshots where `git add -A` would take them.
+      final File f = File('ux-audit-out/screens/$name.png');
       f.parent.createSync(recursive: true);
       f.writeAsBytesSync(bytes);
       return true;
@@ -372,7 +376,7 @@ Plain `flutter test integration_test/...` does **not** write the JSON — only s
 Artifacts land at:
 
 - `build/integration_response_data.json` (`$FLUTTER_TEST_OUTPUTS_DIR` overrides `build/`)
-- `screenshots/step_*.png`
+- `ux-audit-out/screens/step_*.png`
 
 Move both into `<app-root>/ux-audit-out/` (`walk.json`, `screens/`). Sanity check: the JSON should be
 well under 100 KB for a short journey — if it is hundreds of KB, the screenshot strip did not take.

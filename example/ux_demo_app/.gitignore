@@ -48,4 +48,4 @@ app.*.map.json
 .widget_preview/
 
 # flutter drive writes the journey walk artifacts here; they are regenerated output.
-screenshots/
+ux-audit-out/

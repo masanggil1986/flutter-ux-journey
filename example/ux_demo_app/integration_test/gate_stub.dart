@@ -1,56 +1,13 @@
-# Network stub — getting past a gate without credentials
-
-Copy `net_stub.dart` below into the audited app's `integration_test/`, fill in `_routes`, and set
-`HttpOverrides.global = StubHttpOverrides();` **before `app.main()`** in the walker.
-
-The mechanism is generic; only `_routes` is app-specific. `HttpOverrides` intercepts `dart:io`
-`HttpClient`, which Dio, `package:http` and most clients sit on — so **the app is not modified** and
-**no request leaves the device**.
-
-## How to fill in `_routes` — iterate, do not read everything first
-
-1. Stub the sign-in endpoint only. Run the walk.
-2. The walk reports `networkCalls` (every path the app requested, in order) — **wire it**: the
-   template's list is called `stubCalls`, and the walker's `networkCalls` starts empty, so assign
-   one to the other or the field ships empty and the report quietly loses a layer. Then the step that
-   failed. That tells you exactly what to add next.
-3. Repeat. Three or four rounds is typical.
-
-Measured on a production app: sign-in -> profile list -> profile detail -> home -> notifications,
-found in four rounds without reading the API surface up front.
-
-## Two mistakes that cost a run each
-
-- **content-type must be in the header MAP**, not only in the typed `contentType` field. Dio calls
-  `headers.value('content-type')` to decide whether to JSON-decode. Without it the body arrives as a
-  `String`, the app's `res.data!` cast throws, and the failure surfaces as the app's generic
-  "something went wrong" — indistinguishable from a real server error.
-- **A list endpoint must return a list.** The permissive `{}` fallback produces
-  `type 'Null' is not a subtype of type ...` deep inside a model.
-
-## Verifying interception actually happened
-
-Run with the device offline (`adb shell cmd connectivity airplane-mode enable`). If a response
-arrives at all, the stub is intercepting — a real request could not have succeeded. This doubles as
-the guarantee that the audit never touches production.
-
-```dart
-// TEMPLATE — copy into the audited app's integration_test/ and fill in _routes.
+// The fixture's worked instance of references/network-stub.md.
 //
-// A network stub for the walk's Setup phase.
+// Only `_routes` below is app-specific; everything from the fallback consts
+// down is the template, byte for byte — test/recipe_sync_test.dart asserts
+// that, so the template in the docs cannot rot into something that does not
+// compile.
 //
-// This file is the APP-SPECIFIC part of an audit: response shapes come from
-// the app's own service and model classes, so the skill generates it per app
-// by reading them. The mechanism below is generic; only `_routes` is not.
-//
-// Why it exists: the walker must get past a sign-in gate without a real
-// account. `HttpOverrides.global` intercepts `dart:io` HttpClient, which is
-// what Dio, package:http and most clients sit on — so the app is not modified
-// and no request ever leaves the device.
-//
-// If a shape here is wrong, the journey step that depends on it FAILS and says
-// so. That is the point: the oracle still holds. Never reach for a real
-// account to turn a red step green.
+// The endpoints are `*.example.invalid`, which by RFC 2606 can never resolve.
+// Run this walk and no request can reach a real host even if the override
+// were removed: the app would get a DNS failure, not somebody's server.
 
 import 'dart:async';
 import 'dart:convert';
@@ -60,14 +17,26 @@ import 'dart:io';
 typedef StubRoute = ({String match, int status, Object body});
 
 const List<StubRoute> _routes = <StubRoute>[
-  // APP-SPECIFIC. Read the app's own service + model classes and fill these in.
-  // Start with the sign-in endpoint only, run the walk, and let the failures
-  // tell you what else to add — that loop is faster than reading everything.
-  //
-  // (match: '/auth/sign-in', status: 200, body: <String, Object?>{'accessToken': 'stub', ...}),
-  //
-  // A LIST endpoint must return a LIST. The permissive {} fallback produces a
-  // 'Null is not a subtype' deep inside a model — measured on a real app.
+  // The session probe must answer 401 EXPLICITLY. Letting it fall through to
+  // the permissive 200 + {} below tells the app it is already signed in, the
+  // gate never renders, and every Setup step then fails looking for a field
+  // that was never built — one wasted run, and the error blames the journey
+  // rather than the route table.
+  (
+    match: '/session',
+    status: 401,
+    body: <String, Object?>{'error': 'no session'},
+  ),
+  // The gate itself. The token is a literal string, not a credential: nothing
+  // here authenticates against anything.
+  (
+    match: '/auth/login',
+    status: 200,
+    body: <String, Object?>{
+      'accessToken': 'stub-token-not-a-secret',
+      'user': <String, Object?>{'email': 'ux-audit@example.invalid'},
+    },
+  ),
 ];
 
 /// Anything not in [_routes] gets this. 200 + an empty object is deliberately
@@ -241,5 +210,3 @@ class _StubHeaders implements HttpHeaders {
   @override
   dynamic noSuchMethod(Invocation invocation) => null;
 }
-
-```

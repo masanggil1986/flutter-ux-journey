@@ -58,62 +58,138 @@ const List<Step> journey = <Step>[
   ),
 ];
 
+/// `## Setup` — the steps that get the walk to the journey's starting line: a
+/// permission dialog, an onboarding sheet, a sign-in. Excluded from
+/// measurement and from scoring, because a gate is not the product.
+///
+/// example/journey.md declares none: this fixture has no backend and no login.
+/// integration_test/gated_journey_test.dart is the worked instance that does.
+const List<Step> setup = <Step>[];
+
 /// iOS only. See the note at convertFlutterSurfaceToImage below.
 final bool _inTestScreenshots = Platform.isIOS;
 
 void main() {
   final IntegrationTestWidgetsFlutterBinding binding =
       IntegrationTestWidgetsFlutterBinding.ensureInitialized();
-  final List<Map<String, Object?>> steps = <Map<String, Object?>>[];
 
   testWidgets('ux journey', (WidgetTester tester) async {
-    // Never assume semantics are already on. Cheap, and required by the docs.
-    final SemanticsHandle handle = tester.ensureSemantics();
-
-    // This fixture has no backend, so no network stub is needed. A real app
-    // usually does — see references/network-stub.md. When one is installed,
-    // its call list must be copied into report['networkCalls'] below.
-    final List<String> networkCalls = <String>[];
-
-    // An app's own errors are FINDINGS, not a reason to abort the audit. A
-    // production app fires background requests that outlive a step; without
-    // this, one late async exception fails the test and discards the entire
-    // report — measured: a voucher fetch completing after the walk threw away
-    // a nine-step journey. Collect them as evidence instead.
-    final List<String> appErrors = <String>[];
-    FlutterError.onError = (FlutterErrorDetails details) {
-      appErrors.add(details.exceptionAsString());
-    };
-
-    app.main();
-    // NOT pumpAndSettle: it waits out a 10-minute timeout on any app that
-    // animates continuously. This fixture does not, but the generated walker
-    // must, so the fixture exercises the same code path.
-    final bool entrySettled = await settle(
+    // This fixture has no backend, so no network stub is installed and
+    // `networkCalls` stays empty. A real app usually needs one — see
+    // references/network-stub.md, and gated_journey_test.dart for the worked
+    // instance that installs it before `app.main()`.
+    await walkJourney(
       tester,
-      limit: const Duration(seconds: 12),
+      binding,
+      launch: app.main,
+      setup: setup,
+      journey: journey,
     );
+  });
+}
 
-    // In-test screenshots are iOS-only here. On Android,
-    // convertFlutterSurfaceToImage() + takeScreenshot() deadlocks — no error,
-    // no timeout — whenever the app embeds platform views (webview, media,
-    // camera). Measured twice on a production app. Guidelines and the
-    // semantics dump are unaffected, so the walk still measures; the host
-    // captures the visual layer with `adb exec-out screencap` instead.
-    if (_inTestScreenshots) {
-      await binding.convertFlutterSurfaceToImage();
+/// The whole walk: launch the app, run `## Setup`, walk the journey, fill
+/// `binding.reportData`.
+///
+/// Install `HttpOverrides.global` **before** calling this. The stub has to be
+/// in place before the app's first frame, and [launch] is what triggers it —
+/// passing `app.main` rather than calling it here is the only way a caller can
+/// get in front of it. Pass the stub's own call list as [networkCalls]: it
+/// defaults to empty, and an empty field silently costs the report a layer.
+///
+/// Public so that a second journey is a second ~30-line file instead of a
+/// second copy of this one. The file the skill generates into someone else's
+/// app is still ONE file — consts, `main`, this, and the helpers below — which
+/// is the constraint that makes every helper here public.
+Future<void> walkJourney(
+  WidgetTester tester,
+  IntegrationTestWidgetsFlutterBinding binding, {
+  required void Function() launch,
+  required List<Step> journey,
+  List<Step> setup = const <Step>[],
+  List<String> networkCalls = const <String>[],
+}) async {
+  // Never assume semantics are already on. Cheap, and required by the docs.
+  final SemanticsHandle handle = tester.ensureSemantics();
+  final List<Map<String, Object?>> steps = <Map<String, Object?>>[];
+  final List<Map<String, Object?>> setupSteps = <Map<String, Object?>>[];
+
+  // An app's own errors are FINDINGS, not a reason to abort the audit. A
+  // production app fires background requests that outlive a step; without
+  // this, one late async exception fails the test and discards the entire
+  // report — measured: a voucher fetch completing after the walk threw away
+  // a nine-step journey. Collect them as evidence instead.
+  final List<String> appErrors = <String>[];
+  FlutterError.onError = (FlutterErrorDetails details) {
+    appErrors.add(details.exceptionAsString());
+  };
+
+  launch();
+  // NOT pumpAndSettle: it waits out a 10-minute timeout on any app that
+  // animates continuously. This fixture does not, but the generated walker
+  // must, so the fixture exercises the same code path.
+  final bool entrySettled = await settle(
+    tester,
+    limit: const Duration(seconds: 12),
+  );
+
+  // In-test screenshots are iOS-only here. On Android,
+  // convertFlutterSurfaceToImage() + takeScreenshot() deadlocks — no error,
+  // no timeout — whenever the app embeds platform views (webview, media,
+  // camera). Measured twice on a production app. Guidelines and the
+  // semantics dump are unaffected, so the walk still measures; the host
+  // captures the visual layer with `adb exec-out screencap` instead.
+  if (_inTestScreenshots) {
+    await binding.convertFlutterSurfaceToImage();
+  }
+
+  // --- SETUP: excluded from measurement and scoring. ------------------------
+  // A gate is not the product, so these steps get no semantics dump, no
+  // guideline evaluation and no reach cost. They are recorded anyway, because
+  // a run that dies in setup must report a setup failure — reporting the steps
+  // that did run as a journey would describe a short healthy app.
+  // -------------------------------------------------------------------------
+  bool setupFailed = false;
+  for (final Step step in setup) {
+    final int i = setupSteps.length + 1;
+    final Stopwatch sw = Stopwatch()..start();
+    final StepOutcome out = await performStep(tester, step);
+    sw.stop();
+    // One screenshot, and only on failure: it is the whole evidence for "the
+    // gate is what blocked this", and a passing setup step has nothing to show.
+    final bool shot = out.status != 'OK' && _inTestScreenshots;
+    if (shot) {
+      await binding.takeScreenshot('setup_$i');
     }
+    setupSteps.add(<String, Object?>{
+      'index': i,
+      'phase': 'setup',
+      'action': step.action,
+      'target': step.target,
+      'nth': step.nth,
+      'text': _recordedText(step, out.obscured),
+      'expected': step.expected,
+      'status': out.status,
+      'error': out.error,
+      'elapsedMs': sw.elapsedMilliseconds,
+      'settled': out.settled,
+      'dispatched': out.dispatched,
+      'screenshot': shot ? 'setup_$i.png' : null,
+    });
+    if (out.status != 'OK') {
+      setupFailed = true;
+      break;
+    }
+  }
 
-    // --- SETUP: excluded from measurement and scoring. -----------------------
-    // example/journey.md declares no setup: no backend, no login.
-    // -------------------------------------------------------------------------
+  // Reach cost, counted by the thing that issues it. This is ground truth on
+  // every app shape, unlike a route-derived depth — and it is "taps on THIS
+  // journey", never "the minimum", because a minimum needs paths nobody
+  // declared, i.e. a crawl. Setup taps are not reach: the user paying them is
+  // paying for a gate, not for the task.
+  int taps = 0;
 
-    // Reach cost, counted by the thing that issues it. This is ground truth on
-    // every app shape, unlike a route-derived depth — and it is "taps on THIS
-    // journey", never "the minimum", because a minimum needs paths nobody
-    // declared, i.e. a crawl.
-    int taps = 0;
-
+  if (!setupFailed) {
     for (final Step step in journey) {
       final int i = steps.length + 1;
 
@@ -131,66 +207,30 @@ void main() {
       }
 
       final Stopwatch sw = Stopwatch()..start();
-      String status = 'OK';
-      String? error;
-      bool settled = true;
-      // Did the gesture actually go out? A step that fails while RESOLVING its
-      // target never touched the app, so "the semantics did not change" is
-      // trivially true and means nothing. Without this, every selector miss
-      // reads as a dead tap — measured on this fixture's step 3.
-      bool dispatched = false;
-      try {
-        switch (step.action) {
-          case 'type':
-            await _typeInto(tester, step.target, step.text!, step.nth);
-          case 'back':
-            // pageBack() exercises the on-screen back AFFORDANCE. It only
-            // looks for a tooltip-'Back' button or a Cupertino back button, so
-            // it also throws on a screen whose exit is a 'Close' button — a
-            // fullscreenDialog route, for one. A throw here is a DEAD-END
-            // CANDIDATE, never the evidence: read surface.canPop first.
-            await tester.pageBack();
-          case 'tap':
-            await _tapTarget(tester, step.target, step.nth);
-            // Counted AFTER it lands. _tapTarget throws when the target
-            // cannot be resolved or is off screen, and a gesture that was
-            // never dispatched is not reach cost.
-            taps++;
-          default:
-            throw StateError('unknown action "${step.action}"');
-        }
-        dispatched = true;
-        // Poll the oracle inside the bound instead of settling once and then
-        // checking. "No frame is scheduled" is not "the screen is ready": an
-        // awaiting Future schedules no frames, so a screen that renders an
-        // empty state while a request is in flight reports settled within one
-        // pump and the step then fails for the wrong reason.
-        settled = await settle(
-          tester,
-          until: () => _present(tester, step.expected),
-        );
-        _requireTarget(tester, step.expected); // the oracle
-      } catch (e) {
-        status = 'FAILED';
-        error = e.toString();
-      }
+      final StepOutcome out = await performStep(tester, step);
       sw.stop();
+      // Counted AFTER it lands. `_tapTarget` throws when the target cannot be
+      // resolved or is off screen, and a gesture that was never dispatched is
+      // not reach cost.
+      if (out.tapped) {
+        taps++;
+      }
 
       steps.add(<String, Object?>{
         'index': i,
         'action': step.action,
         'target': step.target,
         'nth': step.nth,
-        'text': step.text,
+        'text': _recordedText(step, out.obscured),
         'expected': step.expected,
-        'status': status,
-        'error': error,
+        'status': out.status,
+        'error': out.error,
         'elapsedMs': sw.elapsedMilliseconds, // EVIDENCE ONLY — never scored
-        'settled': settled,
+        'settled': out.settled,
         'tapsSoFar': taps,
         'screenshot': _inTestScreenshots ? 'step_$i.png' : null,
         'screenSig': sigBefore,
-        'dispatched': dispatched,
+        'dispatched': out.dispatched,
         // A tap that changed no semantics at all. Filled after the loop: the
         // NEXT step's dump is this step's "after", the same frame, so a second
         // tree walk here would measure it twice. NOT sufficient for a finding
@@ -245,26 +285,114 @@ void main() {
           ? steps[i]['screenSig'] == steps[i + 1]['screenSig']
           : null;
     }
+  }
 
-    handle.dispose();
-    // MUTATE, never replace: takeScreenshot appends each PNG into
-    // reportData['screenshots'], and that list is how the driver's
-    // onScreenshot gets the bytes. Assigning a fresh map here silently
-    // deletes every screenshot and the run still passes.
-    final Map<String, dynamic> report = binding.reportData ??=
-        <String, dynamic>{};
-    report['steps'] = steps;
-    // A journey whose entry screen never settles is already telling you
-    // something — record it rather than dropping it.
-    report['entrySettled'] = entrySettled;
-    report['appErrors'] = appErrors;
-    report['networkCalls'] = networkCalls;
-    report['taps'] = taps;
-    // The scope clause in the report quotes this. Without it the clause is
-    // a claim about a condition nobody recorded.
-    report['conditions'] = conditionsOf(tester);
-  });
+  handle.dispose();
+  // MUTATE, never replace: takeScreenshot appends each PNG into
+  // reportData['screenshots'], and that list is how the driver's
+  // onScreenshot gets the bytes. Assigning a fresh map here silently
+  // deletes every screenshot and the run still passes.
+  final Map<String, dynamic> report = binding.reportData ??=
+      <String, dynamic>{};
+  report['steps'] = steps;
+  // Recorded even when empty, so a reader can tell "no gate" from "the gate
+  // was never walked".
+  report['setupSteps'] = setupSteps;
+  report['setupFailed'] = setupFailed;
+  // A journey whose entry screen never settles is already telling you
+  // something — record it rather than dropping it.
+  report['entrySettled'] = entrySettled;
+  report['appErrors'] = appErrors;
+  report['networkCalls'] = networkCalls;
+  report['taps'] = taps;
+  // The scope clause in the report quotes this. Without it the clause is
+  // a claim about a condition nobody recorded.
+  report['conditions'] = conditionsOf(tester);
 }
+
+/// What one step did. `tapped` is separate from `dispatched` because only a tap
+/// is reach cost, and a `type` that dispatched is not a tap. `obscured` is true
+/// when the field typed into hides its own value — see [_recordedText].
+typedef StepOutcome = ({
+  String status,
+  String? error,
+  bool settled,
+  bool dispatched,
+  bool tapped,
+  bool obscured,
+});
+
+/// Perform one step and say what happened. **Never throws**: a failing step IS
+/// the finding, and an assertion here would also discard the report and every
+/// screenshot with it (`writeResponseOnFailure` defaults to false).
+Future<StepOutcome> performStep(WidgetTester tester, Step step) async {
+  String status = 'OK';
+  String? error;
+  bool settled = true;
+  // Did the gesture actually go out? A step that fails while RESOLVING its
+  // target never touched the app, so "the semantics did not change" is
+  // trivially true and means nothing. Without this, every selector miss
+  // reads as a dead tap — measured on this fixture's step 3.
+  bool dispatched = false;
+  bool tapped = false;
+  bool obscured = false;
+  try {
+    switch (step.action) {
+      case 'type':
+        obscured = await _typeInto(tester, step.target, step.text!, step.nth);
+      case 'back':
+        // pageBack() exercises the on-screen back AFFORDANCE. It only
+        // looks for a tooltip-'Back' button or a Cupertino back button, so
+        // it also throws on a screen whose exit is a 'Close' button — a
+        // fullscreenDialog route, for one. A throw here is a DEAD-END
+        // CANDIDATE, never the evidence: read surface.canPop first.
+        await tester.pageBack();
+      case 'tap':
+        await _tapTarget(tester, step.target, step.nth);
+        tapped = true;
+      default:
+        throw StateError('unknown action "${step.action}"');
+    }
+    dispatched = true;
+    // Poll the oracle inside the bound instead of settling once and then
+    // checking. "No frame is scheduled" is not "the screen is ready": an
+    // awaiting Future schedules no frames, so a screen that renders an
+    // empty state while a request is in flight reports settled within one
+    // pump and the step then fails for the wrong reason.
+    settled = await settle(
+      tester,
+      until: () => _present(tester, step.expected),
+    );
+    _requireTarget(tester, step.expected); // the oracle
+  } catch (e) {
+    status = 'FAILED';
+    error = e.toString();
+  }
+  return (
+    status: status,
+    error: error,
+    settled: settled,
+    dispatched: dispatched,
+    tapped: tapped,
+    obscured: obscured,
+  );
+}
+
+/// What goes in the artifact for a `type` step.
+///
+/// The typed value is NOT read back from the screen — it comes straight from the
+/// journey file — so `obscureText` does nothing to keep it out of here. Measured
+/// on this repo's own gated fixture: `not-a-real-password` landed verbatim in
+/// `example/walk-gated.json` on the first run that produced it.
+///
+/// Every journey is required to use arbitrary data, so in principle there is
+/// nothing here to protect. This exists because "in principle" is not a
+/// guarantee, and an audit artifact is the last place anyone should have to be
+/// careful. The length survives, which is all a reader needs — a re-run reads
+/// the journey file, never this.
+String? _recordedText(Step step, bool obscured) => obscured && step.text != null
+    ? '<redacted ${step.text!.length} chars: the field hides its own value>'
+    : step.text;
 
 /// Pump until the frame queue is quiet or [limit] elapses, then carry on.
 /// `pumpAndSettle` only gives up after a 10-minute default timeout, so a
@@ -321,7 +449,7 @@ Future<bool> settle(
 /// Is [needle] on screen right now? Never throws — it is a poll, not an oracle.
 bool _present(WidgetTester tester, String needle) {
   try {
-    _resolve(tester, needle);
+    resolve(tester, needle);
     return true;
   } catch (_) {
     return false;
@@ -858,7 +986,7 @@ String _norm(String s) =>
 
 /// Matches over label ∪ tooltip ∪ value (Trap 2), normalised substring, and
 /// ERRORS on ambiguity instead of silently auditing a different widget.
-Map<String, Object?> _resolve(WidgetTester tester, String needle, [int? nth]) {
+Map<String, Object?> resolve(WidgetTester tester, String needle, [int? nth]) {
   final Map<String, Object?> dump = dumpSemantics(tester);
   final String n = _norm(needle);
   final List<Map<String, Object?>> hits =
@@ -925,13 +1053,13 @@ Map<String, Object?> _resolve(WidgetTester tester, String needle, [int? nth]) {
 ///
 /// enterText needs a Finder, but the selector model is label-based, so the
 /// semantics node is mapped to its EditableText by geometry.
-Future<void> _typeInto(
+Future<bool> _typeInto(
   WidgetTester tester,
   String needle,
   String text, [
   int? nth,
 ]) async {
-  final Map<String, Object?> node = _resolve(tester, needle, nth);
+  final Map<String, Object?> node = resolve(tester, needle, nth);
   final List<double> r = node['rect']! as List<double>;
   final Rect target = Rect.fromLTWH(r[0], r[1], r[2], r[3]);
 
@@ -966,10 +1094,14 @@ Future<void> _typeInto(
     find.byElementPredicate((Element e) => e == field),
     text,
   );
+  // Asked of the widget, not of the semantics flags: `EditableText.obscureText`
+  // is the property that decides it, and reading it directly needs no guess
+  // about what `flagsCollection.toStrings()` happens to call it.
+  return (field.widget as EditableText).obscureText;
 }
 
 Future<void> _tapTarget(WidgetTester tester, String needle, [int? nth]) async {
-  final Map<String, Object?> node = _resolve(tester, needle, nth);
+  final Map<String, Object?> node = resolve(tester, needle, nth);
   if (node['tappable'] != true) {
     throw StateError('"$needle" carries no tap action');
   }
@@ -1017,4 +1149,4 @@ Future<void> _tapTarget(WidgetTester tester, String needle, [int? nth]) async {
 }
 
 void _requireTarget(WidgetTester tester, String needle) =>
-    _resolve(tester, needle);
+    resolve(tester, needle);

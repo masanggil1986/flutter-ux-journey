@@ -6,7 +6,11 @@ Future<void> main() async {
   await integrationDriver(
     onScreenshot:
         (String name, List<int> bytes, [Map<String, Object?>? args]) async {
-          final File f = File('screenshots/$name.png');
+          // ONE output root, the one SKILL.md declares. `screenshots/` — the
+      // default this file used to write — is a conventionally TRACKED
+      // directory in a Flutter app, so a walk against somebody's repo dropped
+      // their product screenshots where `git add -A` would take them.
+      final File f = File('ux-audit-out/screens/$name.png');
           f.parent.createSync(recursive: true);
           f.writeAsBytesSync(bytes);
           return true;

@@ -40,6 +40,14 @@ report.md
 # 여기서만 명시적으로 negate 한다 — 이 파일에는 데모 앱 외의 내용이 없어야 한다.
 !example/report.md
 
+# …but that negation is a hole: it switches every guard above back OFF inside
+# the demo app, so a walk run there could commit its own output. Re-assert the
+# three paths a run actually writes. Verified by CI: no tracked file is ignored,
+# and nothing a run produces is committable.
+example/ux_demo_app/ux-audit-out/
+example/ux_demo_app/screenshots/
+example/ux_demo_app/integration_test/net_stub.dart
+
 # eval 케이스는 프롬프트·픽스처·그레이더를 통째로 실어 나른다.
 # 데모 앱을 대상으로 한 케이스만 예외적으로 negate 해서 추가한다.
 evals/*
@@ -61,14 +69,6 @@ evals/*
 .netrc
 
 # ── 일반 ─────────────────────────────────────────────────────────────────
-__pycache__/
-*.py[cod]
-.venv/
-venv/
-.pytest_cache/
-.ruff_cache/
-.mypy_cache/
-
 .DS_Store
 .idea/
 .vscode/

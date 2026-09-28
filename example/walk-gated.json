@@ -1,0 +1,1344 @@
+{
+  "steps": [
+    {
+      "index": 1,
+      "action": "tap",
+      "target": "Walnut Side Table",
+      "nth": null,
+      "text": null,
+      "expected": "189,000 KRW",
+      "status": "OK",
+      "error": null,
+      "elapsedMs": 595,
+      "settled": true,
+      "tapsSoFar": 1,
+      "screenshot": "step_1.png",
+      "screenSig": "a9582ba2",
+      "dispatched": true,
+      "semanticsUnchanged": false,
+      "surface": {
+        "canPop": false,
+        "navigatorCount": 1,
+        "modalOpen": false,
+        "tappableCount": 8,
+        "coverNodes": 0,
+        "tappableAboveFold": 8
+      },
+      "semantics": {
+        "devicePixelRatio": 2.0,
+        "viewport": {
+          "textDirection": "ltr",
+          "width": 375.0,
+          "height": 667.0,
+          "devicePixelRatio": 2.0,
+          "contentTop": 20.0,
+          "padBottom": 0.0,
+          "keyboardInset": 0.0,
+          "foldY": 667.0,
+          "isTestDefault": false
+        },
+        "semanticsEnabled": true,
+        "panesPossiblyBlocked": false,
+        "nodes": [
+          {
+            "id": 0,
+            "label": "",
+            "value": "",
+            "tooltip": "",
+            "identifier": "",
+            "role": "none",
+            "flags": [],
+            "tappable": false,
+            "rect": [
+              0.0,
+              0.0,
+              375.0,
+              667.0
+            ],
+            "onScreen": true,
+            "aboveFold": true,
+            "fullyVisible": true,
+            "coversSurface": false
+          },
+          {
+            "id": 1,
+            "label": "",
+            "value": "",
+            "tooltip": "",
+            "identifier": "",
+            "role": "none",
+            "flags": [],
+            "tappable": false,
+            "rect": [
+              0.0,
+              0.0,
+              375.0,
+              667.0
+            ],
+            "onScreen": true,
+            "aboveFold": true,
+            "fullyVisible": true,
+            "coversSurface": false
+          },
+          {
+            "id": 10,
+            "label": "",
+            "value": "",
+            "tooltip": "",
+            "identifier": "",
+            "role": "none",
+            "flags": [],
+            "tappable": false,
+            "rect": [
+              0.0,
+              0.0,
+              375.0,
+              667.0
+            ],
+            "onScreen": true,
+            "aboveFold": true,
+            "fullyVisible": true,
+            "coversSurface": false
+          },
+          {
+            "id": 11,
+            "label": "",
+            "value": "",
+            "tooltip": "",
+            "identifier": "",
+            "role": "none",
+            "flags": [
+              "scopesRoute"
+            ],
+            "tappable": false,
+            "rect": [
+              0.0,
+              0.0,
+              375.0,
+              667.0
+            ],
+            "onScreen": true,
+            "aboveFold": true,
+            "fullyVisible": true,
+            "coversSurface": false
+          },
+          {
+            "id": 12,
+            "label": "",
+            "value": "",
+            "tooltip": "",
+            "identifier": "",
+            "role": "none",
+            "flags": [],
+            "tappable": false,
+            "rect": [
+              0.0,
+              76.0,
+              375.0,
+              591.0
+            ],
+            "onScreen": true,
+            "aboveFold": true,
+            "fullyVisible": true,
+            "coversSurface": false
+          },
+          {
+            "id": 26,
+            "label": "",
+            "value": "",
+            "tooltip": "",
+            "identifier": "",
+            "role": "none",
+            "flags": [
+              "hasImplicitScrolling"
+            ],
+            "tappable": false,
+            "rect": [
+              0.0,
+              76.0,
+              375.0,
+              591.0
+            ],
+            "onScreen": true,
+            "aboveFold": true,
+            "fullyVisible": true,
+            "coversSurface": false
+          },
+          {
+            "id": 13,
+            "label": "",
+            "value": "",
+            "tooltip": "",
+            "identifier": "",
+            "role": "none",
+            "flags": [],
+            "tappable": false,
+            "rect": [
+              16.0,
+              92.0,
+              343.0,
+              48.0
+            ],
+            "onScreen": true,
+            "aboveFold": true,
+            "fullyVisible": true,
+            "coversSurface": false
+          },
+          {
+            "id": 14,
+            "label": "Autumn sale — 20% off every side table",
+            "value": "",
+            "tooltip": "",
+            "identifier": "",
+            "role": "none",
+            "flags": [
+              "isFocusable"
+            ],
+            "tappable": true,
+            "rect": [
+              16.0,
+              92.0,
+              319.0,
+              48.0
+            ],
+            "onScreen": true,
+            "aboveFold": true,
+            "fullyVisible": true,
+            "coversSurface": false,
+            "effectivePct": 1.0,
+            "centreCovered": false
+          },
+          {
+            "id": 15,
+            "label": "Dismiss promotion",
+            "value": "",
+            "tooltip": "",
+            "identifier": "",
+            "role": "none",
+            "flags": [
+              "isButton"
+            ],
+            "tappable": true,
+            "rect": [
+              335.0,
+              104.0,
+              24.0,
+              24.0
+            ],
+            "onScreen": true,
+            "aboveFold": true,
+            "fullyVisible": true,
+            "coversSurface": false,
+            "effectivePct": 1.0,
+            "centreCovered": false
+          },
+          {
+            "id": 16,
+            "label": "Free returns within 14 days",
+            "value": "",
+            "tooltip": "",
+            "identifier": "",
+            "role": "none",
+            "flags": [],
+            "tappable": false,
+            "rect": [
+              16.0,
+              140.0,
+              343.0,
+              35.0
+            ],
+            "onScreen": true,
+            "aboveFold": true,
+            "fullyVisible": true,
+            "coversSurface": false
+          },
+          {
+            "id": 17,
+            "label": "",
+            "value": "",
+            "tooltip": "",
+            "identifier": "",
+            "role": "none",
+            "flags": [],
+            "tappable": false,
+            "rect": [
+              16.0,
+              175.0,
+              343.0,
+              48.0
+            ],
+            "onScreen": true,
+            "aboveFold": true,
+            "fullyVisible": true,
+            "coversSurface": false
+          },
+          {
+            "id": 18,
+            "label": "View cart (3 items)",
+            "value": "",
+            "tooltip": "",
+            "identifier": "",
+            "role": "none",
+            "flags": [
+              "isButton",
+              "hasEnabledState",
+              "isEnabled",
+              "isFocusable"
+            ],
+            "tappable": true,
+            "rect": [
+              16.0,
+              175.0,
+              343.0,
+              48.0
+            ],
+            "onScreen": true,
+            "aboveFold": true,
+            "fullyVisible": true,
+            "coversSurface": false,
+            "effectivePct": 1.0,
+            "centreCovered": false
+          },
+          {
+            "id": 19,
+            "label": "",
+            "value": "",
+            "tooltip": "",
+            "identifier": "",
+            "role": "none",
+            "flags": [],
+            "tappable": false,
+            "rect": [
+              16.0,
+              223.0,
+              343.0,
+              16.0
+            ],
+            "onScreen": true,
+            "aboveFold": true,
+            "fullyVisible": true,
+            "coversSurface": false
+          },
+          {
+            "id": 20,
+            "label": "",
+            "value": "",
+            "tooltip": "",
+            "identifier": "",
+            "role": "none",
+            "flags": [],
+            "tappable": false,
+            "rect": [
+              16.0,
+              239.0,
+              343.0,
+              108.0
+            ],
+            "onScreen": true,
+            "aboveFold": true,
+            "fullyVisible": true,
+            "coversSurface": false
+          },
+          {
+            "id": 21,
+            "label": "Walnut Side Table\n189,000 KRW\nOnly 2 left",
+            "value": "",
+            "tooltip": "",
+            "identifier": "",
+            "role": "none",
+            "flags": [
+              "isFocusable"
+            ],
+            "tappable": true,
+            "rect": [
+              16.0,
+              239.0,
+              343.0,
+              108.0
+            ],
+            "onScreen": true,
+            "aboveFold": true,
+            "fullyVisible": true,
+            "coversSurface": false,
+            "effectivePct": 1.0,
+            "centreCovered": false
+          },
+          {
+            "id": 22,
+            "label": "",
+            "value": "",
+            "tooltip": "",
+            "identifier": "",
+            "role": "none",
+            "flags": [],
+            "tappable": false,
+            "rect": [
+              16.0,
+              347.0,
+              343.0,
+              108.0
+            ],
+            "onScreen": true,
+            "aboveFold": true,
+            "fullyVisible": true,
+            "coversSurface": false
+          },
+          {
+            "id": 23,
+            "label": "Oak Side Table\n164,000 KRW\nIn stock",
+            "value": "",
+            "tooltip": "",
+            "identifier": "",
+            "role": "none",
+            "flags": [
+              "isFocusable"
+            ],
+            "tappable": true,
+            "rect": [
+              16.0,
+              347.0,
+              343.0,
+              108.0
+            ],
+            "onScreen": true,
+            "aboveFold": true,
+            "fullyVisible": true,
+            "coversSurface": false,
+            "effectivePct": 1.0,
+            "centreCovered": false
+          },
+          {
+            "id": 24,
+            "label": "",
+            "value": "",
+            "tooltip": "",
+            "identifier": "",
+            "role": "none",
+            "flags": [],
+            "tappable": false,
+            "rect": [
+              16.0,
+              455.0,
+              343.0,
+              108.0
+            ],
+            "onScreen": true,
+            "aboveFold": true,
+            "fullyVisible": true,
+            "coversSurface": false
+          },
+          {
+            "id": 25,
+            "label": "Linen Floor Cushion\n72,000 KRW\nIn stock",
+            "value": "",
+            "tooltip": "",
+            "identifier": "",
+            "role": "none",
+            "flags": [
+              "isFocusable"
+            ],
+            "tappable": true,
+            "rect": [
+              16.0,
+              455.0,
+              343.0,
+              108.0
+            ],
+            "onScreen": true,
+            "aboveFold": true,
+            "fullyVisible": true,
+            "coversSurface": false,
+            "effectivePct": 1.0,
+            "centreCovered": false
+          },
+          {
+            "id": 27,
+            "label": "",
+            "value": "",
+            "tooltip": "",
+            "identifier": "",
+            "role": "none",
+            "flags": [],
+            "tappable": false,
+            "rect": [
+              0.0,
+              0.0,
+              375.0,
+              76.0
+            ],
+            "onScreen": true,
+            "aboveFold": true,
+            "fullyVisible": true,
+            "coversSurface": false
+          },
+          {
+            "id": 28,
+            "label": "Saved items",
+            "value": "",
+            "tooltip": "",
+            "identifier": "",
+            "role": "none",
+            "flags": [
+              "isHeader"
+            ],
+            "tappable": false,
+            "rect": [
+              16.0,
+              34.0,
+              112.2666015625,
+              28.0
+            ],
+            "onScreen": true,
+            "aboveFold": true,
+            "fullyVisible": true,
+            "coversSurface": false
+          },
+          {
+            "id": 29,
+            "label": "",
+            "value": "",
+            "tooltip": "",
+            "identifier": "",
+            "role": "none",
+            "flags": [
+              "isButton",
+              "hasEnabledState",
+              "isEnabled",
+              "isFocusable"
+            ],
+            "tappable": true,
+            "rect": [
+              279.0,
+              24.0,
+              48.0,
+              48.0
+            ],
+            "onScreen": true,
+            "aboveFold": true,
+            "fullyVisible": true,
+            "coversSurface": false,
+            "effectivePct": 1.0,
+            "centreCovered": false
+          },
+          {
+            "id": 30,
+            "label": "",
+            "value": "",
+            "tooltip": "Sort",
+            "identifier": "",
+            "role": "none",
+            "flags": [
+              "isButton",
+              "hasEnabledState",
+              "isEnabled",
+              "isFocusable"
+            ],
+            "tappable": true,
+            "rect": [
+              327.0,
+              24.0,
+              48.0,
+              48.0
+            ],
+            "onScreen": true,
+            "aboveFold": true,
+            "fullyVisible": true,
+            "coversSurface": false,
+            "effectivePct": 1.0,
+            "centreCovered": false
+          }
+        ]
+      },
+      "guidelines": [
+        {
+          "guideline": "Tappable objects should be at least Size(44.0, 44.0)",
+          "passed": false,
+          "reason": "SemanticsNode#15(Rect.fromLTRB(319.0, 12.0, 343.0, 36.0), actions: [tap], flags: [isButton], label: \"Dismiss promotion\", textDirection: ltr): expected tap target size of at least Size(44.0, 44.0), but found Size(24.0, 24.0)\nSee also: https://developer.apple.com/design/human-interface-guidelines/ios/visual-design/adaptivity-and-layout/\n\n\n\n\n\n\n"
+        },
+        {
+          "guideline": "Tappable objects should be at least Size(48.0, 48.0)",
+          "passed": false,
+          "reason": "SemanticsNode#15(Rect.fromLTRB(319.0, 12.0, 343.0, 36.0), actions: [tap], flags: [isButton], label: \"Dismiss promotion\", textDirection: ltr): expected tap target size of at least Size(48.0, 48.0), but found Size(24.0, 24.0)\nSee also: https://support.google.com/accessibility/android/answer/7101858?hl=en\n\n\n\n\n\n\n"
+        },
+        {
+          "guideline": "Text contrast should follow WCAG guidelines",
+          "passed": false,
+          "reason": "SemanticsNode#16(Rect.fromLTRB(16.0, 64.0, 359.0, 99.0), tags: [RenderViewport.twoPane], label: \"Free returns within 14 days\", textDirection: ltr, indexInParent: 1):\nExpected contrast ratio of at least 4.5 but found 1.03 for a font size of 13.0.\nThe computed colors was:\nlight - Color(alpha: 1.0000, red: 1.0000, green: 1.0000, blue: 1.0000, colorSpace: ColorSpace.sRGB), dark - Color(alpha: 1.0000, red: 0.9882, green: 0.9882, blue: 0.9882, colorSpace: ColorSpace.sRGB)\nSee also: https://www.w3.org/TR/UNDERSTANDING-WCAG20/visual-audio-contrast-contrast.html\n\n\n\n\n\n"
+        },
+        {
+          "guideline": "Tappable widgets should have a semantic label",
+          "passed": false,
+          "reason": "SemanticsNode#29(Rect.fromLTRB(279.0, 24.0, 327.0, 72.0), actions: [tap], flags: [isButton, hasEnabledState, isEnabled, isFocusable]): expected tappable node to have semantic label, but none was found.\n"
+        }
+      ]
+    },
+    {
+      "index": 2,
+      "action": "tap",
+      "target": "Remove from list",
+      "nth": null,
+      "text": null,
+      "expected": "Cancel",
+      "status": "FAILED",
+      "error": "Bad state: no semantics node matches \"Cancel\"",
+      "elapsedMs": 5031,
+      "settled": false,
+      "tapsSoFar": 2,
+      "screenshot": "step_2.png",
+      "screenSig": "4ddc18db",
+      "dispatched": true,
+      "semanticsUnchanged": false,
+      "surface": {
+        "canPop": true,
+        "navigatorCount": 1,
+        "modalOpen": false,
+        "tappableCount": 2,
+        "coverNodes": 0,
+        "tappableAboveFold": 2
+      },
+      "semantics": {
+        "devicePixelRatio": 2.0,
+        "viewport": {
+          "textDirection": "ltr",
+          "width": 375.0,
+          "height": 667.0,
+          "devicePixelRatio": 2.0,
+          "contentTop": 20.0,
+          "padBottom": 0.0,
+          "keyboardInset": 0.0,
+          "foldY": 667.0,
+          "isTestDefault": false
+        },
+        "semanticsEnabled": true,
+        "panesPossiblyBlocked": false,
+        "nodes": [
+          {
+            "id": 0,
+            "label": "",
+            "value": "",
+            "tooltip": "",
+            "identifier": "",
+            "role": "none",
+            "flags": [],
+            "tappable": false,
+            "rect": [
+              0.0,
+              0.0,
+              375.0,
+              667.0
+            ],
+            "onScreen": true,
+            "aboveFold": true,
+            "fullyVisible": true,
+            "coversSurface": false
+          },
+          {
+            "id": 1,
+            "label": "",
+            "value": "",
+            "tooltip": "",
+            "identifier": "",
+            "role": "none",
+            "flags": [],
+            "tappable": false,
+            "rect": [
+              0.0,
+              0.0,
+              375.0,
+              667.0
+            ],
+            "onScreen": true,
+            "aboveFold": true,
+            "fullyVisible": true,
+            "coversSurface": false
+          },
+          {
+            "id": 31,
+            "label": "",
+            "value": "",
+            "tooltip": "",
+            "identifier": "",
+            "role": "none",
+            "flags": [],
+            "tappable": false,
+            "rect": [
+              0.0,
+              0.0,
+              375.0,
+              667.0
+            ],
+            "onScreen": true,
+            "aboveFold": true,
+            "fullyVisible": true,
+            "coversSurface": false
+          },
+          {
+            "id": 32,
+            "label": "",
+            "value": "",
+            "tooltip": "",
+            "identifier": "",
+            "role": "none",
+            "flags": [
+              "scopesRoute"
+            ],
+            "tappable": false,
+            "rect": [
+              0.0,
+              0.0,
+              375.0,
+              667.0
+            ],
+            "onScreen": true,
+            "aboveFold": true,
+            "fullyVisible": true,
+            "coversSurface": false
+          },
+          {
+            "id": 33,
+            "label": "189,000 KRW",
+            "value": "",
+            "tooltip": "",
+            "identifier": "",
+            "role": "none",
+            "flags": [],
+            "tappable": false,
+            "rect": [
+              16.0,
+              92.0,
+              144.08203125,
+              32.0
+            ],
+            "onScreen": true,
+            "aboveFold": true,
+            "fullyVisible": true,
+            "coversSurface": false
+          },
+          {
+            "id": 34,
+            "label": "Solid walnut, oil finish. 45 x 45 x 50 cm.",
+            "value": "",
+            "tooltip": "",
+            "identifier": "",
+            "role": "none",
+            "flags": [],
+            "tappable": false,
+            "rect": [
+              16.0,
+              132.0,
+              273.013671875,
+              20.0
+            ],
+            "onScreen": true,
+            "aboveFold": true,
+            "fullyVisible": true,
+            "coversSurface": false
+          },
+          {
+            "id": 35,
+            "label": "Remove from list",
+            "value": "",
+            "tooltip": "",
+            "identifier": "",
+            "role": "none",
+            "flags": [
+              "isButton",
+              "hasEnabledState",
+              "isEnabled",
+              "isFocusable"
+            ],
+            "tappable": true,
+            "rect": [
+              16.0,
+              603.0,
+              343.0,
+              48.0
+            ],
+            "onScreen": true,
+            "aboveFold": true,
+            "fullyVisible": true,
+            "coversSurface": false,
+            "effectivePct": 1.0,
+            "centreCovered": false
+          },
+          {
+            "id": 36,
+            "label": "",
+            "value": "",
+            "tooltip": "",
+            "identifier": "",
+            "role": "none",
+            "flags": [],
+            "tappable": false,
+            "rect": [
+              0.0,
+              0.0,
+              375.0,
+              76.0
+            ],
+            "onScreen": true,
+            "aboveFold": true,
+            "fullyVisible": true,
+            "coversSurface": false
+          },
+          {
+            "id": 37,
+            "label": "",
+            "value": "",
+            "tooltip": "Back",
+            "identifier": "",
+            "role": "none",
+            "flags": [
+              "isButton",
+              "hasEnabledState",
+              "isEnabled",
+              "isFocusable"
+            ],
+            "tappable": true,
+            "rect": [
+              4.0,
+              24.0,
+              48.0,
+              48.0
+            ],
+            "onScreen": true,
+            "aboveFold": true,
+            "fullyVisible": true,
+            "coversSurface": false,
+            "effectivePct": 1.0,
+            "centreCovered": false
+          },
+          {
+            "id": 38,
+            "label": "Walnut Side Table",
+            "value": "",
+            "tooltip": "",
+            "identifier": "",
+            "role": "none",
+            "flags": [
+              "isHeader"
+            ],
+            "tappable": false,
+            "rect": [
+              105.9560546875,
+              34.0,
+              163.087890625,
+              28.0
+            ],
+            "onScreen": true,
+            "aboveFold": true,
+            "fullyVisible": true,
+            "coversSurface": false
+          }
+        ]
+      },
+      "guidelines": [
+        {
+          "guideline": "Tappable objects should be at least Size(44.0, 44.0)",
+          "passed": true,
+          "reason": null
+        },
+        {
+          "guideline": "Tappable objects should be at least Size(48.0, 48.0)",
+          "passed": true,
+          "reason": null
+        },
+        {
+          "guideline": "Text contrast should follow WCAG guidelines",
+          "passed": true,
+          "reason": null
+        },
+        {
+          "guideline": "Tappable widgets should have a semantic label",
+          "passed": true,
+          "reason": null
+        }
+      ]
+    },
+    {
+      "index": 3,
+      "action": "tap",
+      "target": "Back",
+      "nth": null,
+      "text": null,
+      "expected": "Saved items",
+      "status": "FAILED",
+      "error": "Bad state: no semantics node matches \"Back\"",
+      "elapsedMs": 1,
+      "settled": true,
+      "tapsSoFar": 2,
+      "screenshot": "step_3.png",
+      "screenSig": "3afe0168",
+      "dispatched": false,
+      "semanticsUnchanged": null,
+      "surface": {
+        "canPop": false,
+        "navigatorCount": 1,
+        "modalOpen": false,
+        "tappableCount": 0,
+        "coverNodes": 0,
+        "tappableAboveFold": 0
+      },
+      "semantics": {
+        "devicePixelRatio": 2.0,
+        "viewport": {
+          "textDirection": "ltr",
+          "width": 375.0,
+          "height": 667.0,
+          "devicePixelRatio": 2.0,
+          "contentTop": 20.0,
+          "padBottom": 0.0,
+          "keyboardInset": 0.0,
+          "foldY": 667.0,
+          "isTestDefault": false
+        },
+        "semanticsEnabled": true,
+        "panesPossiblyBlocked": false,
+        "nodes": [
+          {
+            "id": 0,
+            "label": "",
+            "value": "",
+            "tooltip": "",
+            "identifier": "",
+            "role": "none",
+            "flags": [],
+            "tappable": false,
+            "rect": [
+              0.0,
+              0.0,
+              375.0,
+              667.0
+            ],
+            "onScreen": true,
+            "aboveFold": true,
+            "fullyVisible": true,
+            "coversSurface": false
+          },
+          {
+            "id": 1,
+            "label": "",
+            "value": "",
+            "tooltip": "",
+            "identifier": "",
+            "role": "none",
+            "flags": [],
+            "tappable": false,
+            "rect": [
+              0.0,
+              0.0,
+              375.0,
+              667.0
+            ],
+            "onScreen": true,
+            "aboveFold": true,
+            "fullyVisible": true,
+            "coversSurface": false
+          },
+          {
+            "id": 39,
+            "label": "",
+            "value": "",
+            "tooltip": "",
+            "identifier": "",
+            "role": "none",
+            "flags": [],
+            "tappable": false,
+            "rect": [
+              0.0,
+              0.0,
+              375.0,
+              667.0
+            ],
+            "onScreen": true,
+            "aboveFold": true,
+            "fullyVisible": true,
+            "coversSurface": false
+          },
+          {
+            "id": 40,
+            "label": "",
+            "value": "",
+            "tooltip": "",
+            "identifier": "",
+            "role": "none",
+            "flags": [
+              "scopesRoute"
+            ],
+            "tappable": false,
+            "rect": [
+              0.0,
+              0.0,
+              375.0,
+              667.0
+            ],
+            "onScreen": true,
+            "aboveFold": true,
+            "fullyVisible": true,
+            "coversSurface": false
+          },
+          {
+            "id": 41,
+            "label": "Removed from your list",
+            "value": "",
+            "tooltip": "",
+            "identifier": "",
+            "role": "none",
+            "flags": [],
+            "tappable": false,
+            "rect": [
+              108.7822265625,
+              391.5,
+              157.435546875,
+              20.0
+            ],
+            "onScreen": true,
+            "aboveFold": true,
+            "fullyVisible": true,
+            "coversSurface": false
+          },
+          {
+            "id": 42,
+            "label": "",
+            "value": "",
+            "tooltip": "",
+            "identifier": "",
+            "role": "none",
+            "flags": [],
+            "tappable": false,
+            "rect": [
+              0.0,
+              0.0,
+              375.0,
+              76.0
+            ],
+            "onScreen": true,
+            "aboveFold": true,
+            "fullyVisible": true,
+            "coversSurface": false
+          },
+          {
+            "id": 43,
+            "label": "Removed",
+            "value": "",
+            "tooltip": "",
+            "identifier": "",
+            "role": "none",
+            "flags": [
+              "isHeader"
+            ],
+            "tappable": false,
+            "rect": [
+              143.994140625,
+              34.0,
+              87.01171875,
+              28.0
+            ],
+            "onScreen": true,
+            "aboveFold": true,
+            "fullyVisible": true,
+            "coversSurface": false
+          }
+        ]
+      },
+      "guidelines": [
+        {
+          "guideline": "Tappable objects should be at least Size(44.0, 44.0)",
+          "passed": true,
+          "reason": null
+        },
+        {
+          "guideline": "Tappable objects should be at least Size(48.0, 48.0)",
+          "passed": true,
+          "reason": null
+        },
+        {
+          "guideline": "Text contrast should follow WCAG guidelines",
+          "passed": true,
+          "reason": null
+        },
+        {
+          "guideline": "Tappable widgets should have a semantic label",
+          "passed": true,
+          "reason": null
+        }
+      ]
+    },
+    {
+      "index": 4,
+      "action": "outcome",
+      "target": null,
+      "text": null,
+      "expected": null,
+      "status": "OK",
+      "error": null,
+      "elapsedMs": 0,
+      "settled": true,
+      "tapsSoFar": 2,
+      "screenshot": "step_4.png",
+      "screenSig": "3afe0168",
+      "dispatched": false,
+      "semanticsUnchanged": null,
+      "surface": {
+        "canPop": false,
+        "navigatorCount": 1,
+        "modalOpen": false,
+        "tappableCount": 0,
+        "coverNodes": 0,
+        "tappableAboveFold": 0
+      },
+      "semantics": {
+        "devicePixelRatio": 2.0,
+        "viewport": {
+          "textDirection": "ltr",
+          "width": 375.0,
+          "height": 667.0,
+          "devicePixelRatio": 2.0,
+          "contentTop": 20.0,
+          "padBottom": 0.0,
+          "keyboardInset": 0.0,
+          "foldY": 667.0,
+          "isTestDefault": false
+        },
+        "semanticsEnabled": true,
+        "panesPossiblyBlocked": false,
+        "nodes": [
+          {
+            "id": 0,
+            "label": "",
+            "value": "",
+            "tooltip": "",
+            "identifier": "",
+            "role": "none",
+            "flags": [],
+            "tappable": false,
+            "rect": [
+              0.0,
+              0.0,
+              375.0,
+              667.0
+            ],
+            "onScreen": true,
+            "aboveFold": true,
+            "fullyVisible": true,
+            "coversSurface": false
+          },
+          {
+            "id": 1,
+            "label": "",
+            "value": "",
+            "tooltip": "",
+            "identifier": "",
+            "role": "none",
+            "flags": [],
+            "tappable": false,
+            "rect": [
+              0.0,
+              0.0,
+              375.0,
+              667.0
+            ],
+            "onScreen": true,
+            "aboveFold": true,
+            "fullyVisible": true,
+            "coversSurface": false
+          },
+          {
+            "id": 39,
+            "label": "",
+            "value": "",
+            "tooltip": "",
+            "identifier": "",
+            "role": "none",
+            "flags": [],
+            "tappable": false,
+            "rect": [
+              0.0,
+              0.0,
+              375.0,
+              667.0
+            ],
+            "onScreen": true,
+            "aboveFold": true,
+            "fullyVisible": true,
+            "coversSurface": false
+          },
+          {
+            "id": 40,
+            "label": "",
+            "value": "",
+            "tooltip": "",
+            "identifier": "",
+            "role": "none",
+            "flags": [
+              "scopesRoute"
+            ],
+            "tappable": false,
+            "rect": [
+              0.0,
+              0.0,
+              375.0,
+              667.0
+            ],
+            "onScreen": true,
+            "aboveFold": true,
+            "fullyVisible": true,
+            "coversSurface": false
+          },
+          {
+            "id": 41,
+            "label": "Removed from your list",
+            "value": "",
+            "tooltip": "",
+            "identifier": "",
+            "role": "none",
+            "flags": [],
+            "tappable": false,
+            "rect": [
+              108.7822265625,
+              391.5,
+              157.435546875,
+              20.0
+            ],
+            "onScreen": true,
+            "aboveFold": true,
+            "fullyVisible": true,
+            "coversSurface": false
+          },
+          {
+            "id": 42,
+            "label": "",
+            "value": "",
+            "tooltip": "",
+            "identifier": "",
+            "role": "none",
+            "flags": [],
+            "tappable": false,
+            "rect": [
+              0.0,
+              0.0,
+              375.0,
+              76.0
+            ],
+            "onScreen": true,
+            "aboveFold": true,
+            "fullyVisible": true,
+            "coversSurface": false
+          },
+          {
+            "id": 43,
+            "label": "Removed",
+            "value": "",
+            "tooltip": "",
+            "identifier": "",
+            "role": "none",
+            "flags": [
+              "isHeader"
+            ],
+            "tappable": false,
+            "rect": [
+              143.994140625,
+              34.0,
+              87.01171875,
+              28.0
+            ],
+            "onScreen": true,
+            "aboveFold": true,
+            "fullyVisible": true,
+            "coversSurface": false
+          }
+        ]
+      },
+      "guidelines": [
+        {
+          "guideline": "Tappable objects should be at least Size(44.0, 44.0)",
+          "passed": true,
+          "reason": null
+        },
+        {
+          "guideline": "Tappable objects should be at least Size(48.0, 48.0)",
+          "passed": true,
+          "reason": null
+        },
+        {
+          "guideline": "Text contrast should follow WCAG guidelines",
+          "passed": true,
+          "reason": null
+        },
+        {
+          "guideline": "Tappable widgets should have a semantic label",
+          "passed": true,
+          "reason": null
+        }
+      ]
+    }
+  ],
+  "setupSteps": [
+    {
+      "index": 1,
+      "phase": "setup",
+      "action": "type",
+      "target": "Email address",
+      "nth": null,
+      "text": "ux-audit@example.invalid",
+      "expected": "Password",
+      "status": "OK",
+      "error": null,
+      "elapsedMs": 1314,
+      "settled": true,
+      "dispatched": true,
+      "screenshot": null
+    },
+    {
+      "index": 2,
+      "phase": "setup",
+      "action": "type",
+      "target": "Password",
+      "nth": null,
+      "text": "<redacted 19 chars: the field hides its own value>",
+      "expected": "Sign in",
+      "status": "OK",
+      "error": null,
+      "elapsedMs": 1261,
+      "settled": true,
+      "dispatched": true,
+      "screenshot": null
+    },
+    {
+      "index": 3,
+      "phase": "setup",
+      "action": "tap",
+      "target": "Sign in",
+      "nth": null,
+      "text": null,
+      "expected": "Saved items",
+      "status": "OK",
+      "error": null,
+      "elapsedMs": 654,
+      "settled": true,
+      "dispatched": true,
+      "screenshot": null
+    }
+  ],
+  "setupFailed": false,
+  "entrySettled": true,
+  "appErrors": [],
+  "networkCalls": [
+    "/session",
+    "/auth/login"
+  ],
+  "taps": 2,
+  "conditions": {
+    "platform": "ios",
+    "platformVersion": "Version 18.6 (Build 22G86)",
+    "platformBrightness": "light",
+    "textScaleFactor": 1.0,
+    "locale": "en-US",
+    "boldText": false,
+    "highContrast": false,
+    "invertColors": false,
+    "reduceMotion": false,
+    "disableAnimations": false,
+    "accessibleNavigation": false
+  }
+}
