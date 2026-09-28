@@ -486,6 +486,81 @@ Future<List<Map<String, Object?>>> _evaluateGuidelines(
 // Viewport — where the fold is
 // ---------------------------------------------------------------------------
 
+/// The screen the walk is measured on.
+///
+/// Under `flutter drive` the device supplies all of this. Under `flutter test`
+/// nothing does — the view is Flutter's hardcoded 800x600 @ 3.0, which is no
+/// device — so the journey has to declare it, in `## Device`.
+typedef DeviceProfile = ({
+  String name,
+  Size physicalSize, // physical px, as a real view reports it
+  double devicePixelRatio,
+  double padTop, // physical px; contentTop = padTop / devicePixelRatio
+  double padBottom,
+  TargetPlatform targetPlatform,
+});
+
+/// iPhone SE (3rd gen). The ONLY preset that ships, because it is the only one
+/// whose every field is reproduced by a committed artifact —
+/// `example/walk.json`, measured on that simulator: 375x667 logical, dpr 2.0,
+/// contentTop 20.0, padBottom 0.0 (the SE has a home button, so its bottom
+/// padding really is zero).
+///
+/// `pixel-6` and `ipad-13` are NOT here. CLAUDE.md records their size, dpr and
+/// foldY, but not their `contentTop`, and inventing a status-bar height is
+/// exactly the kind of unmeasured number this tool exists to refuse. They ship
+/// after one calibration run each; until then a journey names explicit numbers.
+const DeviceProfile kIphoneSe = (
+  name: 'iphone-se',
+  physicalSize: Size(750, 1334),
+  devicePixelRatio: 2.0,
+  padTop: 40.0,
+  padBottom: 0.0,
+  targetPlatform: TargetPlatform.iOS,
+);
+
+/// Resolve a `## Device` preset name.
+///
+/// Throws on an unknown name rather than substituting a default: a report
+/// measured at a screen size nobody asked for, with nothing in the artifact
+/// saying so, is worse than no report.
+DeviceProfile deviceProfileByName(String name) {
+  const Map<String, DeviceProfile> presets = <String, DeviceProfile>{
+    'iphone-se': kIphoneSe,
+  };
+  final DeviceProfile? found = presets[name];
+  if (found == null) {
+    throw ArgumentError.value(
+      name,
+      'name',
+      'unknown device preset — known: ${presets.keys.join(", ")}. '
+          'Declare explicit numbers in `## Device` instead, e.g. '
+          '"375x667 @2.0 contentTop 20 padBottom 0".',
+    );
+  }
+  return found;
+}
+
+/// How `conditions.deviceProfile` names the screen this run used.
+///
+/// A run on the fallback is not a problem; a run on the fallback that the
+/// artifact does not admit to is, because the report's scope clause would then
+/// assert a fold line for a screen nobody chose.
+String deviceProfileLabel(DeviceProfile d, {required bool declared}) =>
+    declared ? d.name : '${d.name} (default, not declared)';
+
+/// Make the test view look like [d]. The caller owns `tester.view.reset()`.
+void applyDevice(WidgetTester tester, DeviceProfile d) {
+  tester.view.physicalSize = d.physicalSize;
+  tester.view.devicePixelRatio = d.devicePixelRatio;
+  final FakeViewPadding pad = FakeViewPadding(
+    top: d.padTop,
+    bottom: d.padBottom,
+  );
+  tester.view.padding = pad;
+  tester.view.viewPadding = pad;
+}
+
 /// The usable surface, in logical px.
 ///
 /// `view.physicalSize` is the WHOLE display: it includes the status bar, the

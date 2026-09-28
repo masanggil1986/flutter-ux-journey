@@ -7,6 +7,18 @@ App: `example/ux_demo_app`. No backend and no login, so there is no `## Setup` b
 opens straight onto step 1. [`journey-gated.md`](journey-gated.md) walks these same three steps
 behind a sign-in gate, which is where `## Setup` and the network stub are exercised.
 
+## Device
+
+`iphone-se` — 375x667 @2.0, the iPhone SE (3rd gen) simulator `walk.json` was measured on.
+
+Under `flutter drive` the device supplies this and the section is ignored. Under `flutter test`
+nothing does, so leaving it out makes the walk fall back to `iphone-se` and record
+`deviceProfile: "iphone-se (default, not declared)"` — the report's scope clause quotes that
+rather than asserting a screen nobody chose.
+
+Only `iphone-se` ships as a preset. For anything else, name the numbers:
+`375x667 @2.0 contentTop 20 padBottom 0`.
+
 ## Steps
 
 1. tap "Walnut Side Table" — expect "189,000 KRW"

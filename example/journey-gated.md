@@ -18,6 +18,10 @@ asked for and none is used** — the stub in `integration_test/gate_stub.dart` a
 from inside the test process, so nothing leaves the device. If a shape in that stub is wrong, a setup
 step fails and the run stops and says so; the fix is the route table, never a real account.
 
+## Device
+
+`iphone-se` — the same screen [`journey.md`](journey.md) walks, so the two runs are comparable.
+
 ## Steps
 
 1. tap "Walnut Side Table" — expect "189,000 KRW"

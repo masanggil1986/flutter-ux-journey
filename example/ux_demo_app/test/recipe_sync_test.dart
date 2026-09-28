@@ -12,7 +12,9 @@ import '../integration_test/gated_journey_test.dart'
     as gated
     show journey, setup;
 // Both journey files export `journey`, so both imports are prefixed.
-import '../integration_test/ux_journey_test.dart' as walker show Step, journey;
+import '../integration_test/ux_journey_test.dart'
+    as walker
+    show Step, journey, kIphoneSe;
 
 const String _recipe = '../../skills/flutter-ux-journey/references/walking.md';
 const String _walker = 'integration_test/ux_journey_test.dart';
@@ -225,6 +227,31 @@ void main() {
     // the match is on the prefix.
     _pin('journey-gated.md ## Setup', _numbered(md, 'Setup'), gated.setup);
     _pin('journey-gated.md ## Steps', _numbered(md, 'Steps'), gated.journey);
+  });
+
+  test('both journey files declare the device the walker applies', () {
+    for (final String path in <String>[_journey, _gatedJourney]) {
+      final File file = File(path);
+      if (!file.existsSync()) {
+        markTestSkipped('$path not present — running outside the repo');
+        continue;
+      }
+      final String md = file.readAsStringSync();
+      expect(
+        md,
+        contains('## Device'),
+        reason:
+            '$path has no `## Device`: under `flutter test` nothing else '
+            'supplies the viewport and every fold column comes out blank',
+      );
+      // The section must name a preset the walker can actually resolve, or the
+      // document describes a run that cannot happen.
+      expect(
+        md.contains('`${walker.kIphoneSe.name}`'),
+        isTrue,
+        reason: '$path names a preset that is not `${walker.kIphoneSe.name}`',
+      );
+    }
   });
 
   test('network-stub.md carries a template that is known to compile', () {

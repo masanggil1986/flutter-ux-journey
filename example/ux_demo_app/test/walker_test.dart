@@ -17,16 +17,20 @@ import 'package:ux_demo_app/main.dart';
 
 import '../integration_test/ux_journey_test.dart'
     show
+        applyDevice,
         areaOf,
+        conditionsOf,
         coversPoint,
+        deviceProfileByName,
+        deviceProfileLabel,
         dumpSemantics,
         hasSiblingNavigators,
         journey,
+        kIphoneSe,
         performStep,
         recordedText,
         resolve,
         routeState,
-        conditionsOf,
         screenSignature,
         settle,
         StepOutcome,
@@ -1264,6 +1268,49 @@ void main() {
       );
     });
   });
+  group('applyDevice — the viewport the device used to supply', () {
+    testWidgets('iphone-se reproduces the committed simulator viewport', (
+      WidgetTester tester,
+    ) async {
+      applyDevice(tester, kIphoneSe);
+      addTearDown(tester.view.reset);
+      await tester.pumpWidget(const UxDemoApp());
+      final Map<String, Object?> v = viewportOf(tester);
+      // These are example/walk.json's own numbers, measured on an iPhone SE
+      // (3rd gen) simulator. A preset that does not reproduce them is not a
+      // preset, it is a guess.
+      expect(v['width'], 375.0);
+      expect(v['height'], 667.0);
+      expect(v['devicePixelRatio'], 2.0);
+      expect(v['contentTop'], 20.0);
+      expect(v['padBottom'], 0.0);
+      expect(v['foldY'], 667.0);
+      expect(v['isTestDefault'], isFalse);
+    });
+
+    test('an undeclared device is labelled as one', () {
+      // Review Focus 5: running on a default is fine; running on a default the
+      // artifact does not admit to is not. The report's scope clause quotes
+      // this string, so the difference has to survive into it.
+      expect(deviceProfileLabel(kIphoneSe, declared: true), 'iphone-se');
+      expect(
+        deviceProfileLabel(kIphoneSe, declared: false),
+        'iphone-se (default, not declared)',
+      );
+    });
+
+    test('an unknown preset name throws instead of quietly substituting one', () {
+      // Review Focus 1: falling back would hand the reader a report measured at
+      // a screen size they never asked for, with nothing in the artifact
+      // saying so.
+      expect(
+        () => deviceProfileByName('pixel-6'),
+        throwsA(isA<ArgumentError>()),
+      );
+      expect(deviceProfileByName('iphone-se'), kIphoneSe);
+    });
+  });
+
   group('walkJourney — the two injection points', () {
     testWidgets('a shot that throws costs that step its image, not the walk', (
       WidgetTester tester,
