@@ -77,3 +77,4 @@ evals/*
 # 로컬 에이전트 도구 상태
 .code-review-graph/
 .remember/
+.superpowers/
