@@ -126,7 +126,9 @@ class _ListScreenState extends State<ListScreen> {
             child: InkWell(
               onTap: () {},
               child: const Padding(
-                padding: EdgeInsets.symmetric(vertical: 14), // 48dp tall: not a defect
+                padding: EdgeInsets.symmetric(
+                  vertical: 14,
+                ), // 48dp tall: not a defect
                 child: Text('Autumn sale — 20% off every side table'),
               ),
             ),
@@ -161,9 +163,9 @@ class _ListScreenState extends State<ListScreen> {
     return Card(
       margin: const EdgeInsets.only(bottom: 12),
       child: InkWell(
-        onTap: () => Navigator.of(
-          context,
-        ).push(MaterialPageRoute<void>(builder: (_) => DetailScreen(p))),
+        onTap: () =>
+            Navigator.of(context)
+                .push(MaterialPageRoute<void>(builder: (_) => DetailScreen(p))),
         child: Padding(
           padding: const EdgeInsets.all(16),
           child: Column(
@@ -215,7 +217,9 @@ class DetailScreen extends StatelessWidget {
                 onPressed: () {
                   products.remove(product);
                   Navigator.of(context).pushAndRemoveUntil(
-                    MaterialPageRoute<void>(builder: (_) => const RemovedScreen()),
+                    MaterialPageRoute<void>(
+                      builder: (_) => const RemovedScreen(),
+                    ),
                     (Route<void> route) => false,
                   );
                 },

@@ -31,14 +31,20 @@ const _watchedWidgets = {
   'TextField',
 };
 // Ancestors that already supply (or deliberately suppress) an accessible name.
-const _labelWrappers = {'Semantics', 'MergeSemantics', 'ExcludeSemantics', 'Tooltip'};
+const _labelWrappers = {
+  'Semantics',
+  'MergeSemantics',
+  'ExcludeSemantics',
+  'Tooltip',
+};
 const _iconOwners = {'IconButton', ..._labelWrappers};
 
 /// Dotted callee source of a widget-shaped call: `IconButton`, `Image.network`,
 /// `material.Icon`. Null for anything that is not a call.
 String? _calleeOf(AstNode node) => switch (node) {
   InstanceCreationExpression() => node.constructorName.type.toSource(),
-  MethodInvocation() => '${node.target?.toSource() ?? ''}.${node.methodName.name}',
+  MethodInvocation() =>
+    '${node.target?.toSource() ?? ''}.${node.methodName.name}',
   _ => null,
 };
 
@@ -94,11 +100,16 @@ class _Probe extends RecursiveAstVisitor<void> {
     };
     switch (widget) {
       case 'GestureDetector' || 'InkWell':
-        if (named.contains('onTap') && !_hasAncestorCall(node, _labelWrappers)) {
-          _add(node, 'tap-without-label', widget,
-              'onTap with no enclosing Semantics — a screen reader announces nothing tappable here.',
-              // An ancestor widget built in another file can still supply the label.
-              'low');
+        if (named.contains('onTap') &&
+            !_hasAncestorCall(node, _labelWrappers)) {
+          _add(
+            node,
+            'tap-without-label',
+            widget,
+            'onTap with no enclosing Semantics — a screen reader announces nothing tappable here.',
+            // An ancestor widget built in another file can still supply the label.
+            'low',
+          );
         }
       case 'IconButton' || 'Icon':
         // An Icon inside an IconButton is decorative: the button is the control
@@ -106,14 +117,23 @@ class _Probe extends RecursiveAstVisitor<void> {
         // double-counts one control, which is how a rule set turns into noise.
         if (widget == 'Icon' && _hasAncestorCall(node, _iconOwners)) break;
         if (!named.contains('tooltip') && !named.contains('semanticLabel')) {
-          _add(node, 'icon-without-label', widget,
-              'neither tooltip: nor semanticLabel: — the control has no name.', 'medium');
+          _add(
+            node,
+            'icon-without-label',
+            widget,
+            'neither tooltip: nor semanticLabel: — the control has no name.',
+            'medium',
+          );
         }
       case 'Image':
         if (!named.contains('semanticLabel')) {
-          _add(node, 'image-without-label', widget,
-              'no semanticLabel: — decorative images should say so, meaningful ones need a label.',
-              'medium');
+          _add(
+            node,
+            'image-without-label',
+            widget,
+            'no semanticLabel: — decorative images should say so, meaningful ones need a label.',
+            'medium',
+          );
         }
       case 'TextField':
         final decoration = args.arguments
@@ -121,11 +141,16 @@ class _Probe extends RecursiveAstVisitor<void> {
             .where((a) => a.name.lexeme == 'decoration')
             .map((a) => a.argumentExpression.toSource())
             .join();
-        if (!decoration.contains('labelText') && !decoration.contains('label:')) {
-          _add(node, 'field-without-label', widget,
-              'no labelText:/label: in its InputDecoration — hint text alone disappears on focus.',
-              // The decoration may be a shared constant defined elsewhere.
-              'low');
+        if (!decoration.contains('labelText') &&
+            !decoration.contains('label:')) {
+          _add(
+            node,
+            'field-without-label',
+            widget,
+            'no labelText:/label: in its InputDecoration — hint text alone disappears on focus.',
+            // The decoration may be a shared constant defined elsewhere.
+            'low',
+          );
         }
     }
   }
@@ -137,7 +162,13 @@ class _Probe extends RecursiveAstVisitor<void> {
     return false;
   }
 
-  void _add(AstNode node, String rule, String widget, String message, String confidence) {
+  void _add(
+    AstNode node,
+    String rule,
+    String widget,
+    String message,
+    String confidence,
+  ) {
     final loc = _lineInfo.getLocation(node.offset);
     findings.add({
       'rule': rule,
@@ -184,6 +215,9 @@ void main(List<String> args) {
 
   // filesScanned is reported so "0 findings" can be told apart from "0 files
   // parsed" — the shape the MethodInvocation bug above takes in the wild.
-  stdout.writeln(const JsonEncoder.withIndent('  ')
-      .convert({'filesScanned': filesScanned, 'findings': findings}));
+  stdout.writeln(
+    const JsonEncoder.withIndent(
+      '  ',
+    ).convert({'filesScanned': filesScanned, 'findings': findings}),
+  );
 }

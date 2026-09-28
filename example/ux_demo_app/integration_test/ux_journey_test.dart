@@ -26,12 +26,36 @@ import 'package:ux_demo_app/main.dart' as app;
 /// shortcut tile and a nav tab can carry the SAME text, and no amount of
 /// matching cleverness can guess which one a journey means. 1-based; null
 /// means "there must be exactly one".
-typedef Step = ({String action, String target, int? nth, String? text, String expected});
+typedef Step = ({
+  String action,
+  String target,
+  int? nth,
+  String? text,
+  String expected,
+});
 
 const List<Step> journey = <Step>[
-  (action: 'tap', target: 'Walnut Side Table', nth: null, text: null, expected: '189,000 KRW'),
-  (action: 'tap', target: 'Remove from list', nth: null, text: null, expected: 'Cancel'),
-  (action: 'tap', target: 'Back', nth: null, text: null, expected: 'Saved items'),
+  (
+    action: 'tap',
+    target: 'Walnut Side Table',
+    nth: null,
+    text: null,
+    expected: '189,000 KRW',
+  ),
+  (
+    action: 'tap',
+    target: 'Remove from list',
+    nth: null,
+    text: null,
+    expected: 'Cancel',
+  ),
+  (
+    action: 'tap',
+    target: 'Back',
+    nth: null,
+    text: null,
+    expected: 'Saved items',
+  ),
 ];
 
 /// iOS only. See the note at convertFlutterSurfaceToImage below.
@@ -65,7 +89,10 @@ void main() {
     // NOT pumpAndSettle: it waits out a 10-minute timeout on any app that
     // animates continuously. This fixture does not, but the generated walker
     // must, so the fixture exercises the same code path.
-    final bool entrySettled = await settle(tester, limit: const Duration(seconds: 12));
+    final bool entrySettled = await settle(
+      tester,
+      limit: const Duration(seconds: 12),
+    );
 
     // In-test screenshots are iOS-only here. On Android,
     // convertFlutterSurfaceToImage() + takeScreenshot() deadlocks — no error,
@@ -95,7 +122,9 @@ void main() {
       // and contrast the step is about.
       final Map<String, Object?> semantics = dumpSemantics(tester);
       final Map<String, Object?> surface = routeState(tester, semantics);
-      final List<Map<String, Object?>> guidelines = await _evaluateGuidelines(tester);
+      final List<Map<String, Object?>> guidelines = await _evaluateGuidelines(
+        tester,
+      );
       final String sigBefore = screenSignature(semantics);
       if (_inTestScreenshots) {
         await binding.takeScreenshot('step_$i');
@@ -136,7 +165,10 @@ void main() {
         // awaiting Future schedules no frames, so a screen that renders an
         // empty state while a request is in flight reports settled within one
         // pump and the step then fails for the wrong reason.
-        settled = await settle(tester, until: () => _present(tester, step.expected));
+        settled = await settle(
+          tester,
+          until: () => _present(tester, step.expected),
+        );
         _requireTarget(tester, step.expected); // the oracle
       } catch (e) {
         status = 'FAILED';
@@ -219,7 +251,8 @@ void main() {
     // reportData['screenshots'], and that list is how the driver's
     // onScreenshot gets the bytes. Assigning a fresh map here silently
     // deletes every screenshot and the run still passes.
-    final Map<String, dynamic> report = binding.reportData ??= <String, dynamic>{};
+    final Map<String, dynamic> report = binding.reportData ??=
+        <String, dynamic>{};
     report['steps'] = steps;
     // A journey whose entry screen never settles is already telling you
     // something — record it rather than dropping it.
@@ -295,7 +328,9 @@ bool _present(WidgetTester tester, String needle) {
   }
 }
 
-Future<List<Map<String, Object?>>> _evaluateGuidelines(WidgetTester tester) async {
+Future<List<Map<String, Object?>>> _evaluateGuidelines(
+  WidgetTester tester,
+) async {
   final List<Map<String, Object?>> out = <Map<String, Object?>>[];
   for (final AccessibilityGuideline g in <AccessibilityGuideline>[
     iOSTapTargetGuideline,
@@ -342,7 +377,8 @@ Map<String, Object?> viewportOf(WidgetTester tester) {
     // "Reading order" is top, then LEADING edge — left in ltr, right in rtl.
     // Without this the placement table comes out exactly reversed on an rtl
     // app and nothing in the artifact says which order produced it.
-    'textDirection': (tester.platformDispatcher.locale.languageCode == 'ar' ||
+    'textDirection':
+        (tester.platformDispatcher.locale.languageCode == 'ar' ||
             tester.platformDispatcher.locale.languageCode == 'he' ||
             tester.platformDispatcher.locale.languageCode == 'fa' ||
             tester.platformDispatcher.locale.languageCode == 'ur')
@@ -356,7 +392,9 @@ Map<String, Object?> viewportOf(WidgetTester tester) {
     'keyboardInset': insetBottom,
     // A keyboard hides far more than a home indicator, and a control under it
     // is not on screen at all.
-    'foldY': isTestDefault ? null : h - (insetBottom > padBottom ? insetBottom : padBottom),
+    'foldY': isTestDefault
+        ? null
+        : h - (insetBottom > padBottom ? insetBottom : padBottom),
     'isTestDefault': isTestDefault,
   };
 }
@@ -381,7 +419,9 @@ Map<String, Object?> viewportOf(WidgetTester tester) {
 /// would flag every such app and push its real findings to `not assessable`,
 /// which is why this asks about ancestry instead.
 bool hasSiblingNavigators(WidgetTester tester) {
-  final List<Element> navs = tester.elementList(find.byType(Navigator)).toList();
+  final List<Element> navs = tester
+      .elementList(find.byType(Navigator))
+      .toList();
   if (navs.length < 2) {
     return false;
   }
@@ -493,7 +533,8 @@ bool coversPoint(Offset p, Iterable<Rect> obscurers) =>
 /// instances of one screen never collide at any quantisation.
 String screenSignature(Map<String, Object?> dump) {
   final List<Map<String, Object?>> nodes =
-      (dump['nodes'] as List<Map<String, Object?>>?) ?? const <Map<String, Object?>>[];
+      (dump['nodes'] as List<Map<String, Object?>>?) ??
+      const <Map<String, Object?>>[];
   // Prefixed with the node's RANK in reading order. Without a prefix the sort
   // throws order away and every sort/reorder/move-up control in existence
   // reads as a dead tap. Rank rather than quantised pixels: a pixel bucket
@@ -542,10 +583,14 @@ String screenSignature(Map<String, Object?> dump) {
 /// screen (hence `tappableCount`, and the entry-screen exclusion in
 /// heuristics.md), and it reads TRUE on a dead end while a modal is open
 /// (hence `modalOpen`).
-Map<String, Object?> routeState(WidgetTester tester, [Map<String, Object?>? dump]) {
+Map<String, Object?> routeState(
+  WidgetTester tester, [
+  Map<String, Object?>? dump,
+]) {
   final Map<String, Object?> d = dump ?? dumpSemantics(tester);
   final List<Map<String, Object?>> nodes =
-      (d['nodes'] as List<Map<String, Object?>>?) ?? const <Map<String, Object?>>[];
+      (d['nodes'] as List<Map<String, Object?>>?) ??
+      const <Map<String, Object?>>[];
   // The DEEPEST onstage Navigator, read directly. Two earlier attempts were
   // measured wrong: `tester.firstState<NavigatorState>(...)` returns the ROOT,
   // which in a tab shell holds only the shell page; and resolving from the
@@ -554,16 +599,20 @@ Map<String, Object?> routeState(WidgetTester tester, [Map<String, Object?>? dump
   // Navigators and the probe lands back on the root. Finders are onstage-only,
   // so hidden tabs do not compete. This also answers on screens with no
   // Scaffold at all, which the Scaffold probe could not.
-  final List<Element> navs = tester.elementList(find.byType(Navigator)).toList();
+  final List<Element> navs = tester
+      .elementList(find.byType(Navigator))
+      .toList();
   // Prefer the navigator that owns the thing this step is ABOUT. `navs.last`
   // is last in element pre-order, not deepest and not the user's: a persistent
   // mini-player, a side panel or a Navigator in `Scaffold.bottomSheet` is a
   // sibling built after the content, and one push inside it flips canPop while
   // the user's screen is unchanged — silently suppressing a DEAD-END.
-  final NavigatorState? nav =
-      navs.isEmpty ? null : (navs.last as StatefulElement).state as NavigatorState;
+  final NavigatorState? nav = navs.isEmpty
+      ? null
+      : (navs.last as StatefulElement).state as NavigatorState;
 
-  final Map<String, Object?> vp = d['viewport'] as Map<String, Object?>? ?? viewportOf(tester);
+  final Map<String, Object?> vp =
+      d['viewport'] as Map<String, Object?>? ?? viewportOf(tester);
   final double? foldY = vp['foldY'] as double?;
   int tappable = 0;
   int aboveFold = 0;
@@ -603,7 +652,8 @@ Map<String, Object?> routeState(WidgetTester tester, [Map<String, Object?>? dump
     // _PopupMenuRoute and _DropdownRoute return a null barrierColor and build
     // the plain one. A PageRoute's barrier is not dismissible; a transient
     // surface's is.
-    'modalOpen': tester
+    'modalOpen':
+        tester
             .widgetList<ModalBarrier>(find.byType(ModalBarrier))
             .any((ModalBarrier b) => b.dismissible) ||
         // A Drawer adds a local-history entry, so canPop flips true with no
@@ -634,8 +684,14 @@ Map<String, Object?> dumpSemantics(WidgetTester tester) {
   final double dpr = viewport['devicePixelRatio']! as double;
   final double? foldY = viewport['foldY'] as double?;
   final double vpWidth = viewport['width']! as double;
-  final Rect surfaceRect = Rect.fromLTWH(0, 0, vpWidth, viewport['height']! as double);
-  final SemanticsOwner? owner = tester.binding.renderViews.first.owner?.semanticsOwner;
+  final Rect surfaceRect = Rect.fromLTWH(
+    0,
+    0,
+    vpWidth,
+    viewport['height']! as double,
+  );
+  final SemanticsOwner? owner =
+      tester.binding.renderViews.first.owner?.semanticsOwner;
   final SemanticsNode? root = owner?.rootSemanticsNode;
   final List<Map<String, Object?>> nodes = <Map<String, Object?>>[];
   final Map<int, int?> parentOf = <int, int?>{};
@@ -652,7 +708,12 @@ Map<String, Object?> dumpSemantics(WidgetTester tester) {
     final Rect g = MatrixUtils.transformRect(t, data.rect); // physical px
     // logical px — the guidelines measure in logical px, so findings must
     // quote logical px or they cannot be compared to the reason strings.
-    final Rect lg = Rect.fromLTWH(g.left / dpr, g.top / dpr, g.width / dpr, g.height / dpr);
+    final Rect lg = Rect.fromLTWH(
+      g.left / dpr,
+      g.top / dpr,
+      g.width / dpr,
+      g.height / dpr,
+    );
     parentOf[node.id] = parentId;
     rects.add(lg);
     nodes.add(<String, Object?>{
@@ -663,7 +724,9 @@ Map<String, Object?> dumpSemantics(WidgetTester tester) {
       'identifier': data.identifier,
       'role': data.role.name,
       'flags': data.flagsCollection.toStrings(),
-      'tappable': data.hasAction(SemanticsAction.tap), // Trap 3: action, not flag
+      'tappable': data.hasAction(
+        SemanticsAction.tap,
+      ), // Trap 3: action, not flag
       'rect': <double>[lg.left, lg.top, lg.width, lg.height],
       // Is any of it on the surface at all? A scrollable's cache extent puts
       // rows well above and below the viewport into the dump, with rects to
@@ -680,7 +743,10 @@ Map<String, Object?> dumpSemantics(WidgetTester tester) {
       // question. Kept separate because conflating the two is what broke.
       'fullyVisible': foldY == null
           ? null
-          : lg.top >= 0 && lg.bottom <= foldY && lg.left >= 0 && lg.right <= vpWidth,
+          : lg.top >= 0 &&
+                lg.bottom <= foldY &&
+                lg.left >= 0 &&
+                lg.right <= vpWidth,
       // A big UNNAMED tappable is almost always the tap-to-dismiss-the-keyboard
       // GestureDetector, not a control. Asking "is this rect the surface" was
       // measured wrong: that idiom is written inside the Scaffold, so its rect
@@ -688,7 +754,8 @@ Map<String, Object?> dumpSemantics(WidgetTester tester) {
       // it exists for. Ask what the exclusion is for instead — unnamed, and
       // more than half the surface — which also spares a LABELLED full-screen
       // "tap anywhere to continue".
-      'coversSurface': data.hasAction(SemanticsAction.tap) &&
+      'coversSurface':
+          data.hasAction(SemanticsAction.tap) &&
           !lg.isEmpty &&
           (data.attributedLabel.string.trim().isEmpty &&
               (data.tooltip).trim().isEmpty &&
@@ -786,7 +853,8 @@ void _annotateEffectiveArea(
 // Selection and actions
 // ---------------------------------------------------------------------------
 
-String _norm(String s) => s.replaceAll(RegExp(r'\s+'), ' ').trim().toLowerCase();
+String _norm(String s) =>
+    s.replaceAll(RegExp(r'\s+'), ' ').trim().toLowerCase();
 
 /// Matches over label ∪ tooltip ∪ value (Trap 2), normalised substring, and
 /// ERRORS on ambiguity instead of silently auditing a different widget.
@@ -794,10 +862,14 @@ Map<String, Object?> _resolve(WidgetTester tester, String needle, [int? nth]) {
   final Map<String, Object?> dump = dumpSemantics(tester);
   final String n = _norm(needle);
   final List<Map<String, Object?>> hits =
-      (dump['nodes']! as List<Map<String, Object?>>).where((Map<String, Object?> node) {
-    final String hay = _norm(<Object?>[node['label'], node['tooltip'], node['value']].join(' '));
-    return hay.contains(n);
-  }).toList();
+      (dump['nodes']! as List<Map<String, Object?>>).where((
+        Map<String, Object?> node,
+      ) {
+        final String hay = _norm(
+          <Object?>[node['label'], node['tooltip'], node['value']].join(' '),
+        );
+        return hay.contains(n);
+      }).toList();
   if (hits.isEmpty) {
     throw StateError('no semantics node matches "$needle"');
   }
@@ -807,13 +879,20 @@ Map<String, Object?> _resolve(WidgetTester tester, String needle, [int? nth]) {
     // on a real app. When exactly one hit matches EXACTLY, that is
     // unambiguously the one meant; anything else stays an error rather than
     // silently auditing the wrong widget.
-    final List<Map<String, Object?>> exact = hits.where((Map<String, Object?> node) {
-      return <Object?>[node['label'], node['tooltip'], node['value']]
-          .any((Object? v) => v is String && _norm(v) == n);
+    final List<Map<String, Object?>> exact = hits.where((
+      Map<String, Object?> node,
+    ) {
+      return <Object?>[
+        node['label'],
+        node['tooltip'],
+        node['value'],
+      ].any((Object? v) => v is String && _norm(v) == n);
     }).toList();
     if (nth != null) {
       if (nth < 1 || nth > hits.length) {
-        throw StateError('nth: $nth is out of range — "$needle" matches ${hits.length}');
+        throw StateError(
+          'nth: $nth is out of range — "$needle" matches ${hits.length}',
+        );
       }
       return hits[nth - 1];
     }
@@ -824,11 +903,15 @@ Map<String, Object?> _resolve(WidgetTester tester, String needle, [int? nth]) {
     final String opts = hits
         .asMap()
         .entries
-        .map((MapEntry<int, Map<String, Object?>> e) =>
-            '${e.key + 1}=${e.value['label']} @${(e.value['rect']! as List<double>)[2].toStringAsFixed(0)}x${(e.value['rect']! as List<double>)[3].toStringAsFixed(0)}')
+        .map(
+          (MapEntry<int, Map<String, Object?>> e) =>
+              '${e.key + 1}=${e.value['label']} @${(e.value['rect']! as List<double>)[2].toStringAsFixed(0)}x${(e.value['rect']! as List<double>)[3].toStringAsFixed(0)}',
+        )
         .join(', ');
-    throw StateError('ambiguous: ${hits.length} nodes match "$needle" — $opts. '
-        'Add nth: N to pick one.');
+    throw StateError(
+      'ambiguous: ${hits.length} nodes match "$needle" — $opts. '
+      'Add nth: N to pick one.',
+    );
   }
   return hits.single;
 }
@@ -842,7 +925,12 @@ Map<String, Object?> _resolve(WidgetTester tester, String needle, [int? nth]) {
 ///
 /// enterText needs a Finder, but the selector model is label-based, so the
 /// semantics node is mapped to its EditableText by geometry.
-Future<void> _typeInto(WidgetTester tester, String needle, String text, [int? nth]) async {
+Future<void> _typeInto(
+  WidgetTester tester,
+  String needle,
+  String text, [
+  int? nth,
+]) async {
   final Map<String, Object?> node = _resolve(tester, needle, nth);
   final List<double> r = node['rect']! as List<double>;
   final Rect target = Rect.fromLTWH(r[0], r[1], r[2], r[3]);
@@ -860,17 +948,24 @@ Future<void> _typeInto(WidgetTester tester, String needle, String text, [int? nt
     }
     final Rect b = box.localToGlobal(Offset.zero) & box.size;
     final Rect i = b.intersect(target);
-    final double overlap = (i.width <= 0 || i.height <= 0) ? 0 : i.width * i.height;
+    final double overlap = (i.width <= 0 || i.height <= 0)
+        ? 0
+        : i.width * i.height;
     if (overlap > best) {
       best = overlap;
       hit = e;
     }
   }
   if (hit == null) {
-    throw StateError('"$needle" resolves to a node with no editable field under it');
+    throw StateError(
+      '"$needle" resolves to a node with no editable field under it',
+    );
   }
   final Element field = hit;
-  await tester.enterText(find.byElementPredicate((Element e) => e == field), text);
+  await tester.enterText(
+    find.byElementPredicate((Element e) => e == field),
+    text,
+  );
 }
 
 Future<void> _tapTarget(WidgetTester tester, String needle, [int? nth]) async {
@@ -888,19 +983,28 @@ Future<void> _tapTarget(WidgetTester tester, String needle, [int? nth]) async {
   // exists not to produce.
   final Map<String, Object?> vp = viewportOf(tester);
   final double? foldY = vp['foldY'] as double?;
-  final Rect surface = Rect.fromLTWH(0, 0, vp['width']! as double, vp['height']! as double);
+  final Rect surface = Rect.fromLTWH(
+    0,
+    0,
+    vp['width']! as double,
+    vp['height']! as double,
+  );
   // The CENTRE must be on the surface, not merely the rect. A node can overlap
   // the surface and still have its middle off it — measured while a route was
   // sliding in, where the tap went to x=431 on a 375-wide screen and hit
   // nothing at all.
   if (node['onScreen'] != true || !surface.contains(centre)) {
-    throw StateError('"$needle" is not reachable: its centre is at '
-        '(${centre.dx.toStringAsFixed(1)}, ${centre.dy.toStringAsFixed(1)}) on a '
-        '${surface.width.toStringAsFixed(0)}x${surface.height.toStringAsFixed(0)} surface');
+    throw StateError(
+      '"$needle" is not reachable: its centre is at '
+      '(${centre.dx.toStringAsFixed(1)}, ${centre.dy.toStringAsFixed(1)}) on a '
+      '${surface.width.toStringAsFixed(0)}x${surface.height.toStringAsFixed(0)} surface',
+    );
   }
   if (foldY != null && centre.dy > foldY) {
-    throw StateError('"$needle" has its centre below the fold at y=${centre.dy} '
-        '(visible to y=$foldY) — this journey cannot reach it without scrolling');
+    throw StateError(
+      '"$needle" has its centre below the fold at y=${centre.dy} '
+      '(visible to y=$foldY) — this journey cannot reach it without scrolling',
+    );
   }
   // NOT refused for being covered. `centreCovered` is geometry, not a hit
   // test: the semantics tree has no opacity and no IgnorePointer, and a
@@ -912,4 +1016,5 @@ Future<void> _tapTarget(WidgetTester tester, String needle, [int? nth]) async {
   await tester.tapAt(centre); // logical px
 }
 
-void _requireTarget(WidgetTester tester, String needle) => _resolve(tester, needle);
+void _requireTarget(WidgetTester tester, String needle) =>
+    _resolve(tester, needle);

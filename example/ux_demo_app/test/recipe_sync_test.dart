@@ -29,9 +29,16 @@ void main() {
     expect(md, contains('ux_journey_test.dart'));
     // File 1 (the driver) IS embedded — it is 20 lines and never changes.
     // File 2 is the one that must not be copied.
-    expect(md, isNot(contains('typedef Step =')),
-        reason: 'walking.md re-embedded the walker; point at it instead');
-    expect(File(_walker).existsSync(), isTrue, reason: '$_walker is what walking.md points at');
+    expect(
+      md,
+      isNot(contains('typedef Step =')),
+      reason: 'walking.md re-embedded the walker; point at it instead',
+    );
+    expect(
+      File(_walker).existsSync(),
+      isTrue,
+      reason: '$_walker is what walking.md points at',
+    );
   });
 
   test('the golden obeys report-format.md', () {
@@ -51,11 +58,22 @@ void main() {
     for (final Object? raw in findings) {
       final Map<String, Object?> f = raw! as Map<String, Object?>;
       final String where = '${f['check']} #${f['id']}';
-      expect(f['layers'], isA<List<Object?>>().having((List<Object?> l) => l, where, isNotEmpty));
+      expect(
+        f['layers'],
+        isA<List<Object?>>().having((List<Object?> l) => l, where, isNotEmpty),
+      );
       expect(f['confidence'], isNotNull, reason: '$where has no confidence');
-      expect((f['evidence']! as String).trim(), isNotEmpty, reason: '$where has no evidence');
-      expect((f['rationale']! as String), contains(RegExp('goal|journey|path|reach', caseSensitive: false)),
-          reason: '$where: the rationale must name the goal, not just the measurement');
+      expect(
+        (f['evidence']! as String).trim(),
+        isNotEmpty,
+        reason: '$where has no evidence',
+      );
+      expect(
+        (f['rationale']! as String),
+        contains(RegExp('goal|journey|path|reach', caseSensitive: false)),
+        reason:
+            '$where: the rationale must name the goal, not just the measurement',
+      );
       expect(f['severity'], isIn(<int>[1, 2, 3, 4]));
     }
 
@@ -64,8 +82,11 @@ void main() {
     // us" and "we could not get there" in the same bucket.
     final Map<String, Object?> na = g['notAssessable']! as Map<String, Object?>;
     expect(na.keys.toSet(), <String>{'notDeclared', 'notReached'});
-    expect(na['notReached'], isNotEmpty,
-        reason: 'Not Assessable is never empty — at minimum it states the platform limit');
+    expect(
+      na['notReached'],
+      isNotEmpty,
+      reason: 'Not Assessable is never empty — at minimum it states the platform limit',
+    );
 
     // Reach is counted on the declared path and must say so, because "N taps"
     // reads as a minimum and a minimum would need a crawl.
