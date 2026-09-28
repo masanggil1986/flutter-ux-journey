@@ -19,7 +19,7 @@ import 'package:ux_demo_app/main_gated.dart' show GatedDemoApp;
 
 import '../integration_test/gate_stub.dart';
 import '../integration_test/gated_journey_test.dart' show setup;
-import '../integration_test/ux_journey_test.dart'
+import '../ux_audit/ux_journey_test.dart'
     show Step, StepOutcome, performStep, settle;
 
 void main() {

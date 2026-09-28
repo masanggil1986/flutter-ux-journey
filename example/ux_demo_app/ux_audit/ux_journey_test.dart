@@ -8,11 +8,15 @@
 
 import 'dart:convert';
 import 'dart:io';
+import 'dart:ui' as ui;
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+
+import 'package:ux_demo_app/main.dart' as app;
 
 /// One journey step: perform [action] on [target], then require [expected] to
 /// be on screen. The `expected` check is the oracle — without it a walk reports
@@ -64,6 +68,96 @@ const List<Step> journey = <Step>[
 /// example/journey.md declares none: this fixture has no backend and no login.
 /// integration_test/gated_journey_test.dart is the worked instance that does.
 const List<Step> setup = <Step>[];
+
+/// One screenshot, with no device under it.
+///
+/// This is the path golden files take (`OffsetLayer.toImage`), so it needs no
+/// platform surface — which is also why it cannot deadlock the way
+/// `convertFlutterSurfaceToImage()` + `takeScreenshot()` does on Android when
+/// the app hosts a platform view. What it cannot do is render a platform view
+/// at all: that area comes out blank, and the report says `not assessable` for
+/// it rather than describing an empty rectangle.
+///
+/// `runAsync` is required — `toImage` is real async work and the test
+/// binding's fake clock would never complete it.
+Future<void> writePng(WidgetTester tester, String path) async {
+  final RenderView rv = tester.binding.renderViews.first;
+  final OffsetLayer layer = rv.debugLayer! as OffsetLayer;
+  ByteData? data;
+  await tester.runAsync(() async {
+    final ui.Image img = await layer.toImage(rv.paintBounds);
+    data = await img.toByteData(format: ui.ImageByteFormat.png);
+    img.dispose();
+  });
+  if (data == null) {
+    return;
+  }
+  final File f = File(path);
+  f.parent.createSync(recursive: true);
+  f.writeAsBytesSync(data!.buffer.asUint8List());
+}
+
+/// `## Device` — the screen this journey declares. Resolved by NAME rather than
+/// pinned to the const, so a journey naming a preset that does not exist fails
+/// here instead of being quietly measured on a screen nobody chose.
+final DeviceProfile device = deviceProfileByName('iphone-se');
+
+/// True when the journey file declared `## Device`. The report's scope clause
+/// quotes the difference, so a reader can tell a chosen screen from an assumed
+/// one.
+const bool deviceDeclared = true;
+
+/// One output root, the one SKILL.md declares. Never `screenshots/`, which is a
+/// conventionally TRACKED directory in a Flutter app and not ours to claim.
+const String outDir = 'ux-audit-out';
+
+void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+
+  testWidgets('ux journey', (WidgetTester tester) async {
+    // This fixture has no backend, so no network stub is installed and
+    // `networkCalls` stays empty. `flutter test` already refuses every request
+    // with an empty 400 — flutter_test installs its own HttpOverrides — so the
+    // default posture, network cut and arbitrary data, costs nothing here. An
+    // app that has to walk past a gate installs a stub; see
+    // references/network-stub.md and integration_test/gated_journey_test.dart.
+    //
+    // Reset inline, never in addTearDown: _verifyInvariants runs at the end of
+    // the test BODY and fails on a foundation debug variable left set, while
+    // teardowns run after it.
+    debugDefaultTargetPlatformOverride = device.targetPlatform;
+    applyDevice(tester, device);
+    addTearDown(tester.view.reset);
+    final String fontSource = await loadFonts(tester);
+
+    await walkJourney(
+      tester,
+      launch: app.main,
+      setup: setup,
+      journey: journey,
+      shot: (String name) => writePng(tester, '$outDir/screens/$name.png'),
+      publish: (Map<String, Object?> report) async => File('$outDir/walk.json')
+        ..parent.createSync(recursive: true)
+        ..writeAsStringSync(jsonEncode(report)),
+      runContext: <String, Object?>{
+        'mode': 'widget-test',
+        // The contrast guideline reads back rasterized pixels, and this
+        // rasterizer is not the device's: measured on the same node, 1.36 here
+        // against 1.03 on the simulator. Same verdict there, but a ratio near
+        // 4.5 could land either side — walking.md already says to treat the
+        // guideline's NODE as the signal and its ratio as advisory.
+        'renderer': 'flutter_tester (software)',
+        // NOT conditions.platform, which correctly reads the HOST (`macos`):
+        // this is what the framework was told to be, and the two differ.
+        'targetPlatform': device.targetPlatform.name,
+        'deviceProfile': deviceProfileLabel(device, declared: deviceDeclared),
+        'fontSource': fontSource,
+      },
+    );
+
+    debugDefaultTargetPlatformOverride = null;
+  });
+}
 
 /// Take one screenshot, or report that it could not be taken.
 ///

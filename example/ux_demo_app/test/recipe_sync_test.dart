@@ -12,12 +12,12 @@ import '../integration_test/gated_journey_test.dart'
     as gated
     show journey, setup;
 // Both journey files export `journey`, so both imports are prefixed.
-import '../integration_test/ux_journey_test.dart'
+import '../ux_audit/ux_journey_test.dart'
     as walker
     show Step, journey, kIphoneSe;
 
 const String _recipe = '../../skills/flutter-ux-journey/references/walking.md';
-const String _walker = 'integration_test/ux_journey_test.dart';
+const String _walker = 'ux_audit/ux_journey_test.dart';
 const String _driveEntry = 'integration_test/ux_journey_drive.dart';
 const String _golden = '../expected-findings.json';
 const String _journey = '../journey.md';

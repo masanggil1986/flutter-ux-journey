@@ -16,7 +16,7 @@ import 'package:integration_test/integration_test.dart';
 
 import 'package:ux_demo_app/main.dart' as app;
 
-import 'ux_journey_test.dart' show journey, setup, walkJourney;
+import '../ux_audit/ux_journey_test.dart' show journey, setup, walkJourney;
 
 void main() {
   final IntegrationTestWidgetsFlutterBinding binding =

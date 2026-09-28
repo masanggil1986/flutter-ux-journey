@@ -15,7 +15,12 @@ report.md
 *.journey.local.md
 
 # 감사 대상 앱에 생성했다가 회수한 파일 (대상 앱 소스가 섞여 들어올 수 있다)
-**/integration_test/ux_journey_test.dart
+# 기본(widget-test) 모드는 ux_audit/ 하나, drive 폴백은 integration_test/ + test_driver/.
+# 워커가 integration_test/ 밖에 사는 이유: `flutter test`가 그 디렉터리 이름만 보고
+# 디바이스 러너로 보낸다(flutter_tools/commands/test.dart `_kIntegrationTestDirectory`).
+**/ux_audit/ux_journey_test.dart
+**/ux_audit/net_stub.dart
+**/integration_test/ux_journey_drive.dart
 **/integration_test/net_stub.dart
 **/test_driver/integration_test.dart
 
@@ -47,6 +52,7 @@ report.md
 example/ux_demo_app/ux-audit-out/
 example/ux_demo_app/screenshots/
 example/ux_demo_app/integration_test/net_stub.dart
+example/ux_demo_app/ux_audit/net_stub.dart
 
 # eval 케이스는 프롬프트·픽스처·그레이더를 통째로 실어 나른다.
 # 데모 앱을 대상으로 한 케이스만 예외적으로 negate 해서 추가한다.

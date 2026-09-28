@@ -19,7 +19,7 @@ import 'package:integration_test/integration_test.dart';
 import 'package:ux_demo_app/main_gated.dart' as app;
 
 import 'gate_stub.dart';
-import 'ux_journey_test.dart' show Step, walkJourney;
+import '../ux_audit/ux_journey_test.dart' show Step, walkJourney;
 
 /// `## Setup` — getting to the journey's starting line. Excluded from
 /// measurement and from scoring: the goal is not "sign in", it is what the user

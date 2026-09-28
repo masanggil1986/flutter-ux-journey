@@ -17,7 +17,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:ux_demo_app/main.dart';
 
-import '../integration_test/ux_journey_test.dart'
+import '../ux_audit/ux_journey_test.dart'
     show
         applyDevice,
         areaOf,
