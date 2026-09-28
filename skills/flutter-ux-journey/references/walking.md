@@ -1,12 +1,15 @@
 # walking.md — the runtime recipe
 
-Every API call below was executed on a real iOS simulator (iPhone SE 3rd gen, iOS 18.6,
-Flutter 3.47.2 stable). Signatures are verbatim from the SDK. Do not substitute remembered ones.
+Every API call below was executed — the measurements against an iOS simulator (iPhone SE 3rd gen,
+iOS 18.6, Flutter 3.47.2 stable), and the headless path under `flutter test` on the same fixture,
+checked step by step against that simulator run. Signatures are verbatim from the SDK. Do not
+substitute remembered ones.
 
 - [Why the walker runs inside the app](#why-the-walker-runs-inside-the-app)
 - [Prerequisites in the audited app](#prerequisites-in-the-audited-app)
-- [File 1 — test_driver/integration_test.dart](#file-1--test_driverintegration_testdart)
-- [File 2 — integration_test/ux_journey_test.dart](#file-2--integration_testux_journey_testdart)
+- [Two modes, and which files each one needs](#two-modes-and-which-files-each-one-needs)
+- [File 1 — test_driver/integration_test.dart (fallback only)](#file-1--test_driverintegration_testdart-fallback-only)
+- [File 2 — ux_audit/ux_journey_test.dart](#file-2--ux_auditux_journey_testdart)
 - [Trap 1 — semantics rects are local and physical](#trap-1--semantics-rects-are-local-and-physical)
 - [Trap 2 — tooltip is not the label](#trap-2--tooltip-is-not-the-label)
 - [Trap 3 — InkWell has no isButton flag](#trap-3--inkwell-has-no-isbutton-flag)
@@ -38,7 +41,7 @@ failures with the measured value and the required value already attached.
 dev_dependencies:
   flutter_test:
     sdk: flutter
-  integration_test:
+  integration_test:   # only for the `flutter drive` fallback
     sdk: flutter
 ```
 
@@ -48,7 +51,29 @@ Tell the user to gitignore the generated paths (see SKILL.md) — including `net
 stub is used, which is the only one that holds their real endpoints. They are regenerated on every
 run; a team that wants them as a regression test promotes them deliberately.
 
-## File 1 — test_driver/integration_test.dart
+## Two modes, and which files each one needs
+
+| | default | fallback |
+|---|---|---|
+| run | `flutter test ux_audit/ux_journey_test.dart` | `flutter drive --driver=test_driver/integration_test.dart --target=integration_test/ux_journey_drive.dart -d <id>` |
+| device | none | a booted simulator or emulator |
+| files in the app | `ux_audit/ux_journey_test.dart` (+ `ux_audit/net_stub.dart` for a gate) | those, plus `integration_test/ux_journey_drive.dart` and `test_driver/integration_test.dart` |
+| dev_dependencies | `flutter_test` | `flutter_test` and `integration_test` |
+| screenshots | `OffsetLayer.toImage()`, any host | `takeScreenshot`, iOS only |
+| network | already cut: `flutter_test` answers every request with an empty 400 | cut it yourself (`adb shell cmd connectivity airplane-mode enable`) |
+| artifacts | the walk writes `ux-audit-out/walk.json` and `screens/*.png` itself | `build/integration_response_data.json`, copied to `ux-audit-out/walk.json` |
+
+**`ux_audit/` is not a style choice.** `flutter test` routes anything under `integration_test/` to a
+device runner on the directory NAME alone (`flutter_tools/commands/test.dart`,
+`_kIntegrationTestDirectory`) and there is no flag to stop it, so a walker placed there fails with
+"No devices are connected". `ux_audit/` is also outside `test/`, so a bare `flutter test` in the
+audited app does not sweep the walker into that app's own suite.
+
+The fallback exists for one measured reason: the walk has not been run against an app whose plugins
+throw `MissingPluginException`, and platform views do not render headlessly at all. Neither mode
+changes a line of the app's source.
+
+## File 1 — test_driver/integration_test.dart (fallback only)
 
 Verbatim, whole file. The `responseDataCallback` strip is not optional: `takeScreenshot` also stuffs
 every PNG into `reportData['screenshots']` as a JSON int array, which turned a 45 KB PNG into a
@@ -100,12 +125,12 @@ Future<void> writeResponseData(Map<String, dynamic>? data,
     {String testOutputFilename = 'integration_response_data', String? destinationDirectory});
 ```
 
-## File 2 — integration_test/ux_journey_test.dart
+## File 2 — ux_audit/ux_journey_test.dart
 
 **The source of truth is the file that actually runs:**
 
 ```
-${CLAUDE_PLUGIN_ROOT}/example/ux_demo_app/integration_test/ux_journey_test.dart
+${CLAUDE_PLUGIN_ROOT}/example/ux_demo_app/ux_audit/ux_journey_test.dart
 ```
 
 Read it and copy it. It is not sketched here on purpose — a second copy in prose drifts from the one
@@ -113,20 +138,32 @@ that was executed, and every trap below was found by executing it. It is over a 
 has no dependency outside the Flutter SDK, and it carries its own comments explaining every
 non-obvious line.
 
-**Four things change per app, and nothing else:**
+**Five things change per app, and nothing else:**
 
 1. the `package:<app>/main.dart` import,
 2. the `journey` list, generated from `## Steps` in `journey.md`,
 3. the `setup` list, generated from `## Setup`, plus `HttpOverrides.global = StubHttpOverrides();`
    ahead of the launch if the journey has to pass a gate (`references/network-stub.md`),
-4. `networkCalls`, wired to the stub's own call list when there is a stub.
+4. `networkCalls`, wired to the stub's own call list when there is a stub,
+5. `device` and `deviceDeclared`, generated from `## Device`. Name the preset through
+   `deviceProfileByName('<name>')` rather than pinning a const, so a journey that names a screen
+   the walker does not know fails there instead of being measured on one nobody chose. When the
+   journey declares no `## Device`, keep `iphone-se` and set `deviceDeclared = false` — the report's
+   scope clause quotes the difference.
 
 The rest of this file explains *why* the parts that look replaceable are not.
 
 ### The walk is entered through `walkJourney`, which does not launch the app
 
-`walkJourney(tester, binding, launch:, journey:, setup:, networkCalls:)` takes the launch as a
-CALLBACK and calls it itself. That is not indirection for its own sake: a network stub has to be in
+`walkJourney(tester, launch:, journey:, setup:, networkCalls:, shot:, publish:, runContext:)` takes
+the launch as a CALLBACK and calls it itself.
+
+It takes **no binding**. Everything the walk used to reach for on one arrives injected: `shot`
+takes a screenshot or is null (and null means the VISUAL layer is `not assessable`, which the
+report must say), `publish` receives the finished report, and `runContext` carries what only the
+entry knows — `mode`, `renderer`, `targetPlatform`, `deviceProfile`, `fontSource`. That is what
+lets one walk serve both modes, and `test/recipe_sync_test.dart` pins it: the walk must not import
+`package:integration_test/` at all. That is not indirection for its own sake: a network stub has to be in
 place before the app's first frame, and handing over `app.main` rather than calling it is the only
 way a caller gets in front of that. Measured on the gated fixture, whose session probe fires on the
 first frame — an override installed after the launch is already too late.
@@ -237,6 +274,11 @@ forever for no reason.
 
 ### Screenshots deadlock on Android when the app hosts platform views
 
+**This is the fallback path's problem alone.** The default mode captures through
+`OffsetLayer.toImage()` — the path golden files take — which needs no platform surface and cannot
+deadlock. What it cannot do is render a platform view at all: that area comes out blank, and the
+report says `not assessable` for it rather than describing an empty rectangle.
+
 `convertFlutterSurfaceToImage()` + `takeScreenshot()` **hangs** — no error, no timeout — on Android
 when the app embeds platform views (a webview, a video/media surface, a camera preview). Measured
 on a production app: the four guidelines and the semantics dump completed normally, and the run
@@ -294,7 +336,25 @@ more than a home indicator, and a control under it is not on screen at all.
 And in a plain `flutter test` the view is Flutter's hardcoded `Size(800, 600)` at dpr 3.0
 (`flutter_test/src/binding.dart`, `_kDefaultTestViewportSize`). That is no device. The walker
 reports `isTestDefault: true` and `foldY: null` so the report blanks every fold column rather than
-quoting a fold line for a phone that does not exist. Measured on an iPhone SE (3rd gen) the same
+quoting a fold line for a phone that does not exist.
+
+Which is why the default mode does not leave the view alone: `applyDevice` sets it from the
+journey's `## Device` section, and `iphone-se` is defined to reproduce `example/walk.json`'s own
+numbers exactly — 375.0 x 667.0 @ 2.0, contentTop 20.0, padBottom 0.0, foldY 667.0, asserted in
+`test/walker_test.dart`. It is the only preset that ships, because it is the only one a committed
+artifact reproduces in every field. An unknown preset name THROWS rather than substituting a
+default: a report measured at a screen nobody asked for says nothing about where that screen's
+fold is. For anything else a journey names explicit numbers.
+
+**Text metrics are the other thing the device used to supply.** `flutter test` draws every glyph as
+an em square, and that is not cosmetic — measured against the simulator baseline, the fixture's
+title went 112.3px to 242.0px, two text blocks wrapped to an extra line each, and the whole product
+list moved down 39px. Max drift 153.6px. `loadFonts` brings it to a median of 0.0px. Loading a font
+is not enough on its own: a null `fontFamily` keeps resolving to the test font whatever is
+registered, so the registration has to name the families the THEME asks for
+(`CupertinoSystemDisplay`/`CupertinoSystemText` on iOS, `Roboto` on Android). The older `.SF UI *`
+spelling is never asked for and registering against it fails silently. `conditions.fontSource`
+reports which fonts the run actually got, and `none` makes fold and placement `not assessable`. Measured on an iPhone SE (3rd gen) the same
 code returns `375.0 x 667.0 @ 2.0, contentTop 20.0, padBottom 0.0, foldY 667.0` — the SE has a home
 button, so its bottom padding really is zero.
 
@@ -415,16 +475,25 @@ right, is cheap, and is wrong. They are recorded with what actually happens in
 
 ## Running it and collecting the artifacts
 
+Default — no device:
+
+```bash
+cd <app-root>
+flutter test ux_audit/ux_journey_test.dart
+```
+
+Artifacts land at `ux-audit-out/walk.json` and `ux-audit-out/screens/step_*.png`, written by the
+walk itself. Nothing has to be moved afterwards.
+
+Fallback — on a device:
+
 ```bash
 cd <app-root>
 flutter drive --driver=test_driver/integration_test.dart \
-              --target=integration_test/ux_journey_test.dart -d <device-id>
+              --target=integration_test/ux_journey_drive.dart -d <device-id>
 ```
 
-Plain `flutter test integration_test/...` does **not** write the JSON — only stdout. It must be
-`flutter drive`.
-
-Artifacts land at:
+Its artifacts land at:
 
 - `build/integration_response_data.json` (`$FLUTTER_TEST_OUTPUTS_DIR` overrides `build/`)
 - `ux-audit-out/screens/step_*.png`
@@ -455,7 +524,7 @@ Plus, for the flow and placement half of the report:
 | `panesPossiblyBlocked` | per dump | **true** means `nodes` is only the LAST-PAINTED pane: two SIBLING `Navigator`s (a tablet master-detail `Row`) let the later pane's `BlockSemantics` delete the earlier one before the dump can reach it — nested navigators, i.e. a tab shell, do not, which is why this asks about ancestry and not about a count. **False is not a promise the dump is whole**: measured, a `Row` of `[Scaffold, Navigator]` dumps only the `Navigator` pane while this reads false, because one `ModalRoute` is enough to delete an earlier sibling. It is a declared *suspicion*, never a clean bill |
 | `setupSteps`, `setupFailed` | per run | did the walk reach the journey's starting line, and if not which gate step stopped it. Never merged into `steps`: setup is recorded, not scored |
 | `taps`, `networkCalls`, `appErrors`, `entrySettled` | per run | totals and the app's own complaints |
-| `conditions` | per run | `platformBrightness`, `textScaleFactor`, locale and the accessibility flags. The report's scope clause quotes these; measured, the same build at `accessibility-extra-extra-extra-large` produces a byte-identical `viewport` while a product row leaves the tree, so nothing else in the artifact distinguishes the two runs |
+| `conditions` | per run | `mode`, `deviceProfile`, `fontSource`, `renderer`, `targetPlatform`, plus `platformBrightness`, `textScaleFactor`, locale and the accessibility flags. `platform` is the HOST under `flutter test` (`macos`), which is correct and is why `targetPlatform` is a separate field. The report's scope clause quotes these; measured, the same build at `accessibility-extra-extra-extra-large` produces a byte-identical `viewport` while a product row leaves the tree, so nothing else in the artifact distinguishes the two runs |
 
 **`screenSig` is not portable across platforms.** It is built from the screen's labels, and
 platform-adaptive widgets label themselves differently: measured on the same build and the same
@@ -466,4 +535,9 @@ Android emulator. Nothing in the audit compares signatures across runs, so no ch
 
 One caveat for step 4: `MinimumTextContrastGuideline` partitions foreground/background naively and
 picked a nearby button's colour in the verification run while still flagging the correct node. Treat
-its **node** as the signal and its **ratio** as advisory.
+its **node** as the signal and its **ratio** as advisory. That holds twice over in the default mode:
+the guideline reads back rasterized pixels and the headless rasterizer is not the device's —
+measured on the same node, 1.36 under `flutter test` against 1.03 on the simulator. Same verdict
+both times, and the font is not the cause (the em-square run and the real-font run both report
+1.36), but a ratio near 4.5 could land either side. `conditions.renderer` says which one produced
+the number.

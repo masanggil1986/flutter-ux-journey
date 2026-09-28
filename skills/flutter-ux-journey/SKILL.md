@@ -2,7 +2,7 @@
 name: flutter-ux-journey
 description: Audits a running Flutter app one user journey at a time and reports heuristic UX defects scored against that journey's goal, merging static analysis, runtime measurement (real pixel rects, real contrast ratios, real semantics labels pulled from the live app) and screenshots into a single report. Use when the user asks to audit or review a Flutter app's UX, to walk a user journey such as onboarding, sign-up or checkout, or to find usability and accessibility problems in a running Flutter app rather than in its source alone.
 license: MIT
-compatibility: Requires the Flutter SDK (Dart included), Flutter 3.47+ / Dart 3.13+ — verified on Flutter 3.47.2 / Dart 3.13.2; the bundled fixture pins Dart >=3.13.2 and the static probe >=3.9.0, and older toolchains are untested. Also a booted iOS simulator or Android emulator with the app buildable on it. Measurement is verified on both; screenshots are not — the walk takes them on iOS only, so on Android every step's screenshot is null and the visual layer has to come from a host capture. Real devices are untested.
+compatibility: Requires the Flutter SDK (Dart included), Flutter 3.47+ / Dart 3.13+ — verified on Flutter 3.47.2 / Dart 3.13.2; the bundled fixture pins Dart >=3.13.2 and the static probe >=3.9.0, and older toolchains are untested. No device is required for the default mode: the walk runs under `flutter test`, which measures every tap-target rect, contrast ratio and semantics label a device run measures — checked against a committed simulator baseline, same step outcomes, same screen signatures, same sixteen guideline verdicts — and captures its own screenshots. Two caveats it records in the artifact: text metrics come from the app's own fonts when it declares any and from the SDK's Roboto otherwise, and the headless rasterizer's contrast ratios differ slightly from a device's, so treat a value near the threshold as advisory. An app whose plugins or platform views need a real device under them falls back to `flutter drive` on a booted iOS simulator or Android emulator; there, screenshots are iOS-only. Real devices are untested.
 ---
 
 # Flutter UX Journey Audit
@@ -24,8 +24,9 @@ Three rules hold for the whole run:
 - `journey.md` — the journey to walk (format below). If the user has not written one, draft it from
   what they describe and get it confirmed in step 0.
 - The Flutter app's project root.
-- A device id from `flutter devices` — a booted iOS simulator or Android emulator. Measurement is
-  verified on both; see the frontmatter for the one difference (screenshots).
+- Nothing else for the default mode. Only the `flutter drive` fallback needs a device id from
+  `flutter devices` — a booted iOS simulator or Android emulator. Measurement is verified on both;
+  see the frontmatter for the one difference (screenshots).
 
 ### journey.md format
 
@@ -81,6 +82,10 @@ Two mechanisms, in order of preference:
 Cut the device off the network, type obviously-fake values, and audit what the app does when the
 call fails. This needs no credentials, no stub, and **no request ever leaves the device** — an
 audit tool must never throw sign-in attempts at production.
+
+In the default mode this needs no command at all: `flutter test` installs its own `HttpOverrides`
+and answers every request with an empty 400, so nothing leaves the host and there is no device
+setting to put back. The commands below are for the `flutter drive` fallback.
 
 ```bash
 adb shell cmd connectivity airplane-mode enable      # Android
@@ -139,17 +144,19 @@ to the audited app's `.gitignore`:
 
 ```
 ux-audit-out/
-integration_test/ux_journey_test.dart
-integration_test/net_stub.dart
+ux_audit/
+integration_test/ux_journey_drive.dart
 test_driver/integration_test.dart
 ```
 
-Those four are everything a run writes into the app. It needs no fifth line: the walk's JSON lands
+The default mode writes ONE file into the app — `ux_audit/ux_journey_test.dart` — plus
+`ux_audit/net_stub.dart` when the journey has a gate to walk past. The other two exist only when
+the run falls back to `flutter drive`. Together they are everything a run writes into the app. It needs no fifth line: the walk's JSON lands
 in `build/`, which Flutter's own `.gitignore` template already covers, and the screenshots go to
 `ux-audit-out/screens/` — never to `screenshots/`, which is a conventionally tracked directory in a
 Flutter app and not ours to claim.
 
-`net_stub.dart` matters most of the four: it is the only generated file that holds the app's real
+`net_stub.dart` matters most of them: it is the only generated file that holds the app's real
 endpoints and real response bodies.
 
 Screenshots and semantics labels are verbatim product copy. They stay in the audited project.
@@ -185,7 +192,7 @@ Read `journey.md` and restate it back as a checklist: the goal in one sentence, 
 numbered journey steps with their expected outcome, the app path, the device id, the output dir.
 Name anything ambiguous (which tab is "Orders"? what proves the goal is reached?).
 
-**Then stop and wait for confirmation. Do not touch a simulator in this step.**
+**Then stop and wait for confirmation. Do not run anything in this step.**
 
 A wrong journey costs a full build-and-drive cycle to discover, and a journey whose steps do not
 match the app produces a confident report about a path the user never takes.
@@ -225,15 +232,33 @@ measures both for real.
 
 ## [2] WALK — run the journey inside the app
 
-Follow `references/walking.md`. It is the exact recipe: the two files to generate into the audited
-app, the verified SDK calls, and the three traps that look fine on the happy path.
+Follow `references/walking.md`. It is the exact recipe: the files to generate into the audited app,
+the verified SDK calls, and the traps that look fine on the happy path.
 
-Summary of what happens: generate `integration_test/ux_journey_test.dart` and
-`test_driver/integration_test.dart` into the audited app, add the two SDK dev_dependencies, run
+Generate `ux_audit/ux_journey_test.dart` into the audited app and add `flutter_test` to its
+dev_dependencies. Then:
+
+```bash
+flutter test ux_audit/ux_journey_test.dart
+```
+
+The walk writes `ux-audit-out/walk.json` and `ux-audit-out/screens/step_*.png` itself; nothing has
+to be copied afterwards. The journey's `## Device` section supplies the screen, because nothing
+else does — leave it out and the walk falls back to `iphone-se` and records that it was not
+declared.
+
+**The directory name is load-bearing.** `flutter test` routes anything under `integration_test/`
+to a device runner on the name alone, so a walker placed there fails with "No devices are
+connected". `ux_audit/` is outside it, and outside `test/` too, so the audited app's own
+`flutter test` never sweeps the walker up.
+
+**Fallback** — the app needs a real device under it (plugins that throw `MissingPluginException`,
+platform views that must actually render). Also generate `integration_test/ux_journey_drive.dart`
+and `test_driver/integration_test.dart`, add `integration_test` to dev_dependencies, and run:
 
 ```bash
 flutter drive --driver=test_driver/integration_test.dart \
-              --target=integration_test/ux_journey_test.dart -d <device-id>
+              --target=integration_test/ux_journey_drive.dart -d <device-id>
 ```
 
 then copy `build/integration_response_data.json` into the output dir as `walk.json`. The PNGs are
@@ -250,7 +275,7 @@ Per step the walk records, besides the semantics dump and the four guidelines:
 | `tapsSoFar` | reach cost on the declared path |
 | `dispatched`, `semanticsUnchanged`, `screenSig` | dead taps, revisits, state loss |
 | `semantics.panesPossiblyBlocked` | true: the dump saw only the last-painted pane — two sibling `Navigator`s, so the report says `not assessable` for the other rather than clean. False is a declared *suspicion*, not a guarantee the dump is whole |
-| `conditions` (top level, once per run) | the brightness, text scale and accessibility flags the numbers above were measured under. The scope clause quotes this |
+| `conditions` (top level, once per run) | the brightness, text scale and accessibility flags the numbers above were measured under, plus `mode` (`widget-test` or `drive`), `deviceProfile` (or `<name> (default, not declared)`), `fontSource` (`app` exact / `sdk-fallback` close / `none` — fold and placement **not assessable**), `renderer` and `targetPlatform`. The scope clause quotes all of it. `platform` is the HOST under `flutter test`, which is why `targetPlatform` is separate |
 | `setupSteps` (top level) | the `## Setup` phase, recorded beside `steps` and never merged into it: no semantics dump, no guidelines, no reach cost. A setup step carries a `screenshot` only when it failed (`setup_N.png`) |
 | `setupFailed` (top level) | true: the walk never reached the journey's starting line, and `steps` is empty by construction |
 
@@ -258,16 +283,19 @@ Per step the walk records, besides the semantics dump and the four guidelines:
 (`references/network-stub.md`) — the field is documented and the template's list is named
 `stubCalls`, so copying it across is a step, not an assumption.
 
-**The exit code is NOT the oracle. Read the JSON.** `flutter drive` exits 0 even when every journey
-step failed — by design, because the walker collects Evaluations and step errors instead of
-asserting (asserting would also discard the JSON and the PNGs, since `writeResponseOnFailure`
-defaults to false). Judge the run by reading `steps[].status` in
-`build/integration_response_data.json`, never by `$?`. A green exit with three `FAILED` steps is the
-normal shape of a journey that hit a real defect.
+**Neither mode's exit code is the oracle. Read the JSON.** Both exit 0 even when every journey step
+failed — by design, because the walker collects Evaluations and step errors instead of asserting
+(asserting would also discard the JSON and, under `flutter drive`, the PNGs, since
+`writeResponseOnFailure` defaults to false). Judge the run by reading `steps[].status` in
+`walk.json`, never by `$?`. A green exit with three `FAILED` steps is the normal shape of a journey
+that hit a real defect.
 
-**No PNGs but a green run** means the recipe was mis-copied: `takeScreenshot` appends into
-`reportData['screenshots']`, so assigning a fresh map to `reportData` at the end deletes them all
-silently. See the MUTATE-never-replace note in `references/walking.md`.
+**No PNGs but a green run**, in the `flutter drive` fallback, means the recipe was mis-copied:
+`takeScreenshot` appends into `reportData['screenshots']`, so assigning a fresh map to `reportData`
+at the end deletes them all silently. See the MUTATE-never-replace note in
+`references/walking.md`. In the default mode there is no such hazard — the walk writes each PNG
+straight to disk — but a step whose `screenshot` is null still means its capture failed, and the
+VISUAL layer for that step is `not assessable`.
 
 **If the run dies during `## Setup`, stop.** The walk says so itself: `setupFailed: true`, the last
 entry in `setupSteps` carries the error and its `setup_N.png`, and `steps` is empty. Report a setup

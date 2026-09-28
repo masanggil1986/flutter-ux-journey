@@ -66,7 +66,20 @@ bottom: this is one declared path, walked once, at one device size under one set
 **Quote the conditions from `conditions` in the walk data — do not assert them.** The run records
 `platformBrightness`, `textScaleFactor` and the accessibility flags precisely so this clause is a
 measurement; without it, a walk on a dark emulator reports dark-theme contrast ratios under a
-sentence that says "light", and nothing in the artifact contradicts it.>
+sentence that says "light", and nothing in the artifact contradicts it.
+
+Five more fields belong in the same clause, and each of them limits a different number:
+
+- `mode` — `widget-test` (no device) or `drive` (on one).
+- `deviceProfile` — the screen the journey declared. `<name> (default, not declared)` means nobody
+  chose it, and the clause says so rather than presenting the fold as requested.
+- `fontSource` — `app` is exact; `sdk-fallback` means text metrics came from a stand-in font, so
+  placement and fold are close but not the app's own; `none` means they are **not assessable** and
+  every placement finding moves to that section.
+- `renderer` — which rasterizer produced the contrast ratios. A headless one differs from a
+  device's by a small margin, so a ratio near 4.5 is advisory either way.
+- `targetPlatform` — what the framework was told to be. Not the same as `platform`, which reads the
+  HOST and is correctly `macos` on a headless run.>
 
 > A user who removes a saved item cannot get back to the list: the screen the app lands on has no
 > way out, and the removal happened with no confirmation, so a mis-tap costs data permanently. One
@@ -210,9 +223,10 @@ Two buckets, split by what the reader can do about it. Never one list.
 - Steps 3–4 were never reached, so every check on those screens is untested, not clean.
 - Screen-reader announcement order, focus order, keyboard navigation, dynamic type, motion and
   reduced-motion: not measured by this run.
-- Platform: <platform and version from `conditions`>, one device size, `<platformBrightness>` at
-  text scale `<textScaleFactor>`. Any other theme or text size is a second run, not an inference —
-  name it here so the reader knows to ask. Real devices untested.
+- Platform: <`targetPlatform` from `conditions`, on `<platform>`>, `<mode>`, one device size
+  (`<deviceProfile>`), `<platformBrightness>` at text scale `<textScaleFactor>`, text metrics from
+  `<fontSource>`. Any other theme, text size or device is a second run, not an inference — name it
+  here so the reader knows to ask. Real devices untested.
 - When `semantics.panesPossiblyBlocked` is true, the dump covers only the last-painted pane: two
   sibling `Navigator`s (a tablet master-detail `Row`) let the later pane's `BlockSemantics` delete
   the earlier one. Every dump-derived check — `TOUCH-TARGET`, `HIERARCHY-FLAT`, `FAKE-AFFORDANCE`,
@@ -262,7 +276,9 @@ Same content, machine-readable, same order as the report. One object per merged 
   "goal": "Find the last order and see its delivery status.",
   "result": "reached with friction",
   "environment": {"flutter": "3.47.2", "device": "iPhone SE (3rd gen)", "platform": "iOS 18.6", "date": "2026-09-22"},
-  "conditions": {"platformBrightness": "light", "textScaleFactor": 1.0, "boldText": false,
+  "conditions": {"mode": "widget-test", "deviceProfile": "iphone-se", "fontSource": "sdk-fallback",
+                 "renderer": "flutter_tester (software)", "targetPlatform": "iOS", "platform": "macos",
+                 "platformBrightness": "light", "textScaleFactor": 1.0, "boldText": false,
                  "highContrast": false, "invertColors": false, "disableAnimations": false},
   "reach": {"tapsLanded": 3, "screens": 3, "basis": "the declared path, not a minimum; a gesture that never dispatched is not reach cost"},
   "priorities": {"source": "journey.md", "declared": ["open a saved product", "remove a product"]},

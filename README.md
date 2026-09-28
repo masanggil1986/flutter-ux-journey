@@ -16,20 +16,24 @@ hand: [`example/report.md`](example/report.md), with the raw walk data every num
 of in [`example/walk.json`](example/walk.json) and, for a second run that walks past a sign-in gate
 with no credentials, [`example/walk-gated.json`](example/walk-gated.json).
 
-> **Platform, stated up front: simulators and emulators only, and screenshots differ per platform.**
-> The pipeline was built and run end to end on an iOS simulator (iPhone SE, iOS 18.6), an iPad Pro
-> 13" simulator, and an Android emulator (API 36), all on Flutter 3.47.2 stable — the public demo app
-> in [`example/ux_demo_app`](example/ux_demo_app) builds for both platforms, so every claim here is
-> reproducible. Measurement — the four guidelines and the semantics dump — works on all three;
-> `textContrastGuideline` does run under Impeller.
-> **Screenshots are the exception.** The walker gates in-test capture on `Platform.isIOS`
-> ([`ux_journey_test.dart`](example/ux_demo_app/integration_test/ux_journey_test.dart)), so on
-> Android it records `screenshot: null` on every step, whatever the app contains. That is
-> unconditional on purpose: `takeScreenshot` deadlocks on Android — no error, no timeout — when the
-> app embeds platform views (a webview, a media surface, a camera preview), and from inside the test
-> there is no way to tell in advance whether this app is one of those. Measurement is unaffected; the
-> visual layer is captured from the host instead (`adb exec-out screencap` / `xcrun simctl io`), or
-> reported as not assessable.
+> **Platform, stated up front: no device needed by default; a simulator or emulator is the fallback.**
+> The default walk runs under `flutter test` and is checked in this repo's own suite against the
+> simulator run committed as [`example/walk.json`](example/walk.json) — same step outcomes, same
+> screen signatures, same sixteen guideline verdicts, same semantics node counts, same viewport
+> ([`widget_walk_test.dart`](example/ux_demo_app/test/widget_walk_test.dart)).
+> **Two things it cannot borrow from a device, and records instead of hiding.** Text metrics come
+> from the app's own fonts when it declares any and from the SDK's Roboto otherwise; with the
+> stand-in, placement is close but not the app's own. And contrast ratios come from a software
+> rasterizer that differs from a device's by a small margin — measured on the same node, 1.36
+> headless against 1.03 on the simulator, same verdict — so a ratio near the threshold is advisory.
+> Both land in `conditions` (`fontSource`, `renderer`) and the report's scope clause quotes them.
+> **The fallback is `flutter drive` on a booted simulator or emulator**, for an app whose plugins
+> throw `MissingPluginException` or whose platform views have to actually render. That pipeline was
+> built and run end to end on an iOS simulator (iPhone SE, iOS 18.6), an iPad Pro 13" simulator, and
+> an Android emulator (API 36), all on Flutter 3.47.2 stable. There, screenshots are iOS-only:
+> `takeScreenshot` deadlocks on Android — no error, no timeout — when the app embeds platform views,
+> and from inside the test there is no way to tell in advance. The visual layer is captured from the
+> host instead (`adb exec-out screencap` / `xcrun simctl io`), or reported as not assessable.
 > **Real devices are not verified and are not claimed.**
 
 ## Who this is for
@@ -67,8 +71,10 @@ For any other agent: copy `skills/flutter-ux-journey/` into that agent's skills 
 - **Flutter 3.47.2 / Dart 3.13.2 or newer.** That floor is the demo app's own
   (`example/ux_demo_app/pubspec.yaml` declares `sdk: ^3.13.2`); `tools/astprobe` alone is happy on
   `^3.9.0`. Dart ships with Flutter.
-- **Xcode** for iOS simulators, or the **Android SDK** for emulators.
-- A **booted** simulator or emulator, and its device id:
+- Nothing else for the default mode. The walk runs under `flutter test`.
+- **Only for the `flutter drive` fallback** — an app whose plugins or platform views need a real
+  device under them: **Xcode** for iOS simulators or the **Android SDK** for emulators, a **booted**
+  one, and its device id:
 
   ```bash
   open -a Simulator && flutter devices                           # iOS
@@ -93,25 +99,23 @@ report those defects produce.
 git clone https://github.com/masanggil1986/flutter-ux-journey.git
 cd flutter-ux-journey/example/ux_demo_app
 flutter pub get
-open -a Simulator && flutter devices     # copy the id of a booted device
-flutter drive --driver=test_driver/integration_test.dart \
-              --target=integration_test/ux_journey_test.dart \
-              -d <device-id>
+flutter test ux_audit/ux_journey_test.dart
 ```
 
-Cost, measured on an iPhone SE (3rd gen) simulator: about **70 s** the first time, roughly 40 s of
-that the Xcode build, and about **20 s** on every run after. It leaves ~350 MB in `build/`. The
-fixture has no plugins, so there is no Podfile and no `pod install`.
+No device, no device id. Cost on this machine: about **2 s** per run with the toolchain warm — the
+simulator walk it replaces took about 70 s the first time and 20 s after, plus ~350 MB in `build/`.
+A first run in a fresh clone still pays Flutter's usual compile.
 
 **Steps 2 and 3 are supposed to fail.** That is the fixture working: step 2 asks for a way to back
 out before the data is destroyed and there is none, step 3 asks to go back and the screen has no
-back control. And `flutter drive` **exits 0 either way** — the exit code is not the oracle. Read
-`steps[].status` in `build/integration_response_data.json`.
+back control. And the run **exits 0 either way** — the exit code is not the oracle. Read
+`steps[].status` in `ux-audit-out/walk.json`.
 
 What you get:
 
-- `build/integration_response_data.json` — the walk data: per step a semantics dump, the four
-  accessibility guideline results, viewport and surface measurements, timings.
+- `ux-audit-out/walk.json` — the walk data: per step a semantics dump, the four accessibility
+  guideline results, viewport and surface measurements, timings, and a `conditions` block naming
+  the mode, device profile, font source and rasterizer every number above was produced under.
 - `ux-audit-out/screens/step_{1..4}.png` — one screenshot per step.
 
 Compare what you get against [`example/report.md`](example/report.md) — the write-up of exactly this
@@ -156,8 +160,8 @@ walker rather than for the report, are catalogued in
    `## Priorities` is the only thing that makes "this is buried" sayable, and it is never inferred.
    Leave it out and the report says so instead of guessing.
 
-2. Boot a simulator (see [Requirements](#requirements)), then ask Claude:
-   **"audit journey.md against this app"**.
+2. Ask Claude: **"audit journey.md against this app"**. No device needed — boot a simulator only
+   if the audit tells you the app needs the `flutter drive` fallback (see [Requirements](#requirements)).
 3. Read `report.md`. Each finding names its evidence layer (`STATIC` / `RUNTIME` / `VISUAL` /
    `JOURNEY`), its measured numbers, and a severity scored against *your* goal — the same defect is a
    4 when it blocks the goal and a 2 when there is a way around it.
@@ -172,12 +176,18 @@ the gate as `## Setup`, which is excluded from measurement and scoring. The work
 
 ### What the run puts in your repo
 
-The skill generates `integration_test/ux_journey_test.dart` and a driver file into the app being
-audited, writes its output under `ux-audit-out/`, and tells you to add those paths to that app's
-`.gitignore`.
+The skill generates `ux_audit/ux_journey_test.dart` into the app being audited — one file, plus a
+network stub beside it if the journey has a gate to walk past — writes its output under
+`ux-audit-out/`, and tells you to add those paths to that app's `.gitignore`. The `flutter drive`
+fallback adds two more, `integration_test/ux_journey_drive.dart` and a driver file.
 
-One thing cannot be gitignored: the run **edits your `pubspec.yaml`** to add `flutter_test` and
-`integration_test` as `dev_dependencies`. That is two entries, and reverting it is deleting them.
+`ux_audit/` rather than `integration_test/` for two reasons, both measured: `flutter test` routes
+anything under `integration_test/` to a device runner on the directory name alone, and anything
+under `test/` would be swept into your own suite by a bare `flutter test`.
+
+One thing cannot be gitignored: the run **edits your `pubspec.yaml`** to add `flutter_test` as a
+`dev_dependency` — and `integration_test` too, but only if you need the fallback. That is one or two
+entries, and reverting it is deleting them.
 
 Adding `integration_test` also pulls Flutter's own test closure into your lockfile. Verified against
 [`example/ux_demo_app/pubspec.lock`](example/ux_demo_app/pubspec.lock), that is
@@ -192,9 +202,9 @@ into your app at all.**
 ```
 journey.md
   └─ 0a. feature map  the app's router, listed — which routes exist, which this journey covers
-     0. preflight     confirm the parsed goal + steps before touching a simulator
+     0. preflight     confirm the parsed goal + steps before running anything
      1. static        package:analyzer over the source — missing labels, unlabeled tap handlers
-     2. walk          a generated integration_test, run with `flutter drive`
+     2. walk          a generated test, run with `flutter test` (`flutter drive` as fallback)
      3. visual        the model reads the screenshots the walk captured
      4. merge         findings deduped, scored 4/3/2/1/✓ against the goal, written up
 ```
@@ -220,7 +230,8 @@ rects come out of the tree in physical pixels, so the walk divides by `devicePix
 44 lpx at any screen density.
 
 Flutter ships four accessibility guidelines in `package:flutter_test`; all four were run on a real
-simulator and return a node, a pixel `Rect`, the measured value and the required value:
+simulator and headless, with identical verdicts, and return a node, a pixel `Rect`, the measured
+value and the required value:
 
 | guideline | what it returns |
 |---|---|
@@ -265,15 +276,18 @@ Honesty is most of the product here. A finding without evidence does not get wri
 not be assessed is listed as `not assessable` instead of quietly omitted.
 
 - **Screens you did not declare.** There is no crawler. The journey is written by a human, on purpose.
-- **Real devices.** Simulators and emulators only in v0.1 (see the banner). Real-device-only
-  behaviour — permission dialogs, push, deep links, biometrics — is out of reach. Note also that an
-  app whose native SDKs drop the simulator slice cannot be built for the iOS simulator at all; on
-  such apps, use the Android emulator or a real device.
-- **Anything on screen, if you are not on macOS.** iOS simulators need macOS, so on Linux and
-  Windows the Android emulator is the only target — and the walk records `screenshot: null` on every
-  Android step by design. There, VISUAL is `not assessable` for every step and the two checks that
-  need pixel diffs cannot fire. Measurement is unaffected; only the visual layer is missing, and a
-  host capture (`adb exec-out screencap`) can put it back by hand.
+- **Real devices.** Never verified (see the banner). Real-device-only behaviour — permission
+  dialogs, push, deep links, biometrics — is out of reach.
+- **Apps whose plugins must really answer.** The default mode runs with no platform channels
+  behind it, so a plugin that throws `MissingPluginException` takes its screen with it. This is
+  measured on no production app yet, and it is the reason the `flutter drive` fallback stays. In
+  that fallback, an app whose native SDKs drop the simulator slice cannot be built for the iOS
+  simulator at all; use the Android emulator or a real device.
+- **Platform views.** A webview, a map or a camera preview does not render headlessly — that area
+  comes out blank and the report says `not assessable` for it. In the `flutter drive` fallback it is
+  worse: in-test capture is gated to iOS because `takeScreenshot` deadlocks on Android whenever the
+  app hosts one, so there every step records `screenshot: null` and a host capture
+  (`adb exec-out screencap`) puts the visual layer back by hand.
 - **Anything with no semantics node.** Tappables are enumerated by *tap action*, not by widget type,
   so custom-painted decoration that exposes nothing to the semantics tree is invisible to the walk.
 - **Whether a screen reader actually sounds right.** Labels and roles are measured; VoiceOver's real
@@ -384,8 +398,9 @@ carry this project's specific load.
 
 | Symptom | What it is | Where it is explained |
 |---|---|---|
-| `flutter drive` exited 0 but steps failed | Normal. The exit code is not the oracle — read `steps[].status` in `build/integration_response_data.json`. | [`SKILL.md`](skills/flutter-ux-journey/SKILL.md) § `[2] WALK` |
-| No PNGs on Android | By design: in-test capture is gated on `Platform.isIOS`. Capture from the host instead. | [`references/walking.md`](skills/flutter-ux-journey/references/walking.md) § Screenshots deadlock |
+| The run exited 0 but steps failed | Normal. The exit code is not the oracle — read `steps[].status` in `ux-audit-out/walk.json`. | [`SKILL.md`](skills/flutter-ux-journey/SKILL.md) § `[2] WALK` |
+| "No devices are connected" from `flutter test` | The walker was put under `integration_test/`, which `flutter test` routes to a device runner on the directory name alone. It belongs in `ux_audit/`. | [`references/walking.md`](skills/flutter-ux-journey/references/walking.md) § Two modes |
+| No PNGs on Android, `flutter drive` fallback | By design: in-test capture is gated on `Platform.isIOS`. Capture from the host instead. | [`references/walking.md`](skills/flutter-ux-journey/references/walking.md) § Screenshots deadlock |
 | No PNGs on any platform, green run | The driver file was mis-copied. `reportData` must be **mutated**, never replaced — assigning a fresh map deletes the screenshots silently. | [`SKILL.md`](skills/flutter-ux-journey/SKILL.md) § `[2] WALK` |
 | A label matched twice | The walker refuses to pick one. Disambiguate the step with `nth: N`. | [`references/walking.md`](skills/flutter-ux-journey/references/walking.md) § Ambiguity |
 | The run hangs | Something called `pumpAndSettle`, whose default timeout is 10 minutes. The recipe uses a bounded settle and records `settled` per step. | [`references/walking.md`](skills/flutter-ux-journey/references/walking.md) § Bounded settle |

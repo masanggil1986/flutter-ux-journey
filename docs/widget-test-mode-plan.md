@@ -10,6 +10,11 @@
 
 **Spec:** `docs/widget-test-mode.md`
 
+> **실행 후 메모 (2026-09-28).** 이 계획은 완료됐고, 실행 중 내린 판정 다섯 건이 계획을 고쳤다 —
+> 워커 위치(`integration_test/` → `ux_audit/`), Task 2의 전제 반증, 폰트 테스트가 재는 표면,
+> `FontLoader`의 프로세스 전역성, 디바이스 이름 해석. 어긋나는 부분은 커밋 메시지와
+> `docs/widget-test-mode.md`의 정정 블록이 기준이다.
+
 ## Global Constraints
 
 - **서드파티 의존성 0개.** SDK 동봉 패키지 외 어떤 것도 `pubspec.yaml`에 추가하지 않는다.

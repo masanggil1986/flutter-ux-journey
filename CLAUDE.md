@@ -59,7 +59,18 @@ git diff --cached | grep -inE 'token|secret|password|api[_-]?key|bearer|://' \
 
 ---
 
-## 현재 상태
+## 현재 상태 (2026-09-28 갱신)
+
+**기본 실행 경로는 `flutter test`다. 디바이스가 필요 없다.** 워커는 `ux_audit/ux_journey_test.dart`에
+살고, 바인딩을 모른다 — 스크린샷(`shot`)·산출물 위치(`publish`)·엔트리만 아는 사실(`runContext`)이
+전부 주입된다. `flutter drive` 경로는 `integration_test/ux_journey_drive.dart`로 남는다.
+근거와 실측: `docs/widget-test-mode.md`, 계획: `docs/widget-test-mode-plan.md`.
+
+**`integration_test/`에 두면 안 된다** — `flutter test`가 디렉터리 *이름*만 보고 디바이스 러너로
+보낸다(`flutter_tools/commands/test.dart`의 `_kIntegrationTestDirectory`). 플래그는 없다.
+`test/`도 안 된다 — 감사 대상 앱의 `flutter test`가 우리 워크를 같이 돌린다.
+
+
 
 **Day 1 배관 검증 완료 (2026-09-22).** 전체 기록: `docs/day1-plumbing.md`, 근거 원문: `docs/day1/*.md`.
 
@@ -100,6 +111,24 @@ git diff --cached | grep -inE 'token|secret|password|api[_-]?key|bearer|://' \
 
 v0.1은 데모 픽스처(iOS 시뮬)와 **실제 운영 앱(Android 에뮬레이터)** 양쪽에서 실행 검증했다.
 운영 앱 도그푸드에서 드러난 것과 남은 갭은 아래와 같다.
+
+**닫힌 갭 (2026-09-28)**
+
+- **시뮬레이터 의존.** 헤드리스 워크가 커밋된 시뮬레이터 실측(`example/walk.json`)과 스텝 상태·
+  screenSig·가이드라인 판정 16개·노드 수·viewport까지 일치한다 — `test/widget_walk_test.dart`가
+  매 스위트에서 확인한다.
+- **골든 자동 대조.** 위 테스트가 그것이다. 디바이스가 없으니 CI에서 돈다.
+- **Android 스크린샷 데드락.** 기본 모드는 `OffsetLayer.toImage()`(골든 경로)로 잡으므로
+  플랫폼 서피스가 없다 → 데드락 불가능. 대신 플랫폼 뷰는 아예 안 그려지고 `not assessable`이다.
+
+**새로 열린 갭**
+
+- **폰트.** `flutter test`는 Ahem을 쓴다 — 실측 drift 최대 153.6px. `loadFonts`가 앱 선언 폰트
+  또는 SDK Roboto를 테마가 부르는 패밀리(`CupertinoSystemDisplay`/`Roboto`)에 등록해 중앙값
+  0.0px까지 줄인다. `FontLoader`는 **null family를 못 바꾼다** — 옛 `.SF UI *` 이름에 등록하면
+  조용히 아무 일도 안 일어난다. `conditions.fontSource`가 어느 쪽인지 밝힌다.
+- **대비 수치.** 헤드리스 래스터라이저가 시뮬레이터와 다르다 — 같은 노드 1.36 vs 1.03(판정 동일,
+  폰트 무관). 4.5 경계값은 뒤집힐 수 있다. `conditions.renderer`가 밝힌다.
 
 **도그푸드로 닫힌 갭**
 
@@ -151,14 +180,22 @@ v0.1은 데모 픽스처(iOS 시뮬)와 **실제 운영 앱(Android 에뮬레이
 
 **여전히 미검증**
 
+- **플러그인이 있는 실제 앱에서의 widget-test 모드.** 플랫폼 채널이 뒤에 없으므로
+  `MissingPluginException`을 던지는 플러그인은 그 화면을 데려간다. `allMessagesHandler` catch-all은
+  SDK 소스로만 확인했고 실행하지 않았다. **`flutter drive` 경로를 남기는 주된 이유가 이것이다.**
+- **Android 타겟 widget-test 런.** iOS 타겟 한 조건만 걸었다.
+- **`pixel-6` / `ipad-13` 프리셋.** `CLAUDE.md`에 크기·dpr·foldY는 있지만 `contentTop`이 없다.
+  각 1회 캘리브레이션 런 뒤에 승격한다. 그때까지 `## Device`는 명시 수치를 받는다.
+
 - **iOS 실기기.** 시뮬레이터 전용이다. (구 메모가 "데모 앱은 시뮬레이터 슬라이스 때문에 못 돈다"고
   적었는데 그건 **비공개 앱** 사정이고 공개 데모 앱엔 해당 없다 — 데모 앱은 시뮬에서 잘 돈다.)
 - **관문 통과의 공개 재현.** 메커니즘은 검증됐지만 공개 픽스처엔 HTTP 의존성이 없어
   `## Setup`·스텁·`networkCalls`가 공개적으로 행사되지 않는다. 픽스처에 가짜 관문을 달지 말지는
   **사람이 결정할 일** — 픽스처를 제품으로 키우는 쪽으로 넘어가는 선이다.
-- **골든 자동 대조.** `expected-findings.json`은 회귀 오라클인데 `recipe_sync_test.dart`는 **모양만**
-  검증한다. 런 출력과의 실제 diff는 아직 사람 손이다.
-- **`flutter drive`의 exit code는 오라클이 아니다.** 모든 스텝이 실패해도 0으로 끝난다.
+- **`expected-findings.json`과의 대조.** 런 출력 대 `example/walk.json` 대조는 자동화됐지만
+  (`widget_walk_test.dart`), 그 위에 얹히는 finding 골든은 `recipe_sync_test.dart`가 **모양만**
+  검증한다. finding 수준의 diff는 아직 사람 손이다.
+- **어느 모드의 exit code도 오라클이 아니다.** 모든 스텝이 실패해도 0으로 끝난다.
   판단은 반드시 `integration_response_data.json`의 `steps[].status`로.
 
 ## 확정된 제품 결정 (2026-09-22)
@@ -217,9 +254,10 @@ v0.1은 데모 픽스처(iOS 시뮬)와 **실제 운영 앱(Android 에뮬레이
 
 - 스크립트에 로직(분기·파싱·병합·채점)이 있으면 실행 가능한 체크를 하나 남긴다.
   단순 패스스루는 테스트 대상이 아니다.
-- 워커·픽스처를 건드렸으면 `cd example/ux_demo_app && flutter test` (48종), 정적 룰을 건드렸으면
+- 워커·픽스처를 건드렸으면 `cd example/ux_demo_app && flutter test` (실행해서 나온 수를 본다 —
+  이 줄에 숫자를 박으면 매번 낡는다), 정적 룰을 건드렸으면
   `cd tools/astprobe && dart test` (7종). 둘 다 통과해야 한다.
 - `references/walking.md`와 워커 구현은 `recipe_sync_test.dart`로 서로 고정돼 있다 — 레시피에 워커를
   다시 베껴 넣으면 실패한다. 포인터를 고치지, 사본을 만들지 않는다.
-- 저니 포맷(`# Goal` / `## Setup` / `## Steps` / `## Priorities`)을 바꿨으면 `example/journey.md`와
+- 저니 포맷(`# Goal` / `## Setup` / `## Device` / `## Steps` / `## Priorities`)을 바꿨으면 `example/journey.md`와
   README·SKILL.md의 예시 셋이 같이 움직여야 한다.

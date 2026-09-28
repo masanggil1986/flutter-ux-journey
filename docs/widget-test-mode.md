@@ -87,7 +87,15 @@ Future<void> walkJourney(
 
 ### 2. 두 엔트리
 
-생성 파일 위치는 **바꾸지 않는다.** `flutter test`는 경로를 받으므로
+> **구현 중 정정 (2026-09-28).** 아래 "위치는 바꾸지 않는다"는 **틀렸다.** `flutter test`는
+> `integration_test/`를 디렉터리 *이름*만 보고 디바이스 러너로 보낸다
+> (`flutter_tools/commands/test.dart`의 `_kIntegrationTestDirectory`) — 플래그는 없고,
+> `flutter test integration_test/ux_journey_test.dart`는 "No devices are connected"로 죽는다.
+> 워커는 **`ux_audit/ux_journey_test.dart`**로 갔다. 그 디렉터리는 `test/`도 아니므로 감사 대상
+> 앱의 맨 `flutter test`가 워커를 쓸어가지도 않는다(둘 다 실측 확인). 아래 표의 실행 명령과
+> 파일 경로는 그 기준으로 읽는다.
+
+생성 파일 위치는 ~~**바꾸지 않는다**~~. `flutter test`는 경로를 받으므로
 `integration_test/ux_journey_test.dart`에 그대로 두고 `flutter test integration_test/...`로 돈다.
 `test/`로 옮기면 남의 앱 `flutter test`가 우리 파일을 같이 돌려 그쪽 CI를 깬다.
 
@@ -208,6 +216,14 @@ iOS에서 `4ddc18db`로 해시된다(Material `BackButton`의 label/tooltip 차�
 handoff의 1순위였던 **골든 자동 대조**(`expected-findings.json` 실제 diff)가 비로소 가능해진다.
 
 ## 조사 항목 — 추측으로 고치지 않는다
+
+> **구현 중 정정 (2026-09-28).** 항목 1의 전제는 **재현되지 않았다.** 한 파일에서 `walkJourney`를
+> 여덟 번(연속 두 워크, 던지는 `shot`, 던지는 `publish`, 워크 중 발생한 `FlutterError` 포함)
+> 돌렸고 워커를 한 줄도 바꾸지 않은 채 전부 통과했다. probe가 본 teardown assert의 진짜 원인은
+> **`addTearDown(() => debugDefaultTargetPlatformOverride = null)`**이었다 — 바인딩의
+> `_verifyInvariants`는 테스트 **본문 끝**에서 돌고 teardown은 그 뒤에 돈다. 인라인으로 되돌리면
+> 사라진다. 그래서 복원 코드는 넣지 않았다(실패하는 테스트가 없으므로). 세 테스트는 회귀 핀으로
+> 남았다.
 
 **1. `FlutterError.onError` 미복원 (`ux_journey_test.dart:126`)**
 
