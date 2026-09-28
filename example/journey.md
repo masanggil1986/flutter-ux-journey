@@ -4,7 +4,8 @@ Remove one product from the saved list and get back to the list to keep browsing
 Done = the list is on screen again, without that product and with the others still there.
 
 App: `example/ux_demo_app`. No backend and no login, so there is no `## Setup` block — the app
-opens straight onto step 1.
+opens straight onto step 1. [`journey-gated.md`](journey-gated.md) walks these same three steps
+behind a sign-in gate, which is where `## Setup` and the network stub are exercised.
 
 ## Steps
 

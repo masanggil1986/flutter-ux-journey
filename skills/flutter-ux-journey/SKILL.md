@@ -2,7 +2,7 @@
 name: flutter-ux-journey
 description: Audits a running Flutter app one user journey at a time and reports heuristic UX defects scored against that journey's goal, merging static analysis, runtime measurement (real pixel rects, real contrast ratios, real semantics labels pulled from the live app) and screenshots into a single report. Use when the user asks to audit or review a Flutter app's UX, to walk a user journey such as onboarding, sign-up or checkout, or to find usability and accessibility problems in a running Flutter app rather than in its source alone.
 license: MIT
-compatibility: Requires the Flutter SDK (Dart included) and a booted iOS simulator or Android emulator with the app buildable on it. Measurement is verified on both; screenshots differ — on Android takeScreenshot deadlocks when the app embeds platform views, so capture from the host. Real devices are untested.
+compatibility: Requires the Flutter SDK (Dart included), Flutter 3.47+ / Dart 3.13+ — verified on Flutter 3.47.2 / Dart 3.13.2; the bundled fixture pins Dart >=3.13.2 and the static probe >=3.9.0, and older toolchains are untested. Also a booted iOS simulator or Android emulator with the app buildable on it. Measurement is verified on both; screenshots are not — the walk takes them on iOS only, so on Android every step's screenshot is null and the visual layer has to come from a host capture. Real devices are untested.
 ---
 
 # Flutter UX Journey Audit
@@ -49,7 +49,10 @@ See that a failed sign-in tells the user what to do next. Done = the message is 
 
 `## Setup` is mandatory when the app gates the journey (a permission dialog, an onboarding sheet,
 a PIN pad). It is excluded from measurement and from scoring. Without it, a run that dies in setup
-gets reported as a short successful journey.
+gets reported as a short successful journey. The heading is matched on the word `Setup`; the
+parenthetical above is a reminder to whoever reads the file, so a bare `## Setup` is the same
+heading. Nothing parses this file but the agent reading it — the lists it produces are the ones it
+generates into the walker.
 
 A step is `tap`, `type` or `back`. `back` presses the on-screen back affordance; it fails when
 there is none, which is a DEAD-END **candidate**, not the evidence — `tester.pageBack` only looks
@@ -86,6 +89,9 @@ adb shell cmd connectivity airplane-mode enable      # Android
 adb shell cmd connectivity airplane-mode disable     # always restore
 ```
 
+Airplane mode is a change to somebody's device, not to the audit. Restore it in the same turn,
+before writing the report, whether the walk passed, failed or threw.
+
 This is not a lesser fallback. The failure path — wrong password, no signal, server down — is the
 path every real user eventually hits, and it is the one nobody tests. Measured on a production app,
 this alone surfaced a severity-3 defect that the happy path cannot show.
@@ -100,6 +106,15 @@ and most clients sit on.
 run. Only the route table is app-specific: stub the sign-in endpoint, run, read `networkCalls` and
 the failing step, add what it names, repeat. Three or four rounds is typical — that loop is faster
 than reading the app's API surface up front.
+
+There is a worked instance to copy rather than re-derive: `example/journey-gated.md` walked against
+`example/ux_demo_app/lib/main_gated.dart` with `integration_test/gate_stub.dart`, measured on a
+simulator — `networkCalls: ["/session", "/auth/login"]`, setup 3/3 OK, and a journey byte-identical
+to the ungated run's. Its walker, `integration_test/gated_journey_test.dart`, is 105 lines against
+the first walker's 1155, and 67 of those are code — nearly all of it the two step lists. That is
+because `walkJourney` is public: a second journey imports the walk from the first rather than
+copying it. (The public copy is named `gate_stub.dart` because `net_stub.dart` is the generated
+name and is gitignored.)
 
 Run it with the device offline (`adb shell cmd connectivity airplane-mode enable`). If a response
 arrives at all, the stub is intercepting — a real request could not have succeeded. That is also
@@ -129,6 +144,11 @@ integration_test/net_stub.dart
 test_driver/integration_test.dart
 ```
 
+Those four are everything a run writes into the app. It needs no fifth line: the walk's JSON lands
+in `build/`, which Flutter's own `.gitignore` template already covers, and the screenshots go to
+`ux-audit-out/screens/` — never to `screenshots/`, which is a conventionally tracked directory in a
+Flutter app and not ours to claim.
+
 `net_stub.dart` matters most of the four: it is the only generated file that holds the app's real
 endpoints and real response bodies.
 
@@ -141,6 +161,13 @@ Screenshots and semantics labels are verbatim product copy. They stay in the aud
 Before any journey, read the app's **router** and list its declared routes. That is the app's own
 statement of its feature surface — no crawling, no guessing, and it is static so it costs nothing.
 For GoRouter, that is usually a file of route constants plus the `GoRoute` tree.
+
+Many apps have no declarative router — the bundled `example/ux_demo_app` is one, pushing
+`MaterialPageRoute` inline — and then there is no route table at all. Enumerate the `Widget` classes
+pushed via `MaterialPageRoute`/`CupertinoPageRoute` instead, label the column for what it actually
+holds (`pushed MaterialPageRoute (DetailScreen)`, not a route name), and record in Not Assessable
+that there was no declared route table to reconcile the walk against. `example/report.md` does
+exactly this under *Feature map* and *Not Assessable*; copy its shape.
 
 Group the routes into feature areas and present the map with a coverage column. A route the walk
 never reached is **not audited**, and the report must say so — a score over 20% of an app that
@@ -166,12 +193,27 @@ match the app produces a confident report about a path the user never takes.
 ## [1] STATIC — candidates from the source
 
 ```bash
-dart pub get -C "${CLAUDE_PLUGIN_ROOT}/tools/astprobe"    # once: the probe imports package:analyzer
-dart run "${CLAUDE_PLUGIN_ROOT}/tools/astprobe/bin/probe.dart" <app-root>/lib > <out>/static.json
+mkdir -p <out>/screens          # nothing else creates <out>, and the redirect below needs it
+PROBE="${CLAUDE_PLUGIN_ROOT:-<clone-root>}/tools/astprobe/bin/probe.dart"
+dart run "$PROBE" <app-root>/lib > <out>/static.json
 ```
+
+`CLAUDE_PLUGIN_ROOT` is set only when the skill was installed as a plugin; substitute
+`<clone-root>` — the directory holding `tools/astprobe` — when it is not, or the path collapses to
+`/tools/astprobe` and the command fails. There is no `pub get` step: `dart run` resolves the
+probe's dependencies itself. It does write a `.dart_tool/` beside the probe, which is a resolution
+cache and the one thing that lands in the skill directory — no audit output ever does.
 
 Four rules: unlabeled `GestureDetector`/`InkWell` with `onTap`, `IconButton`/`Icon` with neither
 `tooltip` nor `semanticLabel`, `Image` without `semanticLabel`, unlabeled `TextField`.
+
+Read `filesScanned` before reading the findings: `0 findings` with `filesScanned: 0` means the path
+was wrong, not that the code is clean. And pass `<app-root>/lib`, never `<app-root>` — the probe
+scans whatever directory it is given, so on the bundled fixture `<app-root>` scans 11 files and
+reports 3 candidates inside `test/`, which is not the app, and would scan the walker this skill just
+generated as well. Each finding's `file` is relative to the directory passed in, so with
+`<app-root>/lib` it reads `main.dart`; quote it as `lib/main.dart:126`, the form every other document
+uses.
 
 The probe matches on widget *names* with no type resolution, so a same-named non-widget is a possible
 false positive — that is why each hit carries a confidence. **`STATIC` alone proves a candidate in
@@ -194,7 +236,8 @@ flutter drive --driver=test_driver/integration_test.dart \
               --target=integration_test/ux_journey_test.dart -d <device-id>
 ```
 
-then collect `build/integration_response_data.json` and `screenshots/*.png` into the output dir.
+then copy `build/integration_response_data.json` into the output dir as `walk.json`. The PNGs are
+already there: the driver writes them straight to `ux-audit-out/screens/`.
 
 Per step the walk records, besides the semantics dump and the four guidelines:
 
@@ -208,6 +251,8 @@ Per step the walk records, besides the semantics dump and the four guidelines:
 | `dispatched`, `semanticsUnchanged`, `screenSig` | dead taps, revisits, state loss |
 | `semantics.panesPossiblyBlocked` | true: the dump saw only the last-painted pane — two sibling `Navigator`s, so the report says `not assessable` for the other rather than clean. False is a declared *suspicion*, not a guarantee the dump is whole |
 | `conditions` (top level, once per run) | the brightness, text scale and accessibility flags the numbers above were measured under. The scope clause quotes this |
+| `setupSteps` (top level) | the `## Setup` phase, recorded beside `steps` and never merged into it: no semantics dump, no guidelines, no reach cost. A setup step carries a `screenshot` only when it failed (`setup_N.png`) |
+| `setupFailed` (top level) | true: the walk never reached the journey's starting line, and `steps` is empty by construction |
 
 `report['networkCalls']` must be filled from the stub's own call list when a stub is installed
 (`references/network-stub.md`) — the field is documented and the template's list is named
@@ -224,8 +269,10 @@ normal shape of a journey that hit a real defect.
 `reportData['screenshots']`, so assigning a fresh map to `reportData` at the end deletes them all
 silently. See the MUTATE-never-replace note in `references/walking.md`.
 
-**If the run dies during `## Setup`, stop.** Report a setup failure with what blocked it. Do not
-report the steps that did run as a journey — a journey that never started has no findings.
+**If the run dies during `## Setup`, stop.** The walk says so itself: `setupFailed: true`, the last
+entry in `setupSteps` carries the error and its `setup_N.png`, and `steps` is empty. Report a setup
+failure with what blocked it. Do not report the setup steps that did run as a journey — a journey
+that never started has no findings.
 
 If a journey step fails (the target is not on screen, or the expected outcome never appears), that is
 itself a finding — record the step as `FAILED`, keep its screenshot, and continue only if the next
@@ -234,6 +281,14 @@ step does not depend on it.
 ## [3] VISUAL — look at the screenshots
 
 Read every `screens/step_*.png`. No script; the model does this.
+
+**On Android there are none.** The walk gates in-test screenshots on `Platform.isIOS`, so every
+step's `screenshot` is null and this whole layer is `not assessable` — say that, and say which checks
+it takes down with it. Two cannot fire without a pixel comparison: `FAKE-AFFORDANCE` in its dead-tap
+mode, whose second layer is `cmp` on consecutive PNGs, and the effective-area variant of
+`TOUCH-TARGET`, whose `effectivePct` is geometry until an image confirms it. A host capture (the
+`adb exec-out screencap` form is in `references/walking.md`) documents the end state only, one frame
+after the walk, so it supplies neither — it is evidence for the last screen, not for a transition.
 
 Look for what the semantics tree cannot say: overflow stripes and clipped text, content hidden behind
 a keyboard or a sheet, an empty state that looks like a failure, a primary action that is not the most

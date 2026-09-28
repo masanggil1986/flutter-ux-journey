@@ -63,15 +63,17 @@ Future<void> main() async {
   await integrationDriver(
     onScreenshot: (String name, List<int> bytes, [Map<String, Object?>? args]) async {
       // ONE output root, the one SKILL.md declares. `screenshots/` — the
-      // default this line used to carry — is a conventionally TRACKED
-      // directory in a Flutter app, so the walk dropped somebody's product
-      // screenshots where `git add -A` would take them.
+      // default this file used to write — is a conventionally TRACKED
+      // directory in a Flutter app, so a walk against somebody's repo dropped
+      // their product screenshots where `git add -A` would take them.
       final File f = File('ux-audit-out/screens/$name.png');
       f.parent.createSync(recursive: true);
       f.writeAsBytesSync(bytes);
       return true;
     },
-    // PNGs already went to disk above; keeping them in the JSON inflates it ~12x.
+    // The PNGs already went to disk above. takeScreenshot ALSO stuffs each one
+    // into reportData['screenshots'] as a JSON int array, which inflated a
+    // 45 KB PNG into 561 KB of JSON in the Day 1 run.
     responseDataCallback: (Map<String, dynamic>? data) async {
       data?.remove('screenshots');
       await writeResponseData(data);
@@ -106,20 +108,60 @@ Future<void> writeResponseData(Map<String, dynamic>? data,
 ${CLAUDE_PLUGIN_ROOT}/example/ux_demo_app/integration_test/ux_journey_test.dart
 ```
 
-Read it and copy it. It is not sketched here on purpose — a second copy in prose drifts from the
-one that was executed, and every trap below was found by executing it. It is ~900 lines, it has no
-dependency outside the Flutter SDK, and it carries its own comments explaining every non-obvious
-line.
+Read it and copy it. It is not sketched here on purpose — a second copy in prose drifts from the one
+that was executed, and every trap below was found by executing it. It is over a thousand lines, it
+has no dependency outside the Flutter SDK, and it carries its own comments explaining every
+non-obvious line.
 
 **Four things change per app, and nothing else:**
 
 1. the `package:<app>/main.dart` import,
 2. the `journey` list, generated from `## Steps` in `journey.md`,
-3. the SETUP block, generated from `## Setup`, and a network stub before `app.main()` if the
-   journey has to pass a gate (`references/network-stub.md`),
+3. the `setup` list, generated from `## Setup`, plus `HttpOverrides.global = StubHttpOverrides();`
+   ahead of the launch if the journey has to pass a gate (`references/network-stub.md`),
 4. `networkCalls`, wired to the stub's own call list when there is a stub.
 
 The rest of this file explains *why* the parts that look replaceable are not.
+
+### The walk is entered through `walkJourney`, which does not launch the app
+
+`walkJourney(tester, binding, launch:, journey:, setup:, networkCalls:)` takes the launch as a
+CALLBACK and calls it itself. That is not indirection for its own sake: a network stub has to be in
+place before the app's first frame, and handing over `app.main` rather than calling it is the only
+way a caller gets in front of that. Measured on the gated fixture, whose session probe fires on the
+first frame — an override installed after the launch is already too late.
+
+`walkJourney`, `performStep` and `resolve` are public, as are the measurement helpers. This changes
+nothing about what the skill generates: the file it writes into somebody else's app is still ONE
+file — consts, `main`, the walk and the helpers together — because an app under audit should gain
+one file and no structure.
+
+What it buys is a SECOND journey in a repo that already has one. That file imports `Step` and
+`walkJourney` from the first and adds only what is genuinely per-journey: the stub, the `setup`
+list, the `journey` list, and a `main` that installs the override and calls the walk. The worked
+instance is `example/ux_demo_app/integration_test/gated_journey_test.dart` — 105 lines, 67 of them
+code, and nearly all of that is the two step lists. Run it by pointing `--target` at it.
+
+### The Setup phase — a gate is not the product
+
+`## Setup` becomes the `setup` list, walked before the journey and kept out of the score. Setup
+steps get no semantics dump, no guideline evaluation and no reach cost. Measured, that exclusion
+holds: the gated fixture run and the ungated one report the same `taps: 2` and the same per-step
+`tapsSoFar` (1, 2, 2, 2), although the gated one also tapped once to get through the gate.
+
+They are recorded anyway, in `setupSteps[]` beside `steps[]`. A run that dies at the gate must say
+`setupFailed: true` and ship an EMPTY `steps[]`; reporting the steps that did run as a journey
+describes a short healthy app that does not exist.
+
+A setup step is screenshotted only when it FAILS, as `setup_N.png`. That one image is the whole
+evidence for "the gate is what blocked this", and a setup step that passed has nothing to show.
+
+A `type` step's recorded `text` comes from the journey file and not from the screen, so
+`obscureText` does nothing to keep it out of the artifact — measured: `not-a-real-password` landed
+verbatim in the first run that produced `example/walk-gated.json`. When the resolved field hides its
+own value the walker now records `<redacted N chars: ...>` and keeps the length. Journeys are
+required to use arbitrary data anyway; this exists because "required" is not "guaranteed", and an
+audit artifact is the last place anyone should have to be careful.
 
 ### Collecting the four built-in guidelines
 
@@ -261,8 +303,11 @@ its own rect never changes when something lands on top of it. Measured on a prod
 error banner cut a 56 dp CTA to 17.2 dp of visible target while the CTA still reported 56 dp.
 `subtractRects` splits the target around every later-painted, non-descendant node that intersects
 it, and `centreCovered` answers the question the walk actually depends on — the walker taps the
-CENTRE, so a covered centre means its own tap lands on the overlay. The fixture reproduces the
-production number exactly: a 48 dp CTA under a banner keeps 33.3% of its area and a 16 dp strip.
+CENTRE, so a covered centre means its own tap lands on the overlay. The fixture reproduces the same
+failure SHAPE, not the same number: a 48 dp CTA under a banner keeps a 16 dp strip, 33.3% of its
+area, against production's 17.2 dp of a 56 dp CTA, which is 30.7%. What repeats is the part that
+matters — the control's own rect never moves, so every size-only check still passes it, and the
+centre is covered. `test/walker_test.dart` pins the fixture case.
 
 Two exclusions are load-bearing. Ancestors are excluded by coming first in paint order; descendants
 have to be excluded explicitly by walking the parent chain, or every card obscures itself with its
@@ -272,9 +317,15 @@ This is **geometry, not a hit test**: the semantics tree carries no opacity and 
 It needs the screenshot to confirm before it becomes a finding, and it is void on any step where
 `settled` is false.
 
-**Screen identity.** A sorted hash of every non-empty label ∪ tooltip ∪ value. Equal signatures mean
-the same screen in the same state, which is what makes state loss after a back step and a dead tap
-checkable. It is deliberately NOT a template id — see Trap 5.
+**Screen identity.** A hash of every non-empty label ∪ tooltip ∪ value, each part prefixed with its
+RANK in reading order (top, then left) before the parts are sorted. Equal signatures mean the same
+screen in the same state, which is what makes state loss after a back step and a dead tap checkable.
+
+The prefix is not decoration: without one, sorting throws order away and every sort, reorder and
+move-up control in existence reads as a dead tap. It is a rank and not a quantised pixel position
+because a pixel bucket puts its edge on Material's own 8-dp grid, where a 0.02 lpx relayout flips
+the hash — measured. Rank is what a reorder actually changes. And the signature is deliberately NOT
+a template id: see `references/heuristics.md` → **Mechanisms measured and refuted**.
 
 ### Route state — DEAD-END as a measurement
 
@@ -377,6 +428,8 @@ Artifacts land at:
 
 - `build/integration_response_data.json` (`$FLUTTER_TEST_OUTPUTS_DIR` overrides `build/`)
 - `ux-audit-out/screens/step_*.png`
+- `ux-audit-out/screens/setup_N.png`, and only for a setup step that FAILED. A gated run that got
+  through its gate produces none, so their absence is the success case, not a missing artifact.
 
 Move both into `<app-root>/ux-audit-out/` (`walk.json`, `screens/`). Sanity check: the JSON should be
 well under 100 KB for a short journey — if it is hundreds of KB, the screenshot strip did not take.
@@ -400,6 +453,7 @@ Plus, for the flow and placement half of the report:
 | `tapsSoFar` | per step | reach cost on the declared path — never a minimum |
 | `dispatched`, `semanticsUnchanged`, `screenSig` | per step | dead taps, revisits, state loss |
 | `panesPossiblyBlocked` | per dump | **true** means `nodes` is only the LAST-PAINTED pane: two SIBLING `Navigator`s (a tablet master-detail `Row`) let the later pane's `BlockSemantics` delete the earlier one before the dump can reach it — nested navigators, i.e. a tab shell, do not, which is why this asks about ancestry and not about a count. **False is not a promise the dump is whole**: measured, a `Row` of `[Scaffold, Navigator]` dumps only the `Navigator` pane while this reads false, because one `ModalRoute` is enough to delete an earlier sibling. It is a declared *suspicion*, never a clean bill |
+| `setupSteps`, `setupFailed` | per run | did the walk reach the journey's starting line, and if not which gate step stopped it. Never merged into `steps`: setup is recorded, not scored |
 | `taps`, `networkCalls`, `appErrors`, `entrySettled` | per run | totals and the app's own complaints |
 | `conditions` | per run | `platformBrightness`, `textScaleFactor`, locale and the accessibility flags. The report's scope clause quotes these; measured, the same build at `accessibility-extra-extra-extra-large` produces a byte-identical `viewport` while a product row leaves the tree, so nothing else in the artifact distinguishes the two runs |
 

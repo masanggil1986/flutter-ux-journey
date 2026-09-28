@@ -24,6 +24,12 @@
   citing the measurement it stands on.
 - The **Not Assessable** section is mandatory and is never empty — at minimum it states the platform
   limit. What was not observed is stated, never silently omitted.
+- **The Run line counts landed taps, not issued ones.** `<N> taps landed` is the walk's `taps`,
+  which the walker increments only after the gesture lands; "taps" alone reads as the number the
+  journey asked for, and on a journey with a failing step those two differ. Write `<N> steps +
+  outcome`, because the walker appends the screen the journey ends on as a step of its own and it
+  was never declared. `<N> screens` is `reach.screens` — distinct `screenSig`s, not step count. A
+  severity bucket with no findings is omitted, not printed as zero.
 
 ## Section order
 
@@ -48,7 +54,7 @@
 
 **Goal:** <the goal, one sentence>
 **Result:** <reached | reached with friction | not reached> — <one sentence of why>
-**Run:** <N> steps, <N> taps, <N> findings (<n> critical, <n> major, <n> minor, <n> cosmetic), <n> positives
+**Run:** <N> steps + outcome, <N> taps landed, <N> screens, <N> findings (<n> critical, <n> major, <n> minor, <n> cosmetic), <n> positives
 **Environment:** Flutter <version> · <device> · <platform version> · <YYYY-MM-DD>
 
 ## Verdict
@@ -75,9 +81,11 @@ sentence that says "light", and nothing in the artifact contradicts it.>
 | 2 | tap first order card | order detail | OK | 2 | `5d28ed30` | `screens/step_2.png` |
 | 3 | back | order list, scroll kept | FAILED — scroll reset | 2 | `a131d0c1` | `screens/step_3.png` |
 
-Setup is excluded from measurement and scoring. `Screen` is the walk's `screenSig` — it is there so
-a reader can see a revisit or a loop (step 3 above returns to step 1's screen), not because the
-string means anything on its own. Drop the column on a journey that never revisits a screen.
+Setup is excluded from measurement and scoring; the row summarises `setupSteps` in the walk, and
+gets one row per setup step when one of them failed, so the step that blocked the run is named.
+`Screen` is the walk's `screenSig` — it is there so a reader can see a revisit or a loop (step 3
+above returns to step 1's screen), not because the string means anything on its own. Drop the column
+on a journey that never revisits a screen.
 
 Positions in a guideline `reason` string are **node-local** and do not match the dump's global
 rects — sizes are comparable, positions are not. Quote the reason for the node and the measured
@@ -258,6 +266,19 @@ Same content, machine-readable, same order as the report. One object per merged 
                  "highContrast": false, "invertColors": false, "disableAnimations": false},
   "reach": {"tapsLanded": 3, "screens": 3, "basis": "the declared path, not a minimum; a gesture that never dispatched is not reach cost"},
   "priorities": {"source": "journey.md", "declared": ["open a saved product", "remove a product"]},
+  "viewport": {"widthLogicalPx": 375.0, "heightLogicalPx": 667.0, "devicePixelRatio": 2.0,
+               "contentTop": 20.0, "padBottom": 0.0, "foldY": 667.0, "isTestDefault": false,
+               "textDirection": "ltr"},
+  "entrySurface": {"tappableCount": 8, "tappableAboveFold": 8,
+                   "order": [{"n": 6, "rectLogicalPx": [16.0, 239.0, 343.0, 108.0],
+                              "name": "Walnut Side Table\n189,000 KRW\nOnly 2 left",
+                              "note": "the journey's own rank-1 target — 6th of 8"}]},
+  "setupFailed": false,
+  "setupSteps": [
+    {"index": 1, "phase": "setup", "action": "type", "target": "Email address", "nth": null,
+     "text": "ux-audit@example.invalid", "expected": "Password", "status": "OK", "error": null,
+     "elapsedMs": 1314, "settled": true, "dispatched": true, "screenshot": null}
+  ],
   "steps": [
     {"index": 1, "action": "tap \"Orders\"", "expected": "order list", "status": "OK", "elapsedMs": 546,
      "tapsSoFar": 1, "dispatched": true, "semanticsUnchanged": false, "screenshot": "screens/step_1.png",
@@ -290,3 +311,33 @@ Same content, machine-readable, same order as the report. One object per merged 
 `elapsedMs` is carried for traceability and has no `severity`. Positives use `✓` in the report and
 appear under `positives` here, never in `findings`. `notAssessable` is an object with two keys, not
 a list — the split is the point.
+
+`viewport` is the frame of reference every placement sentence rests on: without it a rect in logical
+px has no surface to be positioned against and `foldY` has nothing to be read from. The walk carries
+it per step, at `steps[].semantics.viewport`; hoist it once, since a run measures one surface. Two
+fields are re-keyed for readability — `widthLogicalPx` is the walker's `width` and
+`heightLogicalPx` its `height` — and `devicePixelRatio`, `contentTop`, `padBottom`, `foldY`,
+`isTestDefault` and `textDirection` keep the walker's names. The walker also records
+`keyboardInset`; the golden drops it.
+
+`entrySurface` is the other half of every placement finding: step 1's tap targets before its tap, in
+reading order, so that "6th of 8 tap targets" has a source rather than a recollection. Each entry
+carries `n`, `rectLogicalPx` and `name` — null when the node is unnamed — plus an optional
+`note`. It repeats `tappableCount` and `tappableAboveFold` from `steps[0].surface` so the table can
+be read without the step list.
+
+`setupSteps` is the `## Setup` phase — the gate, not the product. Each entry carries `phase:
+"setup"`, the step's `action`, `target`, `nth`, `text`, `expected`, `status`, `error`, `elapsedMs`,
+`settled`, `dispatched` and `screenshot`, and nothing else: no semantics dump, no guidelines, no
+`surface` and no `tapsSoFar`, because setup taps are not reach cost. `screenshot` is null unless the
+step failed — the walker records the bare `setup_<N>.png` and this file references it as
+`screens/setup_<N>.png` like every other screenshot — and null on Android either way, where
+in-test capture is off. A field that hides its own value is redacted by the walker, so `text` reads
+`"<redacted 19 chars: the field hides its own value>"`: the audit records that a secret was typed,
+never the secret. The key is present and empty on a journey with no gate, so a reader can tell "no
+gate" from "the gate was never walked".
+
+**A setup failure is the result.** When `setupFailed` is true the walk stops at the failing setup
+step: `steps` is empty and `taps` is 0. Report it as a setup failure, naming the step, its `error`
+and its `setup_<N>.png` — a run that never reached the journey is not a short healthy journey, and
+that is the one way this shape can be misread.

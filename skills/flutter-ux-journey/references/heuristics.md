@@ -12,12 +12,13 @@
 - [Merge and dedupe](#merge-and-dedupe)
 - [Never scored](#never-scored)
 - [Mechanisms measured and refuted](#mechanisms-measured-and-refuted--do-not-re-propose)
+- [Adding a check](#adding-a-check)
 
 ## Attribution
 
 The Named Check IDs and the severity scale are borrowed from
 [EliaAlberti/ux-audit-skill](https://github.com/EliaAlberti/ux-audit-skill), MIT,
-Copyright (c) 2026 Elia Alberti. The underlying heuristics (Nielsen 1994, WCAG 2.1, Fitts) are not
+Copyright (c) 2026 Elia Alberti. The underlying heuristics (Nielsen 1994, WCAG 2.2, Fitts) are not
 anyone's property; the ID set and the scale are his expression, so the notice travels with them.
 
 Two corrections to how that scale is usually cited:
@@ -161,11 +162,16 @@ both fire on nearly every real app:
 - **Nodes flagged `coversSurface`.** An **unnamed** tappable covering more than half the surface is
   the tap-to-dismiss-the-keyboard `GestureDetector` that sits on most form screens. It has no
   label, it is always first in reading order and it is always the largest thing present — so an
-  area- or order-based check that counts it fires unconditionally. Measured: 250,125 lpx² against
-  a real primary action's 10,627 lpx². It is keyed on *unnamed and big*, not on *is the whole
-  surface*: that idiom is written inside the `Scaffold`, so its rect starts below the app bar and
-  a whole-surface test read false on exactly the screens it exists for. `surface.tappableCount`
-  already excludes these; `surface.coverNodes` says how many were excluded.
+  area- or order-based check that counts it fires unconditionally. It is keyed on *unnamed and
+  big*, not on *is the whole surface*: that idiom is written inside the `Scaffold`, so its rect
+  starts below the app bar and a whole-surface test read false on exactly the screens it exists
+  for. "Big" is more than half the viewport — on the fixture's entry screen (`screenSig a9582ba2`,
+  375.0 × 667.0 lpx) that is 125,062.5 lpx², and the largest tappable there, a product row at
+  `[16.0, 239.0, 343.0, 108.0]` = 37,044 lpx², is nowhere near it and is named besides. The
+  fixture records `coverNodes: 0` on all four steps, so **no committed run exercises this
+  exclusion**: the threshold above is read off the walker's own condition, not off a run that hit
+  it. `surface.tappableCount` already excludes these; `surface.coverNodes` says how many were
+  excluded.
 - **Nodes with `onScreen == false`.** A scrollable builds rows past the viewport into its cache
   extent, and they arrive in the dump with rects to match. Counting them inflates every surface
   number; tapping one dispatches into nothing.
@@ -245,12 +251,11 @@ Rules:
   dump with a verdict column.
 - An unranked control is **not a defect**. It is a fact about two vocabularies. It becomes a finding
   only when it sits above a ranked task, and then the finding is about the ranked task's position.
-- **Link each ranked task to the step that reaches it, and say how.** A journey step may carry an
-  optional `priority: N` naming which declared priority it advances. Without it the link is the
-  model prose-matching a task to a step — which is an inference, in the one place this tool
-  promises never to infer. On a three-step journey nobody notices; on a twelve-step journey with
-  six priorities that link *is* the finding. When the tag is absent, print the match the model made
-  and mark it as a match, not as a measurement.
+- **Link each ranked task to the step that reaches it, and say how.** Nothing in the journey
+  format declares that link, so making it is the model prose-matching a task to a step — an
+  inference, in the one place this tool promises never to infer. On a three-step journey nobody
+  notices; on a twelve-step journey with six priorities that link *is* the finding. So print the
+  match the model made and mark it as a match, not as a measurement.
 - If no priorities are declared and the goal names nothing on the surface, the answer is
   `Not declared` — findings that would have depended on it are capped at severity 2 and the report
   says which ones were capped. **Never infer a ranking from tab order, label size, route depth or
@@ -338,10 +343,19 @@ about. Recorded here because the next reader of the semantics flag list will thi
 | …so resolve the navigator from the deepest `Scaffold` | Not the same thing. In the common shell-owns-the-Scaffold shape that Scaffold sits **above** the per-tab Navigators, so the probe lands back on the root and reports the same false — measured — while claiming to be authoritative. It also answers null on any screen with no Scaffold. Read the deepest onstage `Navigator` directly. |
 | Refuse to tap a target whose centre is covered | `effectivePct`/`centreCovered` are geometry, not a hit test, so this fails a step — and voids the audit — on overlays that block nothing. Measured: a badge whose padded layout box swallows a button's centre leaves the button tappable at 94% free area. Tap anyway; gate the FINDING on `VISUAL`, not the gesture. |
 | Tap whatever the selector resolved | A scrollable's cache extent puts rows above and below the viewport into the dump. Tapping one dispatches into nothing: `dispatched` records true, the semantics do not change, the screenshots are identical — so a working list row passes the FAKE-AFFORDANCE predicate **and** its two-layer confirmation. Refuse only what is genuinely off the surface, and say that is what happened. |
-| A sorted multiset of labels as the screen signature | Sorting throws order away, so every sort / reorder / move-up control in existence reports `semanticsUnchanged: true` — and then trips the finding reserved for a state change assistive tech cannot see. Prefix each part with its quantised position before sorting. |
+| A sorted multiset of labels as the screen signature | Sorting throws order away, so every sort / reorder / move-up control in existence reports `semanticsUnchanged: true` — and then trips the finding reserved for a state change assistive tech cannot see. Prefix each part with its **rank in reading order** before sorting — not with a quantised position: a pixel bucket puts its edge on Material's own 8-dp grid, where a 0.02 lpx relayout flips the hash. Measured; see `screenSignature` in the fixture's `ux_journey_test.dart`. |
 | Bound the settle loop with a `Stopwatch` | `tester.pump(tick)` advances FAKE time while a Stopwatch measures real time, so under `flutter test` the loop simulates minutes inside one real second. Bound by the pump count as well. |
 | Stop settling when the frame queue is quiet | An awaiting Future schedules no frames, so a screen rendering an empty state while a request is in flight reports settled on the first pump. The step then fails for the wrong reason while recording `settled: true`, which is also the flag that is supposed to void its measurements. Poll the step's own expectation inside the bound instead. |
 | Count a tap when the walker issues it | `_tapTarget` throws on an unresolvable or off-surface target, so counting before it lands counts gestures ATTEMPTED. The report's headline reach cost is then wrong in the direction that flatters the app. |
 | `tester.view.physicalSize / devicePixelRatio` as the viewport | That is the whole display, including the status bar, the notch and the home indicator, and it does not shrink for the keyboard. Subtract `padding` and `viewInsets`. In a plain `flutter test` it is Flutter's hardcoded 800×600 @ 3.0 and means nothing at all. |
 | `ModalRoute.of(context)` for the route name | Registers an **inherited dependency** on the audited app's element, so reading it can make the app rebuild. An audit must not perturb what it measures. `Navigator.maybeOf` resolves through `findAncestorStateOfType` and is safe. |
 | `tester.pageBack()` as the dead-end oracle | Good confirmation, bad oracle: it only looks for a tooltip-"Back" button or a Cupertino back button, so it throws on screens with a custom back affordance. Its exception text also names `CupertinoNavigationBarBackButton` — the *second* finder it tried — which reads as an iOS bug to anyone it is quoted at. |
+
+## Adding a check
+
+The sixteen IDs above are **not** a closed set, and the admission test for a seventeenth is the one
+[Measurement predicates](#measurement-predicates) already applies to the five it gates: some field
+the walk records has to be able to prove or refuse the check. Without that field a new ID is either
+an existing `VISUAL`/`JOURNEY` judgement renamed, or a threshold nobody can defend — `OVERLOAD` is
+the worked case of refusing to invent one. If the field does not exist yet, the walker earns the
+field first and the check second.

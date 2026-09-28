@@ -60,7 +60,9 @@ anything was destroyed and found none.
   navigation stack — no dialog, no undo, no snackbar.
 - RUNTIME: the detail screen carries exactly 2 tap targets — "Back" (48×48 lpx at y=24) and
   "Remove from list" (343×48 lpx at y=603). Neither is a confirmation.
-- VISUAL: `screens/step_3.png` is the state one tap later.
+- VISUAL: [`screens/step_3.png`](screens/step_3.png) is the state one tap later.
+
+  ![One tap after "Remove from list": "Removed", a check mark, no way out.](screens/step_3.png)
 
 **Why severity 4.** The goal is to remove a product **and keep browsing**. An irreversible delete
 with no confirmation means a mis-tap costs data that cannot be recovered, so reaching the goal
@@ -80,7 +82,9 @@ control on it, and the system back gesture has nowhere to go either.
   per-screen and exists only at journey level — which is the whole argument for auditing journeys.
 - JOURNEY: step 3 failed with `no semantics node matches "Back"`. The push that landed here used
   `pushAndRemoveUntil`, so there is no route below.
-- VISUAL: `screens/step_3.png` shows an app bar with no leading control.
+- VISUAL: [`screens/step_3.png`](screens/step_3.png) shows an app bar with no leading control.
+
+  ![The removal screen: an app bar reading "Removed", with no leading control.](screens/step_3.png)
 
 **Why severity 4.** The goal's second half — get back to the list and keep browsing — is
 unreachable. There is no workaround short of killing the app.
@@ -93,7 +97,9 @@ unreachable. There is no workaround short of killing the app.
 - RUNTIME: each card is one semantics node with `tappable: true` and flags `[isFocusable]` — no
   `isButton`, no role. Its label is the three child `Text`s merged:
   `"Walnut Side Table\n189,000 KRW\nOnly 2 left"`, 343×108 lpx at y=239.
-- VISUAL: `screens/step_1.png` — the card reads as a panel, not a control.
+- VISUAL: [`screens/step_1.png`](screens/step_1.png) — the card reads as a panel, not a control.
+
+  ![The saved list: three product cards with no control affordance.](screens/step_1.png)
 
 **Why severity 3.** Tapping a card is the only entry to this journey; step 1 has no alternative
 route to the detail screen. A user who cannot tell the card is actionable never starts.
@@ -280,9 +286,9 @@ score does not cover copy, visual design, conversion, or any screen the journey 
 - The app uses plain `Navigator`, so there is no declared route table, no route names and no
   navigation graph. Screens are identified by their semantics signature instead.
 - Static candidates the walk refuted, kept rather than deleted: `lib/main.dart:126` and
-  `lib/main.dart:163` (`InkWell` with `onTap` and no enclosing `Semantics`, confidence low). At
+  `lib/main.dart:165` (`InkWell` with `onTap` and no enclosing `Semantics`, confidence low). At
   runtime both nodes carry non-empty merged labels, so the probe's name matching missed the labels
-  its children supply. Not findings. `lib/main.dart:251` (`Icon` with no label) is the decorative
+  its children supply. Not findings. `lib/main.dart:255` (`Icon` with no label) is the decorative
   check mark on the removal screen; it produces no semantics node of its own.
 - Screen-reader announcement order, focus order, keyboard navigation, dynamic type, motion and
   reduced-motion: not measured by this run.
@@ -302,6 +308,9 @@ Static pass (`package:analyzer`, name matching, no type resolution) · journey w
 Flutter accessibility guidelines, viewport and fold, effective tap area, route state) · visual pass
 (screenshots read by the model) · merge and goal-relative rescoring.
 
+The raw walk this report was written from is committed at [`walk.json`](walk.json): every measured
+number above can be read back out of it.
+
 This report covers one journey. Runs are not aggregated and there is no cross-journey score —
 averaging several of these by hand would be worse than not having the number.
 
@@ -316,10 +325,10 @@ host round-trip under a test harness, not user-perceived latency.
   guideline `reason` prints the node's own rect plus one transform, not the accumulated chain, so
   **sizes are comparable and positions are not**. Positions above are taken from the dump.
 - The screenshots referenced here are produced by the run into
-  `example/ux_demo_app/screenshots/` and copied to `example/screens/` for this public fixture,
-  which has no backend and no real data. **An audit of a real app keeps them local** — a screenshot
-  is verbatim product copy. The report is written so it reads without them either way, which is
-  what makes a private audit shareable.
+  `example/ux_demo_app/ux-audit-out/screens/` and copied to `example/screens/` for this public
+  fixture, which has no backend and no real data. **An audit of a real app keeps them local** — a
+  screenshot is verbatim product copy. The report is written so it reads without them either way,
+  which is what makes a private audit shareable.
 - Three measurements changed between runs while this report was being produced, each because the
   first version was wrong: taps counted gestures *attempted* rather than landed; the settle bound
   returned mid-transition and every rect on the next screen came back shifted by 244 lpx; and a
