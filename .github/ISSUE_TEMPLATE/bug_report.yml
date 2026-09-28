@@ -1,0 +1,52 @@
+name: Bug report
+description: Something the skill measured, reported or generated is wrong.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ## Do not paste anything from a private app
+
+        This issue is public, and a walk's output is the audited app's product. **No screenshots, no
+        route or screen names, no semantic labels, no UI copy, no endpoints.** Describe the shape
+        instead — "a tab shell whose second tab pushes a detail route", "a 24x24 icon button in an
+        app bar". If you cannot describe the bug without the app, reproduce it against
+        `example/ux_demo_app` and report that.
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened, and what you expected instead
+    validations:
+      required: true
+  - type: dropdown
+    id: fixture
+    attributes:
+      label: Does it reproduce against example/ux_demo_app?
+      description: The public fixture. Anything reproducible there can be discussed in full detail.
+      options:
+        - "Yes"
+        - "No — only against my own app"
+        - Have not tried
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: >-
+        Output of `flutter --version`, the device id from `flutter devices`, the `version` field of
+        `.claude-plugin/plugin.json`, and which agent you ran the skill under.
+      placeholder: |
+        Flutter: 3.47.2 stable / Dart 3.13.2
+        Device: iPhone SE (3rd generation) simulator, iOS 18.6
+        Plugin version: 0.2.0
+        Host agent: Claude Code 2.x
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Journey file and relevant output
+      description: >-
+        The step that went wrong, and the fields the report or artifact carried for it. Redact route
+        names, labels and endpoints before pasting.

@@ -1,0 +1,139 @@
+name: CI
+
+# Every measurement this project makes rides on undocumented framework
+# behaviour, and every dependency range is a `^`. The weekly run resolves those
+# ranges again on a tree nobody has touched, so an analyzer or lint release that
+# breaks the probe shows up here instead of inside somebody's audit.
+on:
+  push:
+  pull_request:
+  schedule:
+    - cron: '17 4 * * 1'
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    # No simulator and no emulator. Nothing below needs a device, which is the
+    # only reason these checks can run on every push.
+    runs-on: ubuntu-latest
+    steps:
+      # Both actions are pinned by commit, not by tag. A tag is mutable, so
+      # `@v2` lets its owner change what runs here after anyone reviewed it.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      # The Flutter version is pinned as well, for a different reason: the
+      # numbers committed under example/ were measured on Flutter 3.47.2 /
+      # Dart 3.13.2, so a red build here means this repo changed and not that
+      # stable moved. Bump it deliberately, and expect the golden to move with
+      # it. (Stable was already 3.47.5 when this was written.)
+      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2.23.0
+        with:
+          channel: stable
+          flutter-version: 3.47.2
+
+      # The next two steps are the commands the README's Tests section prints,
+      # one per package. Keep them in step with the README: a command that rots
+      # there goes red here. They also leave a package_config.json in both
+      # packages, which the format gate below depends on.
+      - name: Fixture suite, as the README prints it
+        run: cd example/ux_demo_app && flutter pub get && flutter test
+
+      - name: Probe suite, as the README prints it
+        run: cd tools/astprobe && dart pub get && dart test
+
+      # Without .dart_tool/package_config.json the formatter cannot read a
+      # package's language version and formats in a different style, so this has
+      # to follow the `pub get`s above.
+      - name: dart format
+        run: dart format --output=none --set-exit-if-changed example/ux_demo_app tools/astprobe
+
+      - name: flutter analyze
+        run: flutter analyze
+        working-directory: example/ux_demo_app
+
+      - name: dart analyze
+        run: dart analyze
+        working-directory: tools/astprobe
+
+      # Not `claude plugin validate`, which would need the Claude Code CLI on the
+      # runner. These two files are the whole install surface; a malformed one
+      # fails for the user and for nobody else.
+      - name: Plugin manifests parse
+        run: |
+          jq -e '.name and .version and .description and .license' .claude-plugin/plugin.json
+          jq -e '.name and .owner and (.plugins | length > 0)' .claude-plugin/marketplace.json
+
+      # This repository's first rule, mechanised. CONTRIBUTING.md asks a human to
+      # run two greps over the staged diff before every commit; this is the same
+      # rule with nobody left to forget it.
+      - name: Leak guard
+        run: |
+          set +e -uo pipefail
+          rc=0
+
+          # Hosts a public repo may legitimately name: vendor and standards docs,
+          # pub.dev, localhost in the Day 1 evidence logs, and the RFC 2606
+          # .invalid stub. A host that is not on this list is either a dependency
+          # worth reviewing or an endpoint that just left a private app.
+          ALLOWED_HOSTS='127.0.0.1
+          anthropic.com
+          api.example.invalid
+          api.github.com
+          code.claude.com
+          conalyz.codeanalyer.workers.dev
+          dart.dev
+          developer.android.com
+          developer.apple.com
+          docs.claude.com
+          flutter.dev
+          github.com
+          keepachangelog.com
+          platform.claude.com
+          pub.dev
+          raw.githubusercontent.com
+          schemas.android.com
+          semver.org
+          services.gradle.org
+          support.google.com
+          www.apple.com
+          www.w3.org'
+
+          # (a) A tracked file that .gitignore also matches is a negation hole.
+          # `!example/ux_demo_app/**` switches every guard above it back off
+          # inside the demo app, so a walk run there could commit its own
+          # output. --no-index is load-bearing: check-ignore skips tracked paths
+          # without it, which makes the obvious form of this check a silent
+          # no-op that can never fail.
+          echo '--- (a) tracked files that .gitignore also matches ---'
+          hole=$(git ls-files | while read -r f; do git check-ignore -q --no-index "$f" && echo "$f"; done)
+          if [ -n "$hole" ]; then echo "$hole"; rc=1; else echo none; fi
+
+          # (b) The only images this repo may carry are the demo fixture's four
+          # screenshots and the launcher icons `flutter create` wrote. Anything
+          # else is a picture of somebody's product.
+          echo '--- (b) tracked images and video outside the allowlist ---'
+          media=$(git ls-files \
+            | grep -iE '\.(png|jpe?g|gif|webp|bmp|ico|tiff?|avif|mp4|mov|webm)$' \
+            | grep -vE '^example/screens/[^/]+\.png$' \
+            | grep -vE '^example/ux_demo_app/(ios|android)/')
+          if [ -n "$media" ]; then echo "$media"; rc=1; else echo none; fi
+
+          echo '--- (c1) hosts outside the allowlist ---'
+          hosts=$(git ls-files -z | xargs -0 grep -ohIE '://[a-zA-Z0-9._-]+' \
+            | cut -c4- | sort -u | grep -vxF "$ALLOWED_HOSTS")
+          if [ -n "$hosts" ]; then echo "$hosts"; rc=1; else echo none; fi
+
+          # (c2) The bare words token/secret/password/api_key/bearer appear some
+          # 180 times in this tree, nearly all of it prose about token budgets or
+          # localhost URLs, so the human grep's pattern cannot be a gate as
+          # written. Narrowed to the shape a real credential has -- one of those
+          # words assigned a string literal -- less the placeholder vocabulary
+          # the fixture and the stub template use on purpose.
+          echo '--- (c2) credential words assigned a literal ---'
+          creds=$(git ls-files -z | xargs -0 grep -inIHE \
+            "(token|secret|password|passwd|api[_-]?key|bearer)['\"]?[[:space:]]*[:=][[:space:]]*['\"][^'\"]" \
+            | grep -viE 'stub|example|not-a-real|placeholder|redacted')
+          if [ -n "$creds" ]; then echo "$creds"; rc=1; else echo none; fi
+
+          exit $rc

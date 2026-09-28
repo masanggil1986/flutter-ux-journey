@@ -61,11 +61,20 @@ SOFTWARE.
 
 ## Others
 
-- **Jakob Nielsen** — the 10 usability heuristics (1994) and the 0–4 severity scale. Method, cited,
-  not copied.
+- **Jakob Nielsen** — the 10 usability heuristics (1994), and the idea of ranking a finding on a
+  severity scale at all. Method, cited, not copied. The scale this project ships is **not** a literal
+  Nielsen 0–4; correction 2 above says what it is and why this file used to claim otherwise.
 - **Flutter SDK** (BSD-3-Clause, Google) — `package:flutter_test`'s accessibility guidelines,
   `package:integration_test`, and `package:analyzer` do all the measuring. Used as published
   dependencies of the audited app, not vendored here.
+- **[conalyz](https://pub.dev/packages/conalyz)** (MIT, "Conalyz Contributors") — not a dependency,
+  not vendored, and not shelled out to: installed, run and rejected.
+  [`docs/day1/conalyz.md`](docs/day1/conalyz.md) reproduces its MIT notice as that licence requires,
+  because the rejection is argued from its own source — excerpts from `lib/src/telemetry.dart`,
+  `lib/src/flutter_specific_rules.dart`, `pubspec.yaml` and its `--help` output.
+- **[accessibility_tools](https://pub.dev/packages/accessibility_tools)** (MIT, Rebel App Studio) —
+  not a dependency. Named in the README's prior art as the Flutter package that already does measure
+  accessibility at runtime, per widget in a debug overlay rather than per journey.
 - Prior art surveyed in [`docs/day1/prior-art.md`](docs/day1/prior-art.md); the ones this project
   competes with rather than borrows from are listed in the README.
 
