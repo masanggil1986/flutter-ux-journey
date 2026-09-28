@@ -16,7 +16,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:ux_demo_app/main.dart' as app;
 
 import '../ux_audit/ux_journey_test.dart'
-    show applyDevice, journey, kIphoneSe, loadFonts, walkJourney;
+    show applyDevice, journey, kIphoneSe, loadFonts, walkJourney, writePng;
 
 const String _baseline = '../walk.json';
 
@@ -40,11 +40,20 @@ void main() {
     addTearDown(tester.view.reset);
     final String fontSource = await loadFonts(tester);
 
+    // A real `shot`, into a scratch dir: the entry's capture path is otherwise
+    // unexecuted by the suite, and a step that records `step_1.png` for a file
+    // nobody wrote points step 4 of the audit at nothing.
+    final Directory shots = Directory.systemTemp.createTempSync(
+      'ux-walk-shots',
+    );
+    addTearDown(() => shots.deleteSync(recursive: true));
+
     Map<String, Object?>? here;
     await walkJourney(
       tester,
       launch: app.main,
       journey: journey,
+      shot: (String name) => writePng(tester, '${shots.path}/$name.png'),
       publish: (Map<String, Object?> r) async => here = r,
       runContext: <String, Object?>{
         'mode': 'widget-test',
@@ -100,6 +109,21 @@ void main() {
         (b.first! as Map<String, Object?>)['semantics']!
             as Map<String, Object?>;
     expect(vy['viewport'], vx['viewport']);
+
+    // Every step that names a PNG has one, and it is not empty. The name is a
+    // claim the report acts on.
+    for (final Object? raw in b) {
+      final Map<String, Object?> step = raw! as Map<String, Object?>;
+      final String? shot = step['screenshot'] as String?;
+      expect(shot, isNotNull, reason: 'step ${step['index']} captured nothing');
+      final File png = File('${shots.path}/$shot');
+      expect(
+        png.existsSync(),
+        isTrue,
+        reason: '$shot was named but not written',
+      );
+      expect(png.lengthSync(), greaterThan(0), reason: '$shot is empty');
+    }
 
     // The run must disclose that it was not the simulator's.
     final Map<String, Object?> c = here!['conditions']! as Map<String, Object?>;

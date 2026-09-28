@@ -254,6 +254,32 @@ void main() {
     }
   });
 
+  test('the walker admits whether the journey declared a device', () {
+    // `deviceDeclared` is a claim about the JOURNEY FILE frozen into generated
+    // Dart, and it is the only thing separating "the screen the author chose"
+    // from "the screen nobody chose" in the report's scope clause. Nothing but
+    // this checks that the two agree.
+    final File journey = File(_journey);
+    if (!journey.existsSync()) {
+      markTestSkipped('$_journey not present — running outside the repo');
+      return;
+    }
+    final bool declaredInDoc = journey.readAsStringSync().contains('## Device');
+    final String src = File(_walker).readAsStringSync();
+    final RegExpMatch? m = RegExp(r'const bool deviceDeclared = (true|false);')
+        .firstMatch(src);
+    expect(m, isNotNull, reason: '$_walker lost `deviceDeclared`');
+    expect(
+      m!.group(1) == 'true',
+      declaredInDoc,
+      reason: declaredInDoc
+          ? '$_journey declares `## Device` but the walker says it did not, so '
+                'the report would label a chosen screen as a fallback'
+          : '$_journey declares no `## Device` but the walker says it did, so '
+                'the report would assert a fold line nobody asked for',
+    );
+  });
+
   test('network-stub.md carries a template that is known to compile', () {
     final File doc = File(_stubTemplate);
     if (!doc.existsSync()) {

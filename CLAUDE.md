@@ -117,7 +117,8 @@ v0.1은 데모 픽스처(iOS 시뮬)와 **실제 운영 앱(Android 에뮬레이
 - **시뮬레이터 의존.** 헤드리스 워크가 커밋된 시뮬레이터 실측(`example/walk.json`)과 스텝 상태·
   screenSig·가이드라인 판정 16개·노드 수·viewport까지 일치한다 — `test/widget_walk_test.dart`가
   매 스위트에서 확인한다.
-- **골든 자동 대조.** 위 테스트가 그것이다. 디바이스가 없으니 CI에서 돈다.
+- **런 대 런 자동 대조.** 위 테스트가 그것이다 — 디바이스가 없으니 CI에서 돈다. **단
+  `expected-findings.json`(finding 수준 골든)과의 대조는 아직 열려 있다**; 아래 미검증 절을 본다.
 - **Android 스크린샷 데드락.** 기본 모드는 `OffsetLayer.toImage()`(골든 경로)로 잡으므로
   플랫폼 서피스가 없다 → 데드락 불가능. 대신 플랫폼 뷰는 아예 안 그려지고 `not assessable`이다.
 

@@ -16,8 +16,9 @@ nothing does, so leaving it out makes the walk fall back to `iphone-se` and reco
 `deviceProfile: "iphone-se (default, not declared)"` — the report's scope clause quotes that
 rather than asserting a screen nobody chose.
 
-Only `iphone-se` ships as a preset. For anything else, name the numbers:
-`375x667 @2.0 contentTop 20 padBottom 0`.
+Only `iphone-se` ships as a preset. For anything else, name the numbers in **logical px** — the
+units this line already uses and the ones the report quotes back:
+`375x667 @2.0 contentTop 20 padBottom 0`. `references/walking.md` item 5 has the worked shape.
 
 ## Steps
 

@@ -469,7 +469,7 @@ Expected: 앞의 5개가 더해져 **77 passed, 1 skipped**. 실패 0.
 - [ ] **Step 9: 커밋**
 
 ```bash
-cd /Users/sgma/orca/workspaces/flutter-ux-journey/cod
+cd "$(git rev-parse --show-toplevel)"
 git add example/ux_demo_app/integration_test/ example/ux_demo_app/test/walker_test.dart example/ux_demo_app/test/recipe_sync_test.dart
 git diff --cached --name-only
 git diff --cached | grep -inE 'token|secret|password|api[_-]?key|bearer|://' | grep -viE 'github\.com|flutter\.dev|dart\.dev|api\.flutter\.dev|docs\.claude\.com|w3\.org'
@@ -641,7 +641,7 @@ cd example/ux_demo_app && dart format . && flutter analyze --no-pub && flutter t
 Expected: **80 passed, 1 skipped** (폴백을 택했으면 78 passed).
 
 ```bash
-cd /Users/sgma/orca/workspaces/flutter-ux-journey/cod
+cd "$(git rev-parse --show-toplevel)"
 git add example/ux_demo_app/integration_test/ux_journey_test.dart example/ux_demo_app/test/walker_test.dart
 git diff --cached --name-only
 git diff --cached | grep -inE 'token|secret|password|api[_-]?key|bearer|://' | grep -viE 'github\.com|flutter\.dev|dart\.dev|api\.flutter\.dev|docs\.claude\.com|w3\.org'
@@ -895,7 +895,7 @@ cd example/ux_demo_app && dart format . && flutter analyze --no-pub && flutter t
 Expected: **83 passed, 1 skipped**
 
 ```bash
-cd /Users/sgma/orca/workspaces/flutter-ux-journey/cod
+cd "$(git rev-parse --show-toplevel)"
 git add example/ux_demo_app/integration_test/ux_journey_test.dart example/ux_demo_app/test/ example/journey.md example/journey-gated.md
 git diff --cached --name-only
 git diff --cached | grep -inE 'token|secret|password|api[_-]?key|bearer|://' | grep -viE 'github\.com|flutter\.dev|dart\.dev|api\.flutter\.dev|docs\.claude\.com|w3\.org'
@@ -1114,7 +1114,7 @@ cd example/ux_demo_app && dart format . && flutter analyze --no-pub && flutter t
 Expected: **86 passed, 1 skipped**
 
 ```bash
-cd /Users/sgma/orca/workspaces/flutter-ux-journey/cod
+cd "$(git rev-parse --show-toplevel)"
 git add example/ux_demo_app/integration_test/ux_journey_test.dart example/ux_demo_app/test/walker_test.dart
 git diff --cached --name-only
 git diff --cached | grep -inE 'token|secret|password|api[_-]?key|bearer|://' | grep -viE 'github\.com|flutter\.dev|dart\.dev|api\.flutter\.dev|docs\.claude\.com|w3\.org'
@@ -1402,7 +1402,7 @@ cd example/ux_demo_app && rm -rf ux-audit-out && dart format . && flutter analyz
 Expected: **87 passed, 1 skipped**
 
 ```bash
-cd /Users/sgma/orca/workspaces/flutter-ux-journey/cod
+cd "$(git rev-parse --show-toplevel)"
 git status --porcelain   # ux-audit-out/ 가 보이면 멈춘다
 git add example/ux_demo_app/integration_test/ux_journey_test.dart example/ux_demo_app/test/widget_walk_test.dart
 git diff --cached --name-only
@@ -1670,7 +1670,7 @@ not on macOS.**` 항목은 기본 모드에선 해당 없으므로 첫 문장을
 - [ ] **Step 9: 문서가 가리키는 것이 실재하는지 확인한다**
 
 ```bash
-cd /Users/sgma/orca/workspaces/flutter-ux-journey/cod
+cd "$(git rev-parse --show-toplevel)"
 grep -rn "ux_journey_drive.dart\|integration_test/ux_journey_test.dart" skills/ README.md | head -20
 ls example/ux_demo_app/integration_test/
 cd example/ux_demo_app && flutter test
@@ -1680,7 +1680,7 @@ Expected: 문서가 언급하는 모든 경로가 존재하고, **87 passed, 1 s
 - [ ] **Step 10: 커밋**
 
 ```bash
-cd /Users/sgma/orca/workspaces/flutter-ux-journey/cod
+cd "$(git rev-parse --show-toplevel)"
 git add skills/ README.md CLAUDE.md
 git diff --cached --name-only
 git diff --cached | grep -inE 'token|secret|password|api[_-]?key|bearer|://' | grep -viE 'github\.com|flutter\.dev|dart\.dev|api\.flutter\.dev|docs\.claude\.com|w3\.org'

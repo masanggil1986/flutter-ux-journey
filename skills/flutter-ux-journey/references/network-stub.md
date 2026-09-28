@@ -1,6 +1,8 @@
 # Network stub — getting past a gate without credentials
 
-Copy `net_stub.dart` below into the audited app's `integration_test/`, fill in `_routes`, and set
+Copy `net_stub.dart` below into the audited app's `ux_audit/` — beside the walker, and inside the
+path SKILL.md tells them to gitignore, because this is the one generated file that holds their real
+endpoints and real response bodies. Fill in `_routes`, and set
 `HttpOverrides.global = StubHttpOverrides();` **before `app.main()`** in the walker.
 
 The mechanism is generic; only `_routes` is app-specific. `HttpOverrides` intercepts `dart:io`
@@ -85,7 +87,7 @@ emulator left offline breaks the next thing anyone does on that device for a rea
 to do with them.
 
 ```dart
-// TEMPLATE — copy into the audited app's integration_test/ and fill in _routes.
+// TEMPLATE — copy into the audited app's ux_audit/ and fill in _routes.
 //
 // A network stub for the walk's Setup phase.
 //

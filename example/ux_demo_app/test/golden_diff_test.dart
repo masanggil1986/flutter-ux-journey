@@ -27,7 +27,7 @@ const String _run = 'build/integration_response_data.json';
 
 const String _driveCommand =
     'flutter drive --driver=test_driver/integration_test.dart '
-    '--target=integration_test/ux_journey_test.dart -d <device-id>';
+    '--target=integration_test/ux_journey_drive.dart -d <device-id>';
 
 /// The golden re-keys exactly two of the walker's viewport fields, to say the
 /// unit in the name. Everything else — devicePixelRatio, contentTop, padBottom,

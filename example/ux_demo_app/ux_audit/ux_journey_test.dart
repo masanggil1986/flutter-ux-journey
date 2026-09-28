@@ -90,7 +90,11 @@ Future<void> writePng(WidgetTester tester, String path) async {
     img.dispose();
   });
   if (data == null) {
-    return;
+    // Returning normally here would let the caller record `step_1.png` for a
+    // file that does not exist, and step 4 of the audit reads that name. A
+    // throw costs the step its image and says so, which is what every other
+    // capture failure already does.
+    throw StateError('toByteData returned null for $path');
   }
   final File f = File(path);
   f.parent.createSync(recursive: true);
@@ -587,11 +591,17 @@ Future<List<Map<String, Object?>>> _evaluateGuidelines(
 /// Under `flutter drive` the device supplies all of this. Under `flutter test`
 /// nothing does — the view is Flutter's hardcoded 800x600 @ 3.0, which is no
 /// device — so the journey has to declare it, in `## Device`.
+/// All lengths are **logical px** — the same units a journey writes in its
+/// `## Device` section, and the same ones `viewportOf` reports back. The view
+/// wants physical px; [applyDevice] does that multiplication so nobody
+/// transcribing a journey can invert it. Getting it backwards is silent: a
+/// 375x667 screen entered as physical becomes a 187.5x333.5 surface and every
+/// placement number is measured on a third of the declared screen.
 typedef DeviceProfile = ({
   String name,
-  Size physicalSize, // physical px, as a real view reports it
+  Size logicalSize,
   double devicePixelRatio,
-  double padTop, // physical px; contentTop = padTop / devicePixelRatio
+  double contentTop,
   double padBottom,
   TargetPlatform targetPlatform,
 });
@@ -608,9 +618,9 @@ typedef DeviceProfile = ({
 /// after one calibration run each; until then a journey names explicit numbers.
 const DeviceProfile kIphoneSe = (
   name: 'iphone-se',
-  physicalSize: Size(750, 1334),
+  logicalSize: Size(375, 667),
   devicePixelRatio: 2.0,
-  padTop: 40.0,
+  contentTop: 20.0,
   padBottom: 0.0,
   targetPlatform: TargetPlatform.iOS,
 );
@@ -647,11 +657,11 @@ String deviceProfileLabel(DeviceProfile d, {required bool declared}) =>
 
 /// Make the test view look like [d]. The caller owns `tester.view.reset()`.
 void applyDevice(WidgetTester tester, DeviceProfile d) {
-  tester.view.physicalSize = d.physicalSize;
+  tester.view.physicalSize = d.logicalSize * d.devicePixelRatio;
   tester.view.devicePixelRatio = d.devicePixelRatio;
   final FakeViewPadding pad = FakeViewPadding(
-    top: d.padTop,
-    bottom: d.padBottom,
+    top: d.contentTop * d.devicePixelRatio,
+    bottom: d.padBottom * d.devicePixelRatio,
   );
   tester.view.padding = pad;
   tester.view.viewPadding = pad;
@@ -675,6 +685,10 @@ void applyDevice(WidgetTester tester, DeviceProfile d) {
 /// Call this BEFORE `walkJourney`: the first frame already lays text out.
 Future<String> loadFonts(WidgetTester tester) async {
   int appFamilies = 0;
+  // A count taken from a loop that threw is not a count. Without this, an app
+  // whose SECOND font asset is misdeclared keeps whatever it counted before the
+  // throw and still claims 'app'.
+  bool manifestComplete = false;
   await tester.runAsync(() async {
     try {
       final Object? manifest = await rootBundle.loadStructuredData<Object?>(
@@ -683,28 +697,37 @@ Future<String> loadFonts(WidgetTester tester) async {
       );
       for (final Map<String, Object?> font
           in (manifest! as List<Object?>).cast<Map<String, Object?>>()) {
-        // A packaged font is declared as `packages/<pkg>/<family>`, which is
-        // not the name a TextStyle asks for.
-        final String family = (font['family']! as String).split('/').last;
+        // A font that arrived through a DEPENDENCY is declared as
+        // `packages/<pkg>/<family>`; the app's own is bare. Load both — the
+        // prefix is not the name a TextStyle asks for — but only the bare ones
+        // count as the app declaring a typeface.
+        final String declared = font['family']! as String;
+        final String family = declared.split('/').last;
         final FontLoader loader = FontLoader(family);
         for (final Map<String, Object?> asset
             in (font['fonts']! as List<Object?>).cast<Map<String, Object?>>()) {
           loader.addFont(rootBundle.load(asset['asset']! as String));
         }
         await loader.load();
-        // MaterialIcons rides in on `uses-material-design: true` and is not
-        // the app declaring a typeface — without this every Material app would
-        // report 'app' and skip the fallback its TEXT still needs.
-        if (family != 'MaterialIcons') {
+        // Two ways a font reaches the manifest without the app choosing a
+        // typeface: `uses-material-design: true` brings MaterialIcons, and
+        // `flutter create` puts cupertino_icons in dependencies, which arrives
+        // prefixed. Counting either makes loadFonts return 'app' — documented
+        // as EXACT — and skip the fallback, so every placement number is
+        // measured at the test font's em-square while the report says it came
+        // from the app's own. Measured on the stock template: 153.6px of drift,
+        // reported as exact.
+        if (family != 'MaterialIcons' && !declared.startsWith('packages/')) {
           appFamilies++;
         }
       }
+      manifestComplete = true;
     } catch (_) {
       // No manifest, or an unreadable one. Being unable to measure text
       // metrics is a missing evidence layer, not a reason to abandon the walk.
     }
   });
-  if (appFamilies > 0) {
+  if (manifestComplete && appFamilies > 0) {
     return 'app';
   }
 

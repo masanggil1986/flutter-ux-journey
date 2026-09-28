@@ -149,7 +149,28 @@ non-obvious line.
    `deviceProfileByName('<name>')` rather than pinning a const, so a journey that names a screen
    the walker does not know fails there instead of being measured on one nobody chose. When the
    journey declares no `## Device`, keep `iphone-se` and set `deviceDeclared = false` — the report's
-   scope clause quotes the difference.
+   scope clause quotes the difference, and `test/recipe_sync_test.dart` checks the two agree.
+
+   Only `iphone-se` is a preset. Any other screen is written as a record literal, in the SAME units
+   the journey uses — **logical px**, which is also what `viewportOf` reports back. `applyDevice`
+   does the `devicePixelRatio` multiplication; nothing here is physical px:
+
+   ```dart
+   // ## Device: 411.4x731.4 @2.625 contentTop 24 padBottom 24, android
+   final DeviceProfile device = (
+     name: '411.4x731.4@2.625',
+     logicalSize: Size(411.4, 731.4),
+     devicePixelRatio: 2.625,
+     contentTop: 24.0,
+     padBottom: 24.0,
+     targetPlatform: TargetPlatform.android,
+   );
+   const bool deviceDeclared = true;
+   ```
+
+   `targetPlatform` has no `## Device` field because it follows from the screen; pick the one the
+   journey is about. It is what the framework is told to be, and it changes which typography the
+   theme asks for — which is what `loadFonts` registers against.
 
 The rest of this file explains *why* the parts that look replaceable are not.
 
@@ -344,7 +365,10 @@ numbers exactly — 375.0 x 667.0 @ 2.0, contentTop 20.0, padBottom 0.0, foldY 6
 `test/walker_test.dart`. It is the only preset that ships, because it is the only one a committed
 artifact reproduces in every field. An unknown preset name THROWS rather than substituting a
 default: a report measured at a screen nobody asked for says nothing about where that screen's
-fold is. For anything else a journey names explicit numbers.
+fold is. For anything else a journey names explicit numbers, and the walker takes them as a record
+literal — see item 5 above for the worked shape. `DeviceProfile` speaks logical px throughout for
+exactly this reason: the journey writes `375x667`, the profile says `375x667`, and no transcription
+can quietly turn it into a 187.5x333.5 surface.
 
 **Text metrics are the other thing the device used to supply.** `flutter test` draws every glyph as
 an em square, and that is not cosmetic — measured against the simulator baseline, the fixture's

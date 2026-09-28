@@ -31,12 +31,21 @@ the substring "Side Table" (a selector must report ambiguity, not take the first
 
 ```bash
 flutter pub get
-flutter test
-flutter drive --driver=test_driver/integration_test.dart \
-              --target=integration_test/ux_journey_test.dart -d <device-id>
+flutter test                                  # the suites below
+flutter test ux_audit/ux_journey_test.dart    # the walk itself — no device
 ```
 
-`flutter test` holds five suites, and between them they pin every part of the walk that was measured
+The walk writes `ux-audit-out/walk.json` and `ux-audit-out/screens/step_*.png`. Steps 2 and 3 are
+meant to fail; the run still exits 0, so read `steps[].status`, never `$?`.
+
+On a device instead, for an app whose plugins or platform views need one:
+
+```bash
+flutter drive --driver=test_driver/integration_test.dart \
+              --target=integration_test/ux_journey_drive.dart -d <device-id>
+```
+
+`flutter test` holds six suites, and between them they pin every part of the walk that was measured
 wrong at least once: `walker_test.dart` (rect maths, the fold line, screen signatures, route state,
 the dead-tap oracle, the settle bound), `fixture_test.dart` (the six defects are still seeded),
 `recipe_sync_test.dart` (the reference docs and both journey files still describe the walker that

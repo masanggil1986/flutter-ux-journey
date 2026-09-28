@@ -9,11 +9,13 @@
 // writes into someone else's app must stay ONE file, so the alternative to a
 // public helper is an untested one.
 
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:ux_demo_app/main.dart';
 
@@ -1351,6 +1353,124 @@ void main() {
             'the test font and 112.3 on the simulator this preset reproduces',
       );
       debugDefaultTargetPlatformOverride = null;
+    });
+
+    // Serve a FontManifest.json of [families] and real font bytes for every
+    // asset key, so FontLoader.load() actually succeeds.
+    void mockManifest(
+      WidgetTester tester,
+      List<Map<String, Object?>> families,
+    ) {
+      final Uint8List ttf = File(
+        '${Platform.environment['FLUTTER_ROOT']}'
+        '/bin/cache/artifacts/material_fonts/Roboto-Regular.ttf',
+      ).readAsBytesSync();
+      rootBundle.clear(); // loadStructuredData caches; the previous test's manifest would win
+      tester.binding.defaultBinaryMessenger.setMockMessageHandler(
+        'flutter/assets',
+        (ByteData? message) async {
+          final String key = utf8.decode(message!.buffer.asUint8List());
+          if (key == 'FontManifest.json') {
+            return ByteData.sublistView(
+              Uint8List.fromList(utf8.encode(jsonEncode(families))),
+            );
+          }
+          return ByteData.sublistView(ttf);
+        },
+      );
+      addTearDown(() {
+        tester.binding.defaultBinaryMessenger.setMockMessageHandler(
+          'flutter/assets',
+          null,
+        );
+        rootBundle.clear();
+      });
+    }
+
+    testWidgets('a dependency icon font is not the app declaring a typeface', (
+      WidgetTester tester,
+    ) async {
+      // `flutter create` puts cupertino_icons in dependencies, and a dependency's
+      // font reaches FontManifest.json as `packages/<pkg>/<Family>`. Counting it
+      // as the app's own makes loadFonts return 'app' — documented as EXACT —
+      // and skip the fallback, so every placement number is measured at Ahem's
+      // em-square while the report says it came from the app's fonts. Measured:
+      // 153.6px of drift, reported as exact.
+      mockManifest(tester, <Map<String, Object?>>[
+        <String, Object?>{
+          'family': 'MaterialIcons',
+          'fonts': <Map<String, Object?>>[
+            <String, Object?>{'asset': 'fonts/MaterialIcons-Regular.otf'},
+          ],
+        },
+        <String, Object?>{
+          'family': 'packages/cupertino_icons/CupertinoIcons',
+          'fonts': <Map<String, Object?>>[
+            <String, Object?>{'asset': 'packages/cupertino_icons/a.ttf'},
+          ],
+        },
+      ]);
+      expect(await loadFonts(tester), 'sdk-fallback');
+    });
+
+    testWidgets('a font the app itself declares does count', (
+      WidgetTester tester,
+    ) async {
+      mockManifest(tester, <Map<String, Object?>>[
+        <String, Object?>{
+          'family': 'Pretendard',
+          'fonts': <Map<String, Object?>>[
+            <String, Object?>{'asset': 'fonts/Pretendard-Regular.ttf'},
+          ],
+        },
+      ]);
+      expect(await loadFonts(tester), 'app');
+    });
+
+    testWidgets('a manifest that dies halfway is not a complete count', (
+      WidgetTester tester,
+    ) async {
+      // The catch wraps the whole loop, so an app whose SECOND font asset is
+      // misdeclared keeps whatever it counted before the throw and would still
+      // claim 'app' — the same false exactness by another door.
+      rootBundle.clear();
+      tester.binding.defaultBinaryMessenger.setMockMessageHandler(
+        'flutter/assets',
+        (ByteData? message) async {
+          final String key = utf8.decode(message!.buffer.asUint8List());
+          if (key == 'FontManifest.json') {
+            return ByteData.sublistView(
+              Uint8List.fromList(
+                utf8.encode(
+                  jsonEncode(<Map<String, Object?>>[
+                    <String, Object?>{
+                      'family': 'Pretendard',
+                      'fonts': <Map<String, Object?>>[
+                        <String, Object?>{'asset': 'fonts/ok.ttf'},
+                      ],
+                    },
+                    <String, Object?>{'family': 'Broken'}, // no `fonts` key
+                  ]),
+                ),
+              ),
+            );
+          }
+          return ByteData.sublistView(
+            File(
+              '${Platform.environment['FLUTTER_ROOT']}'
+              '/bin/cache/artifacts/material_fonts/Roboto-Regular.ttf',
+            ).readAsBytesSync(),
+          );
+        },
+      );
+      addTearDown(() {
+        tester.binding.defaultBinaryMessenger.setMockMessageHandler(
+          'flutter/assets',
+          null,
+        );
+        rootBundle.clear();
+      });
+      expect(await loadFonts(tester), 'sdk-fallback');
     });
 
     testWidgets('a broken FontManifest costs the fold, never the walk', (
