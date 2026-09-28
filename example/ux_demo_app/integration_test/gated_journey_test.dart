@@ -4,8 +4,9 @@
 // Note what is NOT here: the measurement. Every rect, guideline evaluation and
 // semantics dump comes from `walkJourney` in ux_journey_test.dart, so this file
 // is only the three things that are genuinely per-journey — the stub, the setup
-// steps, the journey steps. A second journey costs thirty lines, not a second
-// copy of a nine-hundred-line walker.
+// steps, the journey steps. This file is 105 lines to the first walker's 1155,
+// and 67 of them are the two step lists — a second journey costs its own steps,
+// not a second copy of a walker.
 //
 // The file the skill generates into an app it is auditing is still ONE file:
 // there, the consts and the engine live together. Two journeys in one repo is

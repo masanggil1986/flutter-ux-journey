@@ -97,10 +97,13 @@ void main() {
 /// get in front of it. Pass the stub's own call list as [networkCalls]: it
 /// defaults to empty, and an empty field silently costs the report a layer.
 ///
-/// Public so that a second journey is a second ~30-line file instead of a
-/// second copy of this one. The file the skill generates into someone else's
-/// app is still ONE file — consts, `main`, this, and the helpers below — which
-/// is the constraint that makes every helper here public.
+/// Public so that a second journey is a second file of step lists rather than a
+/// second copy of this one — see `integration_test/gated_journey_test.dart`,
+/// which is almost entirely its own `setup` and `journey` consts. The file the
+/// skill generates into someone else's app is still ONE file — consts, `main`,
+/// this, and the helpers below — which is the constraint that makes every
+/// helper here public. No line count here on purpose: it would be a number
+/// about a neighbouring file that nothing checks.
 Future<void> walkJourney(
   WidgetTester tester,
   IntegrationTestWidgetsFlutterBinding binding, {
@@ -167,7 +170,7 @@ Future<void> walkJourney(
       'action': step.action,
       'target': step.target,
       'nth': step.nth,
-      'text': _recordedText(step, out.obscured),
+      'text': recordedText(step, out.obscured),
       'expected': step.expected,
       'status': out.status,
       'error': out.error,
@@ -221,7 +224,7 @@ Future<void> walkJourney(
         'action': step.action,
         'target': step.target,
         'nth': step.nth,
-        'text': _recordedText(step, out.obscured),
+        'text': recordedText(step, out.obscured),
         'expected': step.expected,
         'status': out.status,
         'error': out.error,
@@ -312,7 +315,7 @@ Future<void> walkJourney(
 
 /// What one step did. `tapped` is separate from `dispatched` because only a tap
 /// is reach cost, and a `type` that dispatched is not a tap. `obscured` is true
-/// when the field typed into hides its own value — see [_recordedText].
+/// when the field typed into hides its own value — see [recordedText].
 typedef StepOutcome = ({
   String status,
   String? error,
@@ -390,7 +393,7 @@ Future<StepOutcome> performStep(WidgetTester tester, Step step) async {
 /// guarantee, and an audit artifact is the last place anyone should have to be
 /// careful. The length survives, which is all a reader needs — a re-run reads
 /// the journey file, never this.
-String? _recordedText(Step step, bool obscured) => obscured && step.text != null
+String? recordedText(Step step, bool obscured) => obscured && step.text != null
     ? '<redacted ${step.text!.length} chars: the field hides its own value>'
     : step.text;
 

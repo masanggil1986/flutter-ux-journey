@@ -19,10 +19,14 @@ import '../integration_test/ux_journey_test.dart'
         coversPoint,
         dumpSemantics,
         hasSiblingNavigators,
+        performStep,
+        recordedText,
+        resolve,
         routeState,
         conditionsOf,
         screenSignature,
         settle,
+        StepOutcome,
         subtractRects,
         viewportOf;
 
@@ -1007,6 +1011,253 @@ void main() {
       await tester.pumpAndSettle(
         const Duration(seconds: 3),
       ); // drain the future
+    });
+  });
+
+  group('resolve — which widget the audit actually measures', () {
+    testWidgets('a tooltip-only control resolves at all', (
+      WidgetTester tester,
+    ) async {
+      // The fixture's seeded TRAP. `tooltip:` lands in its own semantics field
+      // and leaves the label empty, so a matcher reading `label` reports "no
+      // such widget" for a button that is right there on the app bar — and the
+      // step fails for a reason that has nothing to do with the app.
+      await tester.pumpWidget(const UxDemoApp());
+      final SemanticsHandle handle = tester.ensureSemantics();
+      final Map<String, Object?> sort = resolve(tester, 'Sort');
+      expect(sort['label'], isEmpty);
+      expect(sort['tooltip'], 'Sort');
+      expect(sort['tappable'], isTrue);
+      handle.dispose();
+    });
+
+    testWidgets('an ambiguous needle throws, naming every candidate', (
+      WidgetTester tester,
+    ) async {
+      // Taking the first hit audits a widget the journey never named, and the
+      // report then describes the wrong thing with full confidence. The message
+      // is the whole feature: it has to be enough to fix the journey file
+      // without reading the app's source.
+      await tester.pumpWidget(const UxDemoApp());
+      final SemanticsHandle handle = tester.ensureSemantics();
+      expect(
+        () => resolve(tester, 'Side Table'),
+        throwsA(
+          isA<StateError>().having(
+            (StateError e) => e.message,
+            'message',
+            allOf(<Matcher>[
+              contains('3 nodes match "Side Table"'),
+              contains('Walnut Side Table'),
+              contains('Oak Side Table'),
+              // Measured, and not what the author counting products expects: the
+              // third candidate is the promo banner's copy, "20% off every side
+              // table". A substring selector competes with prose, which is why
+              // the message lists what matched instead of asserting a count.
+              contains('Autumn sale'),
+              // Sizes, because two cards carrying the same words are told apart
+              // by nothing else.
+              matches(RegExp(r'@\d+x\d+')),
+              contains('Add nth: N'),
+            ]),
+          ),
+        ),
+      );
+      handle.dispose();
+    });
+
+    testWidgets('nth indexes the matches, not the products', (
+      WidgetTester tester,
+    ) async {
+      // Paint order, measured: the banner's copy matches before either card, so
+      // an author who counts the two products and writes `nth: 2` audits the
+      // WALNUT card while believing they picked the Oak one. Nothing downstream
+      // can notice — which is why the ambiguity message lists candidates in
+      // exactly this order and numbers them.
+      await tester.pumpWidget(const UxDemoApp());
+      final SemanticsHandle handle = tester.ensureSemantics();
+      expect(
+        resolve(tester, 'Side Table', 2)['label'],
+        startsWith('Walnut Side Table'),
+      );
+      expect(
+        resolve(tester, 'Side Table', 3)['label'],
+        startsWith('Oak Side Table'),
+      );
+      handle.dispose();
+    });
+
+    testWidgets('an out-of-range nth throws instead of clamping', (
+      WidgetTester tester,
+    ) async {
+      // Clamping would hand back a real widget for a nonsense selector, and a
+      // report built on it looks exactly like a correct one.
+      await tester.pumpWidget(const UxDemoApp());
+      final SemanticsHandle handle = tester.ensureSemantics();
+      expect(
+        () => resolve(tester, 'Side Table', 4),
+        throwsA(
+          isA<StateError>().having(
+            (StateError e) => e.message,
+            'message',
+            contains('out of range — "Side Table" matches 3'),
+          ),
+        ),
+      );
+      handle.dispose();
+    });
+
+    testWidgets('a needle that matches nothing quotes the needle', (
+      WidgetTester tester,
+    ) async {
+      // The only place this can be fixed is the journey file, so the message
+      // has to say what was asked for. A bare "not found" sends the author
+      // through the app's source looking for a bug in the app.
+      await tester.pumpWidget(const UxDemoApp());
+      final SemanticsHandle handle = tester.ensureSemantics();
+      expect(
+        () => resolve(tester, 'Proceed to checkout'),
+        throwsA(
+          isA<StateError>().having(
+            (StateError e) => e.message,
+            'message',
+            contains('"Proceed to checkout"'),
+          ),
+        ),
+      );
+      handle.dispose();
+    });
+
+    testWidgets('an exact match beats the longer label that contains it', (
+      WidgetTester tester,
+    ) async {
+      // On the dead-end screen "Removed" is the app bar title AND a substring
+      // of the body copy — and the body copy is dumped first, so "take the
+      // first hit" audits the paragraph and reports the title as absent. The
+      // shape this was written against is a password field losing to a "forgot
+      // password" link.
+      await tester.pumpWidget(const UxDemoApp());
+      final SemanticsHandle handle = tester.ensureSemantics();
+      await tester.tap(find.text('Walnut Side Table'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Remove from list'));
+      await tester.pumpAndSettle();
+
+      expect(
+        (dumpSemantics(tester)['nodes']! as List<Map<String, Object?>>)
+            .map((Map<String, Object?> n) => n['label']! as String)
+            .where((String l) => l.contains('Removed'))
+            .toList(),
+        <String>['Removed from your list', 'Removed'],
+        reason: 'the substring hit really does come first',
+      );
+      expect(resolve(tester, 'Removed')['label'], 'Removed');
+      handle.dispose();
+    });
+  });
+
+  group('performStep on a `type` step — what reaches the artifact', () {
+    Widget form() => const MaterialApp(
+      home: Scaffold(
+        body: Column(
+          children: <Widget>[
+            TextField(decoration: InputDecoration(labelText: 'Email')),
+            TextField(
+              obscureText: true,
+              decoration: InputDecoration(labelText: 'Passcode'),
+            ),
+            Text('Terms apply'),
+          ],
+        ),
+      ),
+    );
+
+    testWidgets('reports whether the field hides its own value', (
+      WidgetTester tester,
+    ) async {
+      // The walk records a `type` step's text straight from the journey file,
+      // so `obscureText` does nothing to keep it out of the run's artifact:
+      // measured, a passcode landed verbatim in this repo's own gated walk JSON
+      // on the first run that produced one. The recorder redacts to a length,
+      // and this flag is the only thing it can key on — asked of the semantics
+      // node the selector matched instead of the EditableText underneath, it
+      // answers about whatever wrapper carried the label.
+      await tester.pumpWidget(form());
+      final SemanticsHandle handle = tester.ensureSemantics();
+
+      final StepOutcome plain = await performStep(tester, (
+        action: 'type',
+        target: 'Email',
+        nth: null,
+        text: 'someone@example.test',
+        expected: 'Terms apply',
+      ));
+      expect(plain.status, 'OK', reason: plain.error ?? '');
+      expect(plain.obscured, isFalse);
+      expect(plain.tapped, isFalse, reason: 'typing is not reach cost');
+      // label ∪ tooltip ∪ value, third arm: what was typed is now the only
+      // address this field has that a journey could not have guessed, and a
+      // matcher reading label and tooltip alone reports it missing.
+      expect(resolve(tester, 'someone@example.test')['label'], 'Email');
+
+      final StepOutcome hidden = await performStep(tester, (
+        action: 'type',
+        target: 'Passcode',
+        nth: null,
+        text: 'not-a-real-password',
+        expected: 'Terms apply',
+      ));
+      expect(hidden.status, 'OK', reason: hidden.error ?? '');
+      expect(hidden.obscured, isTrue);
+      handle.dispose();
+    });
+
+    testWidgets('and the artifact gets a length, never the value', (
+      WidgetTester tester,
+    ) async {
+      // The flag above is only half of it. `obscured: true` with a recorder
+      // that still wrote `step.text` would pass every assertion in the case
+      // above and put the value in the file anyway — which is exactly the bug
+      // this pair exists to prevent, and the reason `recordedText` is public.
+      // No `Step` type annotation: the walker's `Step` collides with Material's,
+      // and a record literal is structural, so it needs no name.
+      const ({
+        String action,
+        String target,
+        int? nth,
+        String? text,
+        String expected,
+      })
+      hidden = (
+        action: 'type',
+        target: 'Passcode',
+        nth: null,
+        text: 'not-a-real-password',
+        expected: 'Terms apply',
+      );
+      final String? recorded = recordedText(hidden, true);
+      expect(recorded, isNot(contains('not-a-real-password')));
+      expect(
+        recorded,
+        contains('19'),
+        reason: 'the length survives, so a reader can still tell a typo from an empty field',
+      );
+      expect(
+        recordedText(hidden, false),
+        'not-a-real-password',
+        reason: 'a field that shows its own value is recorded as typed',
+      );
+      // A `tap` or `back` step has no text at all, and must not acquire one.
+      expect(
+        recordedText((
+          action: 'tap',
+          target: 'Sign in',
+          nth: null,
+          text: null,
+          expected: 'Saved items',
+        ), true),
+        isNull,
+      );
     });
   });
 }

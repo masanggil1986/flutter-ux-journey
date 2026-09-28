@@ -164,7 +164,7 @@ class _SignInScreenState extends State<SignInScreen> {
               // value out of the SEMANTICS tree, but the walk records a `type`
               // step's text from the journey file, so the first gated run wrote
               // `not-a-real-password` into example/walk-gated.json anyway. The
-              // walker now asks this widget and redacts — see `_recordedText`.
+              // walker now asks this widget and redacts — see `recordedText`.
               obscureText: true,
               decoration: const InputDecoration(
                 labelText: 'Password',
