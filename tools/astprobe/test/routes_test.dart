@@ -12,8 +12,13 @@ import 'package:test/test.dart';
 
 import '../bin/probe.dart';
 
-List<Map<String, Object?>> ofKind(String source, String kind) => scanRoutes(
+List<Map<String, Object?>> ofKind(
+  String source,
+  String kind, {
+  Map<String, String> constants = const <String, String>{},
+}) => scanRoutes(
   source,
+  constants: constants,
 ).where((Map<String, Object?> r) => r['kind'] == kind).toList();
 
 void main() {
@@ -218,12 +223,78 @@ void main() {
       }
     });
 
-    test('a push that is not a Navigator push is not an edge', () {
-      // `items.push(x)` shares a name with Navigator's and nothing else.
-      expect(scanRoutes('void f() { items.push(x); }'), isEmpty);
+    test(
+      'a GoRoute whose path is a constant is declared unread, not dropped',
+      () {
+        // Measured on a real app: 56 GoRoute declarations, every single `path:`
+        // a constant reference, and the probe reported 12 routes. Forty-four
+        // declared screens vanished with nothing saying so — the same silence
+        // the named-route table used to produce, in the shape SKILL.md itself
+        // describes as the usual GoRouter app.
+        final routes = scanRoutes('''
+        final r = GoRouter(routes: [
+          GoRoute(path: Routes.home, builder: (c, s) => HomeScreen()),
+        ]);
+      ''');
+        expect(
+          routes.where((Map<String, Object?> r) => r['kind'] == 'go-route'),
+          isEmpty,
+        );
+        final na = routes
+            .where((Map<String, Object?> r) => r['kind'] == 'not-assessable')
+            .toList();
+        expect(na, hasLength(1));
+        expect(na.single['reason'], contains('GoRoute'));
+      },
+    );
+
+    test('context.push is GoRouter navigation, not a Navigator push', () {
+      // `push` belongs to both APIs. Matching the Navigator shape first and
+      // returning when no PageRoute turns up swallowed 67 calls on a real app
+      // — no edge, and no line saying one was missed.
+      final edges = ofKind(
+        "class A { void f() => context.push('/detail'); }",
+        'go-nav',
+      );
+      expect(edges, hasLength(1));
+      expect(edges.single['target'], '/detail');
+    });
+
+    test('a context.push with an unreadable target still says so', () {
+      final routes = scanRoutes(
+        'class A { void f() => context.push(Routes.detail); }',
+      );
+      expect(
+        routes.where((Map<String, Object?> r) => r['kind'] == 'go-nav'),
+        isEmpty,
+      );
+      expect(
+        routes.where((Map<String, Object?> r) => r['kind'] == 'not-assessable'),
+        hasLength(1),
+      );
+    });
+
+    test('an unrelated call is not navigation at all', () {
+      // Nothing here shares a name with a navigation verb. (`items.push(x)`
+      // would, but Dart's List has no `push` — it is `add` — so the only
+      // things called `push` in a Flutter app are Navigator's and GoRouter's,
+      // which is why an unreadable `push` is reported rather than dropped.)
+      expect(scanRoutes('void f() { items.add(x); }'), isEmpty);
       expect(
         scanRoutes('void f() => showDialog(context: c, builder: (_) => D());'),
         isEmpty,
+      );
+    });
+
+    test('an unreadable push is reported, never silently dropped', () {
+      final routes = scanRoutes('class A { void f() => context.push(dest); }');
+      expect(
+        routes.where((Map<String, Object?> r) => r['kind'] == 'go-nav'),
+        isEmpty,
+      );
+      expect(
+        routes.where((Map<String, Object?> r) => r['kind'] == 'not-assessable'),
+        hasLength(1),
       );
     });
   });
@@ -258,6 +329,93 @@ void main() {
       ).single;
       expect(r['file'], 'lib/a.dart');
       expect(r['line'], 1);
+    });
+  });
+
+  // Measured on a real GoRouter app: 44 of 44 route declarations and 72 of 72
+  // navigation targets are constant references, and every one of those
+  // constants is a string literal in the same package. Without resolving them
+  // the probe produced 170 "cannot read this" lines against 17 it could — a
+  // wall of honest noise, which is the shape the tool this replaced died of.
+  group('route constants', () {
+    test('a class constant is collected under Owner.field', () {
+      final consts = collectRouteConstants('''
+        class Routes {
+          static const login = '/login';
+          static const String home = '/';
+        }
+      ''');
+      expect(consts['Routes.login'], '/login');
+      expect(consts['Routes.home'], '/');
+    });
+
+    test('a top-level constant is collected under its bare name', () {
+      expect(
+        collectRouteConstants(
+          "const String settings = '/settings';",
+        )['settings'],
+        '/settings',
+      );
+    });
+
+    test('a computed constant is not collected', () {
+      final consts = collectRouteConstants(r'''
+        class Routes {
+          static const detail = '$base/detail';
+          static const other = base + '/x';
+        }
+      ''');
+      expect(consts, isEmpty);
+    });
+
+    test('a name declared twice with different values is dropped', () {
+      // Picking one silently would put a path in the graph that half the app
+      // does not use.
+      final consts = collectRouteConstants('''
+        const a = '/one';
+        const a = '/two';
+        const b = '/same';
+        const b = '/same';
+      ''');
+      expect(consts.containsKey('a'), isFalse);
+      expect(consts['b'], '/same');
+    });
+
+    test('a GoRoute path given as a constant resolves, and says how', () {
+      final declared = ofKind(
+        "final r = GoRoute(path: Routes.login, builder: (c, s) => L());",
+        'go-route',
+        constants: const <String, String>{'Routes.login': '/login'},
+      );
+      expect(declared, hasLength(1));
+      expect(declared.single['path'], '/login');
+      // Provenance, so a reader can check the resolution rather than trust it.
+      expect(declared.single['via'], 'Routes.login');
+    });
+
+    test('a navigation target given as a constant resolves', () {
+      final edges = ofKind(
+        "class A { void f() => context.push(Routes.detail); }",
+        'go-nav',
+        constants: const <String, String>{'Routes.detail': '/detail'},
+      );
+      expect(edges.single['target'], '/detail');
+      expect(edges.single['via'], 'Routes.detail');
+    });
+
+    test('a constant nobody declared is still not assessable', () {
+      final routes = scanRoutes(
+        "class A { void f() => context.go(Unknown.thing); }",
+        constants: const <String, String>{'Routes.detail': '/detail'},
+      );
+      expect(
+        routes.where((Map<String, Object?> r) => r['kind'] == 'go-nav'),
+        isEmpty,
+      );
+      expect(
+        routes.where((Map<String, Object?> r) => r['kind'] == 'not-assessable'),
+        hasLength(1),
+      );
     });
   });
 

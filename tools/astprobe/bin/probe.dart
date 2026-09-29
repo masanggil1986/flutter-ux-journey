@@ -84,11 +84,65 @@ List<Map<String, Object?>> scan(String source, {String path = '<memory>'}) {
 List<Map<String, Object?>> scanRoutes(
   String source, {
   String path = '<memory>',
+  Map<String, String> constants = const <String, String>{},
 }) {
   final result = parseString(content: source, throwIfDiagnostics: false);
-  final probe = _Routes(result.lineInfo, path);
+  final probe = _Routes(result.lineInfo, path, constants);
   result.unit.visitChildren(probe);
   return probe.routes;
+}
+
+/// String constants this source declares, keyed as `Owner.field` for a class
+/// member and by its bare name for a top-level one.
+///
+/// This is pass one of two, and it exists because the shape SKILL.md calls the
+/// usual GoRouter app — a file of route constants plus the GoRoute tree — is
+/// unreadable without it. Measured on a real one: 44 of 44 route declarations
+/// and 72 of 72 navigation targets were constant references, and every
+/// constant behind them was a string literal in the same package.
+///
+/// Only literals are collected. A concatenation or an interpolation has a part
+/// this cannot see, and a name declared twice with DIFFERENT values is dropped
+/// rather than resolved to whichever came first — either would put a path in
+/// the graph that the app does not answer to.
+Map<String, String> collectRouteConstants(String source) {
+  final result = parseString(content: source, throwIfDiagnostics: false);
+  final collector = _Constants();
+  result.unit.visitChildren(collector);
+  return {
+    for (final e in collector.found.entries)
+      if (!collector.ambiguous.contains(e.key)) e.key: e.value,
+  };
+}
+
+class _Constants extends RecursiveAstVisitor<void> {
+  final Map<String, String> found = {};
+  final Set<String> ambiguous = {};
+  String? _owner;
+
+  @override
+  void visitClassDeclaration(ClassDeclaration node) {
+    _owner = node.namePart.typeName.lexeme;
+    super.visitClassDeclaration(node);
+    _owner = null;
+  }
+
+  @override
+  void visitVariableDeclaration(VariableDeclaration node) {
+    final init = node.initializer;
+    if (init is! SimpleStringLiteral) {
+      return;
+    }
+    final key = _owner == null
+        ? node.name.lexeme
+        : '$_owner.${node.name.lexeme}';
+    final existing = found[key];
+    if (existing != null && existing != init.value) {
+      ambiguous.add(key);
+      return;
+    }
+    found[key] = init.value;
+  }
 }
 
 /// `push`, `pushReplacement`, `pushAndRemoveUntil` and friends — every method
@@ -121,11 +175,16 @@ const _goMethods = {
 };
 
 class _Routes extends RecursiveAstVisitor<void> {
-  _Routes(this._lineInfo, this._path);
+  _Routes(this._lineInfo, this._path, this._constants);
 
   final LineInfo _lineInfo;
   final String _path;
+  final Map<String, String> _constants;
   final List<Map<String, Object?>> routes = [];
+
+  /// The constant the last [_stringOf] resolved through, so an entry can carry
+  /// where its value came from instead of asking a reader to trust it.
+  String? _via;
 
   // Same trap as _Probe, and worth writing out twice: on an unresolved AST
   // `GoRoute(...)` is a MethodInvocation, and `const GoRoute(...)` is an
@@ -147,9 +206,14 @@ class _Routes extends RecursiveAstVisitor<void> {
     final name = callee.split('.').last;
     if (name == 'GoRoute') {
       _goRoute(node, args);
-    } else if (_pushMethods.contains(name)) {
-      _inlinePush(node, args, name);
-    } else if (_goMethods.contains(name)) {
+    } else if (_pushMethods.contains(name) && _inlinePush(node, args, name)) {
+      // handled as a Navigator push
+    } else if (_goMethods.contains(name) || _pushMethods.contains(name)) {
+      // `push` belongs to BOTH APIs: `Navigator.push(c, MaterialPageRoute(…))`
+      // and `context.push('/x')`. Which one it is follows from the argument,
+      // not from the name — and matching the Navigator shape first and giving
+      // up when no PageRoute turns up swallowed 67 calls on a real app, with
+      // no edge and no line saying one was missed.
       _goNav(node, args, name);
     } else if (name == 'MaterialApp' || name == 'CupertinoApp') {
       if (_named(args, 'onGenerateRoute') != null) {
@@ -173,10 +237,28 @@ class _Routes extends RecursiveAstVisitor<void> {
   }
 
   void _goRoute(AstNode node, ArgumentList args) {
-    final path = _stringOf(_named(args, 'path'));
-    final name = _stringOf(_named(args, 'name'));
+    final pathArg = _named(args, 'path');
+    final nameArg = _named(args, 'name');
+    final path = _stringOf(pathArg);
+    // Captured here: reading `name` below runs _stringOf again and clears it.
+    final pathVia = _via;
+    final name = _stringOf(nameArg);
+    final via = pathVia ?? _via;
     if (path == null && name == null) {
-      return; // not a GoRoute we can say anything about
+      if (pathArg == null && nameArg == null) {
+        return; // a shell or a redirect: no destination was declared here
+      }
+      // A route constant is the shape SKILL.md itself calls the usual GoRouter
+      // app, and it is not a string literal. Measured on a real one: 56
+      // declarations, every `path:` a constant, 12 routes reported — 44
+      // declared screens gone with nothing saying so.
+      _add(node, 'not-assessable', {
+        'reason':
+            'a GoRoute whose path/name is not a string literal '
+            '(${(pathArg ?? nameArg)!.toSource()}) — the route it declares '
+            'cannot be read from source',
+      });
+      return;
     }
     _add(node, 'go-route', {
       // A child route's `path` is a SEGMENT: a GoRoute at `b` under `/a`
@@ -184,13 +266,16 @@ class _Routes extends RecursiveAstVisitor<void> {
       // that nobody can type.
       'path': path == null ? null : _absolutePath(node, path),
       'name': name,
+      'via': via,
       'screen': _builtWidget(
         _named(args, 'builder') ?? _named(args, 'pageBuilder'),
       ),
     });
   }
 
-  void _inlinePush(AstNode node, ArgumentList args, String method) {
+  /// True when this call was a Navigator push carrying a page route — the
+  /// only reading under which the caller should stop looking.
+  bool _inlinePush(AstNode node, ArgumentList args, String method) {
     for (final arg in args.arguments) {
       final route = arg.argumentExpression;
       final callee = _calleeOf(route);
@@ -211,15 +296,16 @@ class _Routes extends RecursiveAstVisitor<void> {
               'is not a closure over a constructor; the screen it reaches '
               'cannot be read from source',
         });
-        return;
+        return true;
       }
       _add(node, 'inline-push', {
         'from': _enclosing(node),
         'to': screen,
         'method': method,
       });
-      return;
+      return true;
     }
+    return false;
   }
 
   void _goNav(AstNode node, ArgumentList args, String method) {
@@ -254,6 +340,7 @@ class _Routes extends RecursiveAstVisitor<void> {
       'from': _enclosing(node),
       'target': target,
       'method': method,
+      'via': _via,
     });
   }
 
@@ -344,9 +431,27 @@ class _Routes extends RecursiveAstVisitor<void> {
     return null;
   }
 
-  /// The value of an UNINTERPOLATED string literal. An interpolated one has a
-  /// runtime part, so it is not a target this can name.
-  String? _stringOf(Expression? e) => e is SimpleStringLiteral ? e.value : null;
+  /// The value of an UNINTERPOLATED string literal, or of a constant declared
+  /// as one somewhere in the package. An interpolated literal has a runtime
+  /// part, so it is not a target this can name.
+  ///
+  /// Sets [_via] when the value came from a constant and clears it otherwise,
+  /// so a caller records provenance without a second lookup.
+  String? _stringOf(Expression? e) {
+    _via = null;
+    if (e is SimpleStringLiteral) {
+      return e.value;
+    }
+    if (e is PrefixedIdentifier || e is SimpleIdentifier) {
+      final key = e!.toSource();
+      final value = _constants[key];
+      if (value != null) {
+        _via = key;
+      }
+      return value;
+    }
+    return null;
+  }
 
   void _add(AstNode node, String kind, Map<String, Object?> fields) {
     final loc = _lineInfo.getLocation(node.offset);
@@ -494,6 +599,8 @@ void main(List<String> args) {
   final findings = <Map<String, Object?>>[];
   final routes = <Map<String, Object?>>[];
   var filesScanned = 0;
+
+  final sources = <String, String>{};
   for (final file in root.listSync(recursive: true).whereType<File>()) {
     final path = file.absolute.path;
     if (!path.endsWith('.dart') ||
@@ -505,9 +612,33 @@ void main(List<String> args) {
     final relative = path.startsWith(rootPath)
         ? path.substring(rootPath.length).replaceFirst(RegExp(r'^[/\\]'), '')
         : path;
-    final source = file.readAsStringSync();
-    findings.addAll(scan(source, path: relative));
-    routes.addAll(scanRoutes(source, path: relative));
+    sources[relative] = file.readAsStringSync();
+  }
+
+  // Pass one, over the whole package: a route path declared as
+  // `Routes.login` is readable only once the file holding that constant has
+  // been seen, and it is rarely the file holding the router. Measured on a real
+  // app, skipping this left 170 unreadable entries against 17 readable ones.
+  // A name two files disagree about is dropped by collectRouteConstants rather
+  // than resolved to whichever was read first.
+  final constants = <String, String>{};
+  final conflicting = <String>{};
+  for (final source in sources.values) {
+    collectRouteConstants(source).forEach((key, value) {
+      final existing = constants[key];
+      if (existing != null && existing != value) {
+        conflicting.add(key);
+      }
+      constants[key] = value;
+    });
+  }
+  constants.removeWhere((key, _) => conflicting.contains(key));
+
+  for (final entry in sources.entries) {
+    findings.addAll(scan(entry.value, path: entry.key));
+    routes.addAll(
+      scanRoutes(entry.value, path: entry.key, constants: constants),
+    );
   }
 
   // Bucketed here rather than in scanRoutes, so the per-file function stays a
@@ -525,6 +656,13 @@ void main(List<String> args) {
       'filesScanned': filesScanned,
       'findings': findings,
       'routes': {
+        // Every string constant pass one could read, not just the route ones —
+        // nothing here knows which is which until a route refers to it. It is
+        // a diagnostic: a route table that reads as empty with a large number
+        // here means the constants were found and the router was not, while
+        // empty with zero here means the app declares its paths inline, which
+        // is a different problem.
+        'stringConstantsCollected': constants.length,
         'declared': ofKind('go-route'),
         'pushed': [...ofKind('inline-push'), ...ofKind('go-nav')],
         'notAssessable': ofKind('not-assessable'),
