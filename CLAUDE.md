@@ -122,6 +122,17 @@ v0.1은 데모 픽스처(iOS 시뮬)와 **실제 운영 앱(Android 에뮬레이
 - **Android 스크린샷 데드락.** 기본 모드는 `OffsetLayer.toImage()`(골든 경로)로 잡으므로
   플랫폼 서피스가 없다 → 데드락 불가능. 대신 플랫폼 뷰는 아예 안 그려지고 `not assessable`이다.
 
+**도그푸드가 잡은 것 (2026-09-29)**
+
+- **unawaited 거부가 런을 오염시킨다.** `FlutterError.onError`는 절반만 덮는다 — raw async 거부는
+  zone으로 새고, 바인딩이 `_pendingExceptionDetails != null`로 assert하며 엉뚱한 원인을 지목한다.
+  `flutter test`가 모든 요청에 400을 주므로 실제 앱에선 fire-and-forget 요청마다 발생한다.
+  `runZonedGuarded`로 덮었다. **주의: 핸들러에서 워크 future를 완료시키면 안 된다** — 그러면 본문이
+  아직 걷는 중에 리턴해서 `steps: []`로 리포트가 나간다(실측).
+- **라우트 상수를 해석하지 않으면 라우트 그래프가 무의미하다.** 실측: 선언 56개 중 12개, 엣지 124개 중
+  1개만 읽혔다. 경로도 타깃도 전부 상수 참조였고, 상수는 전부 같은 패키지의 문자열 리터럴이었다.
+  2패스 해석 후 56 / 83 / 못읽음 48.
+
 **새로 열린 갭**
 
 - **폰트.** `flutter test`는 Ahem을 쓴다 — 실측 drift 최대 153.6px. `loadFonts`가 앱 선언 폰트
@@ -181,9 +192,13 @@ v0.1은 데모 픽스처(iOS 시뮬)와 **실제 운영 앱(Android 에뮬레이
 
 **여전히 미검증**
 
-- **플러그인이 있는 실제 앱에서의 widget-test 모드.** 플랫폼 채널이 뒤에 없으므로
-  `MissingPluginException`을 던지는 플러그인은 그 화면을 데려간다. `allMessagesHandler` catch-all은
-  SDK 소스로만 확인했고 실행하지 않았다. **`flutter drive` 경로를 남기는 주된 이유가 이것이다.**
+- **플러그인이 있는 실제 앱 — 부분 확인 (2026-09-29 도그푸드).** 플러그인 45개짜리 운영 앱에서
+  widget-test 워크가 디바이스 없이 **완주했다**: 부팅·측정·캡처·publish 전부. `app.main()`은 던지지
+  않았고, 앱이 흘린 요청 2건은 `appErrors`에 남았다. 단 **앱은 자기 부팅 게이트를 못 넘는다** —
+  네트워크가 차단(SDK가 400)되고 플랫폼 채널이 없으니 2노드짜리 로딩 화면에 머문다. 그 너머를 걸으려면
+  `## Setup` + `references/network-stub.md`의 스텁이 필요하고, 그건 기존 메커니즘이지 새 갭이 아니다.
+  아직 확인 못 한 것: **스텁으로 게이트를 넘은 뒤** 플러그인 의존 화면들이 어디까지 렌더되는지.
+  `allMessagesHandler` catch-all은 여전히 SDK 소스로만 확인했다. `flutter drive` 경로는 그대로 남긴다.
 - **Android 타겟 widget-test 런.** iOS 타겟 한 조건만 걸었다.
 - **`pixel-6` / `ipad-13` 프리셋.** `CLAUDE.md`에 크기·dpr·foldY는 있지만 `contentTop`이 없다.
   각 1회 캘리브레이션 런 뒤에 승격한다. 그때까지 `## Device`는 명시 수치를 받는다.
