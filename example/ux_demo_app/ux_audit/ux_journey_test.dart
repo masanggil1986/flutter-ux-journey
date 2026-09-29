@@ -6,6 +6,7 @@
 // someone else's app has to stay one file, so the alternative to a public
 // helper is an untested one; test/walker_test.dart imports these directly.
 
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:ui' as ui;
@@ -163,6 +164,46 @@ void main() {
   });
 }
 
+/// Run [body] where an unawaited failure lands in [sink] instead of the test
+/// zone.
+///
+/// `FlutterError.onError` catches framework errors. It does not catch a raw
+/// async rejection — an unawaited `Future` that fails — which goes straight to
+/// the zone, where `TestWidgetsFlutterBinding` asserts
+/// `_pendingExceptionDetails != null` and reports it as somebody mishandling
+/// `FlutterError.onError`. Measured on a production app: the walk finished, the
+/// report was written, and the run still failed with a framework message about
+/// a cause that was not there.
+///
+/// The errors are kept, not swallowed: an app that drops a failed request is
+/// telling you something, and a report with an empty `appErrors` on an app that
+/// cannot reach its backend would be describing a different app.
+Future<void> _guarded(List<String> sink, Future<void> Function() body) {
+  final Completer<void> done = Completer<void>();
+  runZonedGuarded(
+    () async {
+      try {
+        await body();
+      } finally {
+        if (!done.isCompleted) {
+          done.complete();
+        }
+      }
+    },
+    (Object error, StackTrace stack) {
+      // RECORD ONLY. Completing here returns to the caller while the body is
+      // still mid-step, and the report goes out with an empty `steps` — the
+      // late rejection killing the report, which is the exact failure this
+      // guard exists to prevent. Measured on a production app, where the walk
+      // published zero steps and a single appError. The body's own `finally`
+      // is the only thing that completes this: an unawaited rejection does not
+      // break the body's await chain, and an awaited one reaches that finally.
+      sink.add(error.toString());
+    },
+  );
+  return done.future;
+}
+
 /// Take one screenshot, or report that it could not be taken.
 ///
 /// A capture that throws — a full disk, an unwritable path, a device-side
@@ -234,92 +275,54 @@ Future<void> walkJourney(
   // this, one late async exception fails the test and discards the entire
   // report — measured: a voucher fetch completing after the walk threw away
   // a nine-step journey. Collect them as evidence instead.
+  //
+  // FlutterError.onError is only half of it. A RAW async rejection — an
+  // unawaited Future that fails — never goes through it: it escapes to the
+  // test zone, where the binding asserts `_pendingExceptionDetails != null`
+  // and blames whoever last touched FlutterError.onError. Measured on a
+  // production app under `flutter test`, where the default posture cuts the
+  // network and every fire-and-forget request rejects: the walk completed and
+  // the report was published, and the run still read as a framework failure
+  // nobody could act on. runZonedGuarded is what catches that half.
   final List<String> appErrors = <String>[];
   FlutterError.onError = (FlutterErrorDetails details) {
     appErrors.add(details.exceptionAsString());
   };
 
-  launch();
-  // NOT pumpAndSettle: it waits out a 10-minute timeout on any app that
-  // animates continuously. This fixture does not, but the generated walker
-  // must, so the fixture exercises the same code path.
-  final bool entrySettled = await settle(
-    tester,
-    limit: const Duration(seconds: 12),
-  );
-
-  // --- SETUP: excluded from measurement and scoring. ------------------------
-  // A gate is not the product, so these steps get no semantics dump, no
-  // guideline evaluation and no reach cost. They are recorded anyway, because
-  // a run that dies in setup must report a setup failure — reporting the steps
-  // that did run as a journey would describe a short healthy app.
-  // -------------------------------------------------------------------------
+  // Declared outside the zone because the report reads them after it closes.
+  // The zone can only write them, which is also what makes a walk cut short by
+  // a late rejection still publish what it did measure.
+  bool entrySettled = false;
   bool setupFailed = false;
-  for (final Step step in setup) {
-    final int i = setupSteps.length + 1;
-    final Stopwatch sw = Stopwatch()..start();
-    final StepOutcome out = await performStep(tester, step);
-    sw.stop();
-    // One screenshot, and only on failure: it is the whole evidence for "the
-    // gate is what blocked this", and a passing setup step has nothing to show.
-    final String? shotName = out.status != 'OK'
-        ? await _capture(shot, 'setup_$i')
-        : null;
-    setupSteps.add(<String, Object?>{
-      'index': i,
-      'phase': 'setup',
-      'action': step.action,
-      'target': step.target,
-      'nth': step.nth,
-      'text': recordedText(step, out.obscured),
-      'expected': step.expected,
-      'status': out.status,
-      'error': out.error,
-      'elapsedMs': sw.elapsedMilliseconds,
-      'settled': out.settled,
-      'dispatched': out.dispatched,
-      'screenshot': shotName,
-    });
-    if (out.status != 'OK') {
-      setupFailed = true;
-      break;
-    }
-  }
-
-  // Reach cost, counted by the thing that issues it. This is ground truth on
-  // every app shape, unlike a route-derived depth — and it is "taps on THIS
-  // journey", never "the minimum", because a minimum needs paths nobody
-  // declared, i.e. a crawl. Setup taps are not reach: the user paying them is
-  // paying for a gate, not for the task.
   int taps = 0;
 
-  if (!setupFailed) {
-    for (final Step step in journey) {
-      final int i = steps.length + 1;
+  await _guarded(appErrors, () async {
+    launch();
+    // NOT pumpAndSettle: it waits out a 10-minute timeout on any app that
+    // animates continuously. This fixture does not, but the generated walker
+    // must, so the fixture exercises the same code path.
+    entrySettled = await settle(tester, limit: const Duration(seconds: 12));
 
-      // Capture BEFORE the tap: the screen a step starts on is the screen that
-      // holds the target being tapped, so that is the screen whose tap targets
-      // and contrast the step is about.
-      final Map<String, Object?> semantics = dumpSemantics(tester);
-      final Map<String, Object?> surface = routeState(tester, semantics);
-      final List<Map<String, Object?>> guidelines = await _evaluateGuidelines(
-        tester,
-      );
-      final String sigBefore = screenSignature(semantics);
-      final String? shotName = await _capture(shot, 'step_$i');
-
+    // --- SETUP: excluded from measurement and scoring. ------------------------
+    // A gate is not the product, so these steps get no semantics dump, no
+    // guideline evaluation and no reach cost. They are recorded anyway, because
+    // a run that dies in setup must report a setup failure — reporting the steps
+    // that did run as a journey would describe a short healthy app.
+    // -------------------------------------------------------------------------
+    // reset per walk; declared above
+    for (final Step step in setup) {
+      final int i = setupSteps.length + 1;
       final Stopwatch sw = Stopwatch()..start();
       final StepOutcome out = await performStep(tester, step);
       sw.stop();
-      // Counted AFTER it lands. `_tapTarget` throws when the target cannot be
-      // resolved or is off screen, and a gesture that was never dispatched is
-      // not reach cost.
-      if (out.tapped) {
-        taps++;
-      }
-
-      steps.add(<String, Object?>{
+      // One screenshot, and only on failure: it is the whole evidence for "the
+      // gate is what blocked this", and a passing setup step has nothing to show.
+      final String? shotName = out.status != 'OK'
+          ? await _capture(shot, 'setup_$i')
+          : null;
+      setupSteps.add(<String, Object?>{
         'index': i,
+        'phase': 'setup',
         'action': step.action,
         'target': step.target,
         'nth': step.nth,
@@ -327,68 +330,121 @@ Future<void> walkJourney(
         'expected': step.expected,
         'status': out.status,
         'error': out.error,
-        'elapsedMs': sw.elapsedMilliseconds, // EVIDENCE ONLY — never scored
+        'elapsedMs': sw.elapsedMilliseconds,
         'settled': out.settled,
-        'tapsSoFar': taps,
-        'screenshot': shotName,
-        'screenSig': sigBefore,
         'dispatched': out.dispatched,
-        // A tap that changed no semantics at all. Filled after the loop: the
-        // NEXT step's dump is this step's "after", the same frame, so a second
-        // tree walk here would measure it twice. NOT sufficient for a finding
-        // on its own either — a control that only repaints (a selection chip,
-        // a tab highlight) is byte-identical to one wired to nothing, measured
-        // in test/walker_test.dart. heuristics.md requires a second layer
-        // before this becomes FAKE-AFFORDANCE.
-        'semanticsUnchanged': null,
-        'surface': surface,
-        'semantics': semantics,
-        'guidelines': guidelines,
+        'screenshot': shotName,
       });
-      // No break on failure: a blocked step is itself the finding, and the
-      // screens after it are exactly where the journey-level defects live.
+      if (out.status != 'OK') {
+        setupFailed = true;
+        break;
+      }
     }
 
-    // The screen the journey ENDS on is never audited otherwise: every step
-    // captures the screen it starts from, so the final outcome — the error
-    // state, the confirmation, the dead end — falls off the end. Measured:
-    // without this, an audit of a failed sign-in never looks at the failure.
-    final String? outcomeShot = await _capture(
-      shot,
-      'step_${steps.length + 1}',
-    );
-    final Map<String, Object?> outcome = dumpSemantics(tester);
-    steps.add(<String, Object?>{
-      'index': steps.length + 1,
-      'action': 'outcome',
-      'target': null,
-      'text': null,
-      'expected': null,
-      'status': 'OK',
-      'error': null,
-      'elapsedMs': 0,
-      'settled': await settle(tester),
-      'tapsSoFar': taps,
-      // The outcome screen needs its own PNG, or the last real step has no
-      // "after" image and the dead-tap confirmation (compare step N's PNG with
-      // step N+1's) is impossible for exactly the step where the journey ended.
-      'screenshot': outcomeShot,
-      'screenSig': screenSignature(outcome),
-      'dispatched': false,
-      'semanticsUnchanged': null,
-      'surface': routeState(tester, outcome),
-      'semantics': outcome,
-      'guidelines': await _evaluateGuidelines(tester),
-    });
+    // Reach cost, counted by the thing that issues it. This is ground truth on
+    // every app shape, unlike a route-derived depth — and it is "taps on THIS
+    // journey", never "the minimum", because a minimum needs paths nobody
+    // declared, i.e. a crawl. Setup taps are not reach: the user paying them is
+    // paying for a gate, not for the task.
+    // reach cost; declared above
 
-    // A step's "after" is the next step's "before": the same frame, already
-    // dumped. Only a dispatched gesture can be called dead.
-    for (int i = 0; i + 1 < steps.length; i++) {
-      steps[i]['semanticsUnchanged'] = steps[i]['dispatched'] == true
-          ? steps[i]['screenSig'] == steps[i + 1]['screenSig']
-          : null;
+    if (!setupFailed) {
+      for (final Step step in journey) {
+        final int i = steps.length + 1;
+
+        // Capture BEFORE the tap: the screen a step starts on is the screen that
+        // holds the target being tapped, so that is the screen whose tap targets
+        // and contrast the step is about.
+        final Map<String, Object?> semantics = dumpSemantics(tester);
+        final Map<String, Object?> surface = routeState(tester, semantics);
+        final List<Map<String, Object?>> guidelines = await _evaluateGuidelines(
+          tester,
+        );
+        final String sigBefore = screenSignature(semantics);
+        final String? shotName = await _capture(shot, 'step_$i');
+
+        final Stopwatch sw = Stopwatch()..start();
+        final StepOutcome out = await performStep(tester, step);
+        sw.stop();
+        // Counted AFTER it lands. `_tapTarget` throws when the target cannot be
+        // resolved or is off screen, and a gesture that was never dispatched is
+        // not reach cost.
+        if (out.tapped) {
+          taps++;
+        }
+
+        steps.add(<String, Object?>{
+          'index': i,
+          'action': step.action,
+          'target': step.target,
+          'nth': step.nth,
+          'text': recordedText(step, out.obscured),
+          'expected': step.expected,
+          'status': out.status,
+          'error': out.error,
+          'elapsedMs': sw.elapsedMilliseconds, // EVIDENCE ONLY — never scored
+          'settled': out.settled,
+          'tapsSoFar': taps,
+          'screenshot': shotName,
+          'screenSig': sigBefore,
+          'dispatched': out.dispatched,
+          // A tap that changed no semantics at all. Filled after the loop: the
+          // NEXT step's dump is this step's "after", the same frame, so a second
+          // tree walk here would measure it twice. NOT sufficient for a finding
+          // on its own either — a control that only repaints (a selection chip,
+          // a tab highlight) is byte-identical to one wired to nothing, measured
+          // in test/walker_test.dart. heuristics.md requires a second layer
+          // before this becomes FAKE-AFFORDANCE.
+          'semanticsUnchanged': null,
+          'surface': surface,
+          'semantics': semantics,
+          'guidelines': guidelines,
+        });
+        // No break on failure: a blocked step is itself the finding, and the
+        // screens after it are exactly where the journey-level defects live.
+      }
+
+      // The screen the journey ENDS on is never audited otherwise: every step
+      // captures the screen it starts from, so the final outcome — the error
+      // state, the confirmation, the dead end — falls off the end. Measured:
+      // without this, an audit of a failed sign-in never looks at the failure.
+      final String? outcomeShot = await _capture(
+        shot,
+        'step_${steps.length + 1}',
+      );
+      final Map<String, Object?> outcome = dumpSemantics(tester);
+      steps.add(<String, Object?>{
+        'index': steps.length + 1,
+        'action': 'outcome',
+        'target': null,
+        'text': null,
+        'expected': null,
+        'status': 'OK',
+        'error': null,
+        'elapsedMs': 0,
+        'settled': await settle(tester),
+        'tapsSoFar': taps,
+        // The outcome screen needs its own PNG, or the last real step has no
+        // "after" image and the dead-tap confirmation (compare step N's PNG with
+        // step N+1's) is impossible for exactly the step where the journey ended.
+        'screenshot': outcomeShot,
+        'screenSig': screenSignature(outcome),
+        'dispatched': false,
+        'semanticsUnchanged': null,
+        'surface': routeState(tester, outcome),
+        'semantics': outcome,
+        'guidelines': await _evaluateGuidelines(tester),
+      });
+
+      // A step's "after" is the next step's "before": the same frame, already
+      // dumped. Only a dispatched gesture can be called dead.
+      for (int i = 0; i + 1 < steps.length; i++) {
+        steps[i]['semanticsUnchanged'] = steps[i]['dispatched'] == true
+            ? steps[i]['screenSig'] == steps[i + 1]['screenSig']
+            : null;
+      }
     }
-  }
+  });
 
   handle.dispose();
   final Map<String, Object?> report = <String, Object?>{

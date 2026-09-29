@@ -1630,6 +1630,45 @@ void main() {
       expect(report!['appErrors'], contains(contains('late voucher fetch')));
     });
 
+    testWidgets('an unawaited failure the app drops is evidence too', (
+      WidgetTester tester,
+    ) async {
+      // Measured on a real app: cutting the network — which is what
+      // `flutter test` does by default — makes fire-and-forget requests
+      // reject, and a raw async rejection does NOT go through
+      // FlutterError.onError. It escapes to the test zone, where the binding
+      // asserts `_pendingExceptionDetails != null` and blames whoever last
+      // touched FlutterError.onError. The walk completes, the report is
+      // published, and the run still reads as a framework failure nobody can
+      // act on.
+      Map<String, Object?>? report;
+      await walkJourney(
+        tester,
+        launch: () {
+          runApp(const UxDemoApp());
+          // Unawaited on purpose: this is the shape, not a mistake.
+          Future<void>.error(StateError('late background failure'));
+        },
+        journey: journey,
+        publish: (Map<String, Object?> r) async => report = r,
+      );
+      expect(
+        report!['appErrors'],
+        contains(contains('late background failure')),
+      );
+      // And the walk must still have WALKED. Measured on a production app: a
+      // guard that completes the walk's future from its error handler returns
+      // to the caller while the body is still mid-step, and the report goes
+      // out with `steps: []` — the late rejection killing the report, which is
+      // the exact failure the guard exists to prevent.
+      expect(
+        report!['steps'],
+        hasLength(journey.length + 1),
+        reason: 'the walk stopped when the app dropped a request',
+      );
+      expect(report!['taps'], greaterThan(0));
+    });
+
     testWidgets('runContext lands in conditions beside the measured ones', (
       WidgetTester tester,
     ) async {
