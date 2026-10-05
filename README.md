@@ -107,8 +107,8 @@ your clone root.
 ### Requirements
 
 - **Flutter 3.47.2 / Dart 3.13.2 or newer.** That floor is the demo app's own
-  (`example/ux_demo_app/pubspec.yaml` declares `sdk: ^3.13.2`); `tools/astprobe` alone is happy on
-  `^3.9.0`. Dart ships with Flutter.
+  (`example/ux_demo_app/pubspec.yaml` declares `sdk: ^3.13.2`); `tools/astprobe` alone needs Dart
+  3.11 or newer, because its `package:analyzer` does. Dart ships with Flutter.
 - Nothing else for the default mode. The walk runs under `flutter test`.
 - **Only for the `flutter drive` fallback** — an app whose plugins or platform views need a real
   device under them: **Xcode** for iOS simulators or the **Android SDK** for emulators, a **booted**
