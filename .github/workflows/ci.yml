@@ -73,9 +73,10 @@ jobs:
           rc=0
 
           # Hosts a public repo may legitimately name: vendor and standards docs,
-          # pub.dev, localhost in the Day 1 evidence logs, and the RFC 2606
-          # .invalid stub. A host that is not on this list is either a dependency
-          # worth reviewing or an endpoint that just left a private app.
+          # pub.dev, localhost in the Day 1 evidence logs, the RFC 2606 .invalid
+          # stub, and the author's own site in the README. A host that is not on
+          # this list is either a dependency worth reviewing or an endpoint that
+          # just left a private app.
           ALLOWED_HOSTS='127.0.0.1
           anthropic.com
           api.example.invalid
@@ -97,6 +98,7 @@ jobs:
           services.gradle.org
           support.google.com
           www.apple.com
+          www.lunary.ai.kr
           www.w3.org'
 
           # (a) A tracked file that .gitignore also matches is a negation hole.
