@@ -5,10 +5,12 @@ what it finds against that journey's goal (severity 4/3/2/1/✓, defined in
 [`heuristics.md`](skills/flutter-ux-journey/references/heuristics.md)).
 
 **Why it exists.** I build Flutter apps for clients, and one of them asked for a UX review. The
-Flutter tools I could find check components — is this button 44 px, does this image have a label —
-and none of them answered what the client was actually asking: can someone who opens the app to get
-a thing done, get it done? A screen can pass every component check and still be a dead end. So this
-audits the journey, not the widget.
+Flutter tools I could find check components — is this button 44 px, does this image have a label.
+The client was asking something else: how many steps does the task people come for take, and is
+what matters most to them the thing the screen puts first? In the demo app below, the rank-1 task
+is the 6th of 8 tap targets on the entry screen, with five unranked controls above it. No component
+check can say that, because it is not a property of any one widget. So this audits the journey,
+not the widget.
 
 **The pitch: a Flutter UX audit that measures instead of guessing.** Every finding carries
 evidence pulled out of a live app — real pixel `Rect`s, real contrast ratios, real semantics labels —
