@@ -4,6 +4,31 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.1] - 2026-10-05
+
+Three fixes found by a full review of 0.3.0, released ahead of the rest because each one breaks a
+run or an install on its own.
+
+### Fixed
+
+- **A failure after the walk no longer hangs the run for ten minutes.** The walk borrows
+  `FlutterError.onError` to collect the app's own errors and never handed it back, so anything that
+  failed after it — a timer the app left running, an `expect` in the same test — went into a list
+  that was already published. flutter_test then waited out its ten-minute timeout and blamed
+  whoever last touched the handler. It is handed back the moment the walk ends: the same failure
+  now reports in about 2 s with its real message.
+- **The static probe's path works after a marketplace install.** SKILL.md wrote
+  `${CLAUDE_PLUGIN_ROOT:-<clone-root>}`. Claude Code replaces only the exact `${CLAUDE_PLUGIN_ROOT}`
+  token in skill text, and the variable is never in the Bash environment, so step [1] pointed at a
+  literal `<clone-root>`. The exact token is back, as 0.1.0 had it, and the docs say what to read it
+  as when nothing substituted it. The install note for other agents now keeps the clone, which the
+  skill reads `tools/` and `example/` from.
+- **SKILL.md's frontmatter parses as YAML again.** An unquoted `compatibility` value containing
+  `: ` made strict parsers reject the file — `npx skills add` found no skill and the Agent Skills
+  validator failed — and at 1,028 characters it was over the spec's 500. Claude Code loaded it
+  anyway, which is why nothing here noticed. It is now quoted and 448 characters, and states the
+  static probe's real floor, Dart 3.11, which its `package:analyzer` requires.
+
 ## [0.3.0] - 2026-10-05
 
 No device needed. The walk runs under plain `flutter test`, and the probe reads the app's routes
@@ -140,6 +165,7 @@ Initial release.
 - `example/ux_demo_app`, a public fixture with six seeded defects, each proven to fire through the
   framework's own guidelines.
 
+[0.3.1]: https://github.com/masanggil1986/flutter-ux-journey/releases/tag/v0.3.1
 [0.3.0]: https://github.com/masanggil1986/flutter-ux-journey/releases/tag/v0.3.0
 [0.2.0]: https://github.com/masanggil1986/flutter-ux-journey/releases/tag/v0.2.0
 [0.1.0]: https://github.com/masanggil1986/flutter-ux-journey/releases/tag/v0.1.0

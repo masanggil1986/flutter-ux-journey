@@ -39,7 +39,7 @@ body:
       placeholder: |
         Flutter: 3.47.2 stable / Dart 3.13.2
         Device: iPhone SE (3rd generation) simulator, iOS 18.6
-        Plugin version: 0.3.0
+        Plugin version: 0.3.1
         Host agent: Claude Code 2.x
     validations:
       required: true
