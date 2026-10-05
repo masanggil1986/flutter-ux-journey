@@ -417,6 +417,25 @@ carry this project's specific load.
 | The run hangs | Something called `pumpAndSettle`, whose default timeout is 10 minutes. The recipe uses a bounded settle and records `settled` per step. | [`references/walking.md`](skills/flutter-ux-journey/references/walking.md) § Bounded settle |
 | `${CLAUDE_PLUGIN_ROOT}` is unset | You are not running as a plugin. It means your clone root. | [Install](#install) |
 
+## Work with me
+
+This project is built the way I build everything: no claim without a measurement behind it, the
+limits written down before anyone has to ask, and a test that fails the day a claim stops being
+true. If that is how you want your own product built, I am available.
+
+I'm Samuel — a developer with 13 years of experience and the founder of
+[LunaLab](https://www.lunary.ai.kr), a studio that takes web, mobile and backend products from
+planning and design through development, launch and operation.
+
+- **Hire the studio.** Flutter apps, web services, backends, MVPs. You get a fixed quote for the
+  agreed scope, no extra charges inside it, and the same care at handover as at kickoff — the
+  project is finished when it is finished, not when the budget is.
+- **Hire me.** Full-time offers are very welcome. If you have a team you think I'd fit, I'd love to
+  hear about it. I work best remote, and for the right role I'm glad to relocate and be in the
+  office.
+
+Say hello at [lunary.ai.kr](https://www.lunary.ai.kr).
+
 ## Licence
 
 MIT — see [LICENSE](LICENSE). Third-party attribution in [CREDITS.md](CREDITS.md).
