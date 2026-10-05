@@ -256,12 +256,20 @@ away a nine-step journey. Collect them instead, before `app.main()`:
 
 ```dart
 final List<String> appErrors = <String>[];
+final FlutterExceptionHandler? previousOnError = FlutterError.onError;
 FlutterError.onError = (FlutterErrorDetails details) {
   appErrors.add(details.exceptionAsString());
 };
 ...
+FlutterError.onError = previousOnError; // the moment the walk ends
 report['appErrors'] = appErrors;
 ```
+
+Hand the handler back. Kept, it swallows every failure after the walk — a timer the app left
+running, an `expect` in the same test — into a list that is already published, and flutter_test
+waits out its ten-minute timeout and then blames whoever last touched `FlutterError.onError`.
+Measured: an `expect(1, 2)` after the walk hung past 60 s; handed back, it failed in 2 s with the
+real message.
 
 What lands there is evidence in its own right. An app that shows the user
 `type 'Null' is not a subtype of type ...` is leaking internals into the UI — a real severity-3

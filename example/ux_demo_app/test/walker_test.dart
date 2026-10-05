@@ -1580,6 +1580,39 @@ void main() {
       expect(caught, isA<FileSystemException>());
     });
 
+    // The walk borrows FlutterError.onError to collect the app's errors. Kept,
+    // a failure after the walk — a timer the app left running, an expect in
+    // the same test — lands in a list nobody reads, and flutter_test waits out
+    // its ten-minute timeout and then blames the wrong thing. Measured: an
+    // `expect(1, 2)` after the walk hung past 60 s; handed back, it failed in
+    // 2 s with the real message. The check is read BEFORE any expect, and the
+    // handler restored by hand, so this test reports rather than hangs.
+    for (final bool publishThrows in <bool>[false, true]) {
+      testWidgets('the walk hands FlutterError.onError back '
+          '(publish ${publishThrows ? 'throws' : 'succeeds'})', (
+        WidgetTester tester,
+      ) async {
+        final FlutterExceptionHandler? before = FlutterError.onError;
+        try {
+          await walkJourney(
+            tester,
+            launch: () => runApp(const UxDemoApp()),
+            journey: journey,
+            publish: (Map<String, Object?> r) async {
+              if (publishThrows) {
+                throw const FileSystemException('read-only output dir');
+              }
+            },
+          );
+        } on FileSystemException {
+          // Asserted by 'a publish that throws is never swallowed'.
+        }
+        final bool handedBack = identical(FlutterError.onError, before);
+        FlutterError.onError = before;
+        expect(handedBack, isTrue);
+      });
+    }
+
     testWidgets('a second walk in the same file runs (walk 1 of 2)', (
       WidgetTester tester,
     ) async {

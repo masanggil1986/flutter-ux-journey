@@ -285,6 +285,7 @@ Future<void> walkJourney(
   // the report was published, and the run still read as a framework failure
   // nobody could act on. runZonedGuarded is what catches that half.
   final List<String> appErrors = <String>[];
+  final FlutterExceptionHandler? previousOnError = FlutterError.onError;
   FlutterError.onError = (FlutterErrorDetails details) {
     appErrors.add(details.exceptionAsString());
   };
@@ -446,6 +447,11 @@ Future<void> walkJourney(
     }
   });
 
+  // Handed back the moment the walk ends. Kept, it turns any later failure —
+  // a timer the app left running, an expect in the same test — into an entry
+  // in a list that is already published, and flutter_test then waits out its
+  // ten-minute timeout and blames whoever last touched FlutterError.onError.
+  FlutterError.onError = previousOnError;
   handle.dispose();
   final Map<String, Object?> report = <String, Object?>{
     'steps': steps,
