@@ -4,6 +4,52 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.0] - 2026-10-05
+
+No device needed. The walk runs under plain `flutter test`, and the probe reads the app's routes
+the way real routers are written.
+
+### Added
+
+- **The default walk runs under `flutter test`, with no simulator or emulator.** It is checked in
+  this repo's own suite against the committed simulator run, `example/walk.json`: every step
+  status, every screen signature, all sixteen guideline verdicts, the node counts and the viewport.
+  About 2 s a run warm, against the simulator walk's 70 s first and 20 s after. `flutter drive` on
+  a booted simulator or emulator stays as the fallback for apps whose plugins or platform views
+  need a real device.
+- **`## Device` in a journey file**, so a headless run says which screen it was measured on
+  instead of quoting a fold for Flutter's default 800x600. One preset ships, `iphone-se`, the only
+  one whose every field a committed artifact reproduces; an unknown preset name throws.
+- **Real text metrics headless.** The run loads the app's own fonts, or the SDK's Roboto when the
+  app declares none, over the families its themes actually name — the test font's em squares
+  drifted layout by up to 153.6 px. `conditions.fontSource` and `conditions.renderer` say which
+  font and rasterizer the numbers came from, and the report quotes them.
+- **The probe reads the feature map.** A `routes` block beside `findings`: GoRoute declarations,
+  MaterialApp named routes, and the navigation edges that reach each screen. Paths and targets
+  written as string constants are resolved through the package, with `via` naming the constant.
+  Anything built at runtime is reported as not assessable rather than guessed.
+
+### Changed
+
+- The walker lives in `ux_audit/`, not `integration_test/`: `flutter test` sends anything under
+  `integration_test/` to a device runner by directory name alone, and `test/` would be swept into
+  the audited app's own suite.
+- The README leads with the demo — screenshots and a no-device command — and the platform
+  statement moves to its own section. The pitch no longer claims to be the only Flutter UX audit
+  that measures; the README's own Prior art section says otherwise.
+
+### Fixed
+
+- **A failure the app never awaited no longer poisons the run.** An unawaited request that fails —
+  every request does under `flutter test` — escaped `FlutterError.onError` and made a finished walk
+  read as a framework failure. It is now caught and recorded in `appErrors`.
+- **A dependency's icon font is no longer reported as the app's own typeface.** On the stock
+  template `cupertino_icons` made `fontSource` read `app`, which the report defines as exact, while
+  every number was measured at the test font.
+- A screenshot whose bytes never came back is now an error rather than a step that records a PNG
+  nobody wrote.
+- The network stub template no longer tells you to write it into `integration_test/`.
+
 ## [0.2.0] - 2026-09-28
 
 The first release that can audit a whole product rather than whatever screen the app opens on.
@@ -94,5 +140,6 @@ Initial release.
 - `example/ux_demo_app`, a public fixture with six seeded defects, each proven to fire through the
   framework's own guidelines.
 
+[0.3.0]: https://github.com/masanggil1986/flutter-ux-journey/releases/tag/v0.3.0
 [0.2.0]: https://github.com/masanggil1986/flutter-ux-journey/releases/tag/v0.2.0
 [0.1.0]: https://github.com/masanggil1986/flutter-ux-journey/releases/tag/v0.1.0

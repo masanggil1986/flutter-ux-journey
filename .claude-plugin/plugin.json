@@ -1,7 +1,7 @@
 {
   "name": "flutter-ux-journey",
   "displayName": "Flutter UX Journey",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Audits a running Flutter app at the user-journey level, merging static, runtime and visual evidence into a heuristic UX report scored against the journey's goal.",
   "author": {
     "name": "Samuel",
