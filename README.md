@@ -4,9 +4,11 @@ A Claude Agent Skill that audits a **running** Flutter app one *user journey* at
 what it finds against that journey's goal (severity 4/3/2/1/✓, defined in
 [`heuristics.md`](skills/flutter-ux-journey/references/heuristics.md)).
 
-**The pitch: the only Flutter UX audit that measures instead of guessing.** Every finding carries
+**The pitch: a Flutter UX audit that measures instead of guessing.** Every finding carries
 evidence pulled out of a live app — real pixel `Rect`s, real contrast ratios, real semantics labels —
-not a model's estimate of what a screenshot probably looks like.
+not a model's estimate of what a screenshot probably looks like. It is not the first tool to measure
+a running Flutter app; it is the one that attaches those measurements to a journey and scores them
+against its goal ([Prior art](#prior-art)).
 
 That now extends past per-screen polish to the thing people actually mean by UX — **the flow**.
 Where a control sits on the surface, whether the user can get back out of a screen, whether the tap
@@ -16,25 +18,51 @@ hand: [`example/report.md`](example/report.md), with the raw walk data every num
 of in [`example/walk.json`](example/walk.json) and, for a second run that walks past a sign-in gate
 with no credentials, [`example/walk-gated.json`](example/walk-gated.json).
 
-> **Platform, stated up front: no device needed by default; a simulator or emulator is the fallback.**
-> The default walk runs under `flutter test` and is checked in this repo's own suite against the
-> simulator run committed as [`example/walk.json`](example/walk.json) — same step outcomes, same
-> screen signatures, same sixteen guideline verdicts, same semantics node counts, same viewport
-> ([`widget_walk_test.dart`](example/ux_demo_app/test/widget_walk_test.dart)).
-> **Two things it cannot borrow from a device, and records instead of hiding.** Text metrics come
-> from the app's own fonts when it declares any and from the SDK's Roboto otherwise; with the
-> stand-in, placement is close but not the app's own. And contrast ratios come from a software
-> rasterizer that differs from a device's by a small margin — measured on the same node, 1.36
-> headless against 1.03 on the simulator, same verdict — so a ratio near the threshold is advisory.
-> Both land in `conditions` (`fontSource`, `renderer`) and the report's scope clause quotes them.
-> **The fallback is `flutter drive` on a booted simulator or emulator**, for an app whose plugins
-> throw `MissingPluginException` or whose platform views have to actually render. That pipeline was
-> built and run end to end on an iOS simulator (iPhone SE, iOS 18.6), an iPad Pro 13" simulator, and
-> an Android emulator (API 36), all on Flutter 3.47.2 stable. There, screenshots are iOS-only:
-> `takeScreenshot` deadlocks on Android — no error, no timeout — when the app embeds platform views,
-> and from inside the test there is no way to tell in advance. The visual layer is captured from the
-> host instead (`adb exec-out screencap` / `xcrun simctl io`), or reported as not assessable.
-> **Real devices are not verified and are not claimed.**
+| ![The demo app's entry screen](example/screens/step_1.png) | ![The screen a removal lands on](example/screens/step_3.png) |
+|---|---|
+| **Step 1** — the entry screen. The promo `×` measures `Size(24.0, 24.0)` against a required 44; the grey line under it returns a contrast ratio of 1.03; and the journey's rank-1 task is the 6th of the 8 tap targets here. | **Step 3** — where removing an item lands the user. The walk records `canPop: false` and `tappableCount: 0`: nothing to tap, nothing on the stack. Not one per-screen check fires on this screen, because per screen there is nothing wrong with it. |
+
+**No device needed** — the walk runs under `flutter test`, and you can see it on the bundled demo app
+before pointing it at your own. Real devices are not verified; the full statement is under
+[Platform support](#platform-support).
+
+## Try it on the bundled demo app
+
+You do not need a Flutter app of your own to see what this produces. `example/ux_demo_app` is a
+backend-free `com.example.*` fixture with **six deliberately seeded defects**, and it ships with the
+report those defects produce — the two screens above are from it.
+
+```bash
+git clone https://github.com/masanggil1986/flutter-ux-journey.git
+cd flutter-ux-journey/example/ux_demo_app
+flutter pub get
+flutter test ux_audit/ux_journey_test.dart
+```
+
+No device, no device id. Cost on this machine: about **2 s** per run with the toolchain warm — the
+simulator walk it replaces took about 70 s the first time and 20 s after, plus ~350 MB in `build/`.
+A first run in a fresh clone still pays Flutter's usual compile.
+
+**Steps 2 and 3 are supposed to fail.** That is the fixture working: step 2 asks for a way to back
+out before the data is destroyed and there is none, step 3 asks to go back and the screen has no
+back control. And the run **exits 0 either way** — the exit code is not the oracle. Read
+`steps[].status` in `ux-audit-out/walk.json`.
+
+What you get:
+
+- `ux-audit-out/walk.json` — the walk data: per step a semantics dump, the four accessibility
+  guideline results, viewport and surface measurements, timings, and a `conditions` block naming
+  the mode, device profile, font source and rasterizer every number above was produced under.
+- `ux-audit-out/screens/step_{1..4}.png` — one screenshot per step.
+
+Compare what you get against [`example/report.md`](example/report.md) — the write-up of exactly this
+run — and against [`example/walk.json`](example/walk.json), which is that same JSON committed (only
+the per-step timings move between runs). The fixture's six defects, and the two traps seeded for the
+walker rather than for the report, are catalogued in
+[`example/ux_demo_app/README.md`](example/ux_demo_app/README.md).
+
+That run is the walk alone. The audit — static probe, walk, visual read, and the scored write-up —
+is what the skill drives once it is installed; see [60 seconds to a report](#60-seconds-to-a-report).
 
 ## Who this is for
 
@@ -88,45 +116,6 @@ Nothing from pub.dev is needed on the host except for the static probe: a single
 own unit test — 47 packages with transitives (`tools/astprobe/pubspec.lock`), none of them loaded
 into the app under audit. What *does* land in the audited app is spelled out under
 [What the run puts in your repo](#what-the-run-puts-in-your-repo).
-
-## Try it on the bundled demo app
-
-You do not need a Flutter app of your own to see what this produces. `example/ux_demo_app` is a
-backend-free `com.example.*` fixture with **six deliberately seeded defects**, and it ships with the
-report those defects produce.
-
-```bash
-git clone https://github.com/masanggil1986/flutter-ux-journey.git
-cd flutter-ux-journey/example/ux_demo_app
-flutter pub get
-flutter test ux_audit/ux_journey_test.dart
-```
-
-No device, no device id. Cost on this machine: about **2 s** per run with the toolchain warm — the
-simulator walk it replaces took about 70 s the first time and 20 s after, plus ~350 MB in `build/`.
-A first run in a fresh clone still pays Flutter's usual compile.
-
-**Steps 2 and 3 are supposed to fail.** That is the fixture working: step 2 asks for a way to back
-out before the data is destroyed and there is none, step 3 asks to go back and the screen has no
-back control. And the run **exits 0 either way** — the exit code is not the oracle. Read
-`steps[].status` in `ux-audit-out/walk.json`.
-
-What you get:
-
-- `ux-audit-out/walk.json` — the walk data: per step a semantics dump, the four accessibility
-  guideline results, viewport and surface measurements, timings, and a `conditions` block naming
-  the mode, device profile, font source and rasterizer every number above was produced under.
-- `ux-audit-out/screens/step_{1..4}.png` — one screenshot per step.
-
-Compare what you get against [`example/report.md`](example/report.md) — the write-up of exactly this
-run — and against [`example/walk.json`](example/walk.json), which is that same JSON committed (only
-the per-step timings move between runs). The fixture's six defects, and the two traps seeded for the
-walker rather than for the report, are catalogued in
-[`example/ux_demo_app/README.md`](example/ux_demo_app/README.md).
-
-| ![The demo app's entry screen](example/screens/step_1.png) | ![The screen a removal lands on](example/screens/step_3.png) |
-|---|---|
-| **Step 1** — the entry screen. The promo `×` measures `Size(24.0, 24.0)` against a required 44; the grey line under it returns a contrast ratio of 1.03; and the journey's rank-1 task is the 6th of the 8 tap targets here. | **Step 3** — where removing an item lands the user. The walk records `canPop: false` and `tappableCount: 0`: nothing to tap, nothing on the stack. Not one per-screen check fires on this screen, because per screen there is nothing wrong with it. |
 
 ## 60 seconds to a report
 
@@ -270,13 +259,35 @@ severity on its own: the 3-click rule is disproved (Porter 2003; NN/g measured n
 dropoff past three clicks), so depth is paired with a declared priority or an observed backtrack,
 or it is printed as an observation.
 
+## Platform support
+
+> **No device needed by default; a simulator or emulator is the fallback.**
+> The default walk runs under `flutter test` and is checked in this repo's own suite against the
+> simulator run committed as [`example/walk.json`](example/walk.json) — same step outcomes, same
+> screen signatures, same sixteen guideline verdicts, same semantics node counts, same viewport
+> ([`widget_walk_test.dart`](example/ux_demo_app/test/widget_walk_test.dart)).
+> **Two things it cannot borrow from a device, and records instead of hiding.** Text metrics come
+> from the app's own fonts when it declares any and from the SDK's Roboto otherwise; with the
+> stand-in, placement is close but not the app's own. And contrast ratios come from a software
+> rasterizer that differs from a device's by a small margin — measured on the same node, 1.36
+> headless against 1.03 on the simulator, same verdict — so a ratio near the threshold is advisory.
+> Both land in `conditions` (`fontSource`, `renderer`) and the report's scope clause quotes them.
+> **The fallback is `flutter drive` on a booted simulator or emulator**, for an app whose plugins
+> throw `MissingPluginException` or whose platform views have to actually render. That pipeline was
+> built and run end to end on an iOS simulator (iPhone SE, iOS 18.6), an iPad Pro 13" simulator, and
+> an Android emulator (API 36), all on Flutter 3.47.2 stable. There, screenshots are iOS-only:
+> `takeScreenshot` deadlocks on Android — no error, no timeout — when the app embeds platform views,
+> and from inside the test there is no way to tell in advance. The visual layer is captured from the
+> host instead (`adb exec-out screencap` / `xcrun simctl io`), or reported as not assessable.
+> **Real devices are not verified and are not claimed.**
+
 ## What this cannot see
 
 Honesty is most of the product here. A finding without evidence does not get written, and what could
 not be assessed is listed as `not assessable` instead of quietly omitted.
 
 - **Screens you did not declare.** There is no crawler. The journey is written by a human, on purpose.
-- **Real devices.** Never verified (see the banner). Real-device-only behaviour — permission
+- **Real devices.** Never verified (see [Platform support](#platform-support)). Real-device-only behaviour — permission
   dialogs, push, deep links, biometrics — is out of reach.
 - **Apps whose plugins must really answer.** The default mode runs with no platform channels
   behind it, so a plugin that throws `MissingPluginException` takes its screen with it. This is
