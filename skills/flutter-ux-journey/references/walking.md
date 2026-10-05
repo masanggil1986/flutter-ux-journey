@@ -130,8 +130,12 @@ Future<void> writeResponseData(Map<String, dynamic>? data,
 **The source of truth is the file that actually runs:**
 
 ```
-${CLAUDE_PLUGIN_ROOT}/example/ux_demo_app/ux_audit/ux_journey_test.dart
+<root>/example/ux_demo_app/ux_audit/ux_journey_test.dart
 ```
+
+`<root>` is the directory SKILL.md's probe command runs from — the one holding `skills/`, `tools/`
+and `example/`, two levels above the skill's own folder. Claude Code substitutes
+`${CLAUDE_PLUGIN_ROOT}` in SKILL.md only, never in this file, so the token is not written here.
 
 Read it and copy it. It is not sketched here on purpose — a second copy in prose drifts from the one
 that was executed, and every trap below was found by executing it. It is over a thousand lines, it

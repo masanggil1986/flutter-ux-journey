@@ -99,8 +99,10 @@ cd flutter-ux-journey
 claude --plugin-dir .
 ```
 
-For any other agent: copy `skills/flutter-ux-journey/` into that agent's skills directory, with
-`tools/astprobe/` beside it. `${CLAUDE_PLUGIN_ROOT}` in `SKILL.md` then means your clone root.
+For any other agent: keep the clone, and link or copy `skills/flutter-ux-journey/` into that
+agent's skills directory. The skill reads from the clone itself — `tools/astprobe/` for the probe,
+`example/ux_demo_app/` for the walker it copies — so `${CLAUDE_PLUGIN_ROOT}` in `SKILL.md` means
+your clone root.
 
 ### Requirements
 
@@ -423,7 +425,7 @@ carry this project's specific load.
 | No PNGs on any platform, green run | The driver file was mis-copied. `reportData` must be **mutated**, never replaced — assigning a fresh map deletes the screenshots silently. | [`SKILL.md`](skills/flutter-ux-journey/SKILL.md) § `[2] WALK` |
 | A label matched twice | The walker refuses to pick one. Disambiguate the step with `nth: N`. | [`references/walking.md`](skills/flutter-ux-journey/references/walking.md) § Ambiguity |
 | The run hangs | Something called `pumpAndSettle`, whose default timeout is 10 minutes. The recipe uses a bounded settle and records `settled` per step. | [`references/walking.md`](skills/flutter-ux-journey/references/walking.md) § Bounded settle |
-| `${CLAUDE_PLUGIN_ROOT}` is unset | You are not running as a plugin. It means your clone root. | [Install](#install) |
+| `${CLAUDE_PLUGIN_ROOT}` appears literally in a command | Nothing substituted it: the skill is running from a copy, not as a Claude Code plugin, and the token is never an environment variable. Read it as your clone root. | [Install](#install) |
 
 ## Work with me
 

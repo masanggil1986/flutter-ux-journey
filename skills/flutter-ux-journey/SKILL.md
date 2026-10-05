@@ -221,16 +221,19 @@ match the app produces a confident report about a path the user never takes.
 
 ```bash
 mkdir -p <out>/screens          # nothing else creates <out>, and the redirect below needs it
-PROBE="${CLAUDE_PLUGIN_ROOT:-<clone-root>}/tools/astprobe/bin/probe.dart"
+PROBE="${CLAUDE_PLUGIN_ROOT}/tools/astprobe/bin/probe.dart"
 dart run "$PROBE" <app-root>/lib > <out>/static.json
 ```
 
 Two blocks come out: `findings` (the four rules below) and `routes` (the feature surface, consumed
 by step [0a] above — run this command before that step, not after).
 
-`CLAUDE_PLUGIN_ROOT` is set only when the skill was installed as a plugin; substitute
-`<clone-root>` — the directory holding `tools/astprobe` — when it is not, or the path collapses to
-`/tools/astprobe` and the command fails. There is no `pub get` step: `dart run` resolves the
+`${CLAUDE_PLUGIN_ROOT}` is not an environment variable. When the skill runs as a Claude Code
+plugin, that exact token is replaced in this file's text, so the command above already carries the
+real path — a shell default such as `${CLAUDE_PLUGIN_ROOT:-…}` is not replaced and expands to
+nothing in Bash. If the token is still there literally, the skill was copied rather than installed
+as a plugin: read it as the clone root, the directory holding `skills/`, `tools/` and `example/`,
+two levels above this skill's folder. There is no `pub get` step: `dart run` resolves the
 probe's dependencies itself. It does write a `.dart_tool/` beside the probe, which is a resolution
 cache and the one thing that lands in the skill directory — no audit output ever does.
 
