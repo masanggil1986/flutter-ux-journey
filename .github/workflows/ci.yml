@@ -1,9 +1,12 @@
 name: CI
 
 # Every measurement this project makes rides on undocumented framework
-# behaviour, and every dependency range is a `^`. The weekly run resolves those
-# ranges again on a tree nobody has touched, so an analyzer or lint release that
-# breaks the probe shows up here instead of inside somebody's audit.
+# behaviour, and every dependency range is a `^`. Pushes and pull requests
+# check this repo as committed: the lockfiles and the pinned Flutter below. The
+# weekly run first upgrades both packages to the newest versions their ranges
+# allow, so an analyzer or lint release that breaks the probe shows up here
+# instead of inside somebody's audit. `pub get` alone would not: it keeps the
+# committed lockfile. No trigger runs a newer Flutter stable.
 on:
   push:
   pull_request:
@@ -18,58 +21,31 @@ jobs:
     # No simulator and no emulator. Nothing below needs a device, which is the
     # only reason these checks can run on every push.
     runs-on: ubuntu-latest
+    # A normal run takes about two minutes. A walk that loses its error handler
+    # can surface as a hang, and the default cap is six hours.
+    timeout-minutes: 30
     steps:
       # Both actions are pinned by commit, not by tag. A tag is mutable, so
       # `@v2` lets its owner change what runs here after anyone reviewed it.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      # The Flutter version is pinned as well, for a different reason: the
-      # numbers committed under example/ were measured on Flutter 3.47.2 /
-      # Dart 3.13.2, so a red build here means this repo changed and not that
-      # stable moved. Bump it deliberately, and expect the golden to move with
-      # it. (Stable was already 3.47.5 when this was written.)
-      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2.23.0
         with:
-          channel: stable
-          flutter-version: 3.47.2
+          # Nothing in this job talks to the remote, so the token need not
+          # outlive the checkout.
+          persist-credentials: false
 
-      # The next two steps are the commands the README's Tests section prints,
-      # one per package. Keep them in step with the README: a command that rots
-      # there goes red here. They also leave a package_config.json in both
-      # packages, which the format gate below depends on.
-      - name: Fixture suite, as the README prints it
-        run: cd example/ux_demo_app && flutter pub get && flutter test
-
-      - name: Probe suite, as the README prints it
-        run: cd tools/astprobe && dart pub get && dart test
-
-      # Without .dart_tool/package_config.json the formatter cannot read a
-      # package's language version and formats in a different style, so this has
-      # to follow the `pub get`s above.
-      - name: dart format
-        run: dart format --output=none --set-exit-if-changed example/ux_demo_app tools/astprobe
-
-      - name: flutter analyze
-        run: flutter analyze
-        working-directory: example/ux_demo_app
-
-      - name: dart analyze
-        run: dart analyze
-        working-directory: tools/astprobe
-
-      # Not `claude plugin validate`, which would need the Claude Code CLI on the
-      # runner. These two files are the whole install surface; a malformed one
-      # fails for the user and for nobody else.
-      - name: Plugin manifests parse
-        run: |
-          jq -e '.name and .version and .description and .license' .claude-plugin/plugin.json
-          jq -e '.name and .owner and (.plugins | length > 0)' .claude-plugin/marketplace.json
-
-      # This repository's first rule, mechanised. CONTRIBUTING.md asks a human to
-      # run two greps over the staged diff before every commit; this is the same
-      # rule with nobody left to forget it.
+      # This repository's first rule, mechanised. It runs first because it needs
+      # no toolchain: a red test must not skip it. It is a backstop, not a gate.
+      # CI runs after the push, so whatever it flags is already public, and it
+      # reads only the tip's tree, so a leak added and removed within one push
+      # stays in history. The pre-commit greps CONTRIBUTING.md asks for are the
+      # only prevention; this catches what they missed.
       - name: Leak guard
         run: |
           set +e -uo pipefail
+          # Byte semantics. In a UTF-8 locale grep drops a record that is not
+          # valid UTF-8 (an EUC-KR or Latin-1 file name) with only "binary file
+          # matches" on stderr. Every pattern below is ASCII, so nothing is lost.
+          export LC_ALL=C
           rc=0
 
           # Hosts a public repo may legitimately name: vendor and standards docs,
@@ -101,28 +77,39 @@ jobs:
           www.lunary.ai.kr
           www.w3.org'
 
+          # File names travel NUL-separated. A plain `git ls-files` C-quotes any
+          # non-ASCII name ("\354\212\244..."), and macOS names its screenshots
+          # in the user's language and, since macOS 14, with U+202F before AM/PM,
+          # so a quoted name never matched a pattern below.
+
           # (a) A tracked file that .gitignore also matches is a negation hole.
           # `!example/ux_demo_app/**` switches every guard above it back off
           # inside the demo app, so a walk run there could commit its own
-          # output. --no-index is load-bearing: check-ignore skips tracked paths
-          # without it, which makes the obvious form of this check a silent
-          # no-op that can never fail.
+          # output. The index answers "tracked and ignored" itself, so no name
+          # is ever parsed as a pathspec (`check-ignore --stdin` dies on a name
+          # like `:!x` and stops checking the rest).
           echo '--- (a) tracked files that .gitignore also matches ---'
-          hole=$(git ls-files | while read -r f; do git check-ignore -q --no-index "$f" && echo "$f"; done)
+          hole=$(git ls-files -z -ci --exclude-standard | tr '\0' '\n')
           if [ -n "$hole" ]; then echo "$hole"; rc=1; else echo none; fi
 
           # (b) The only images this repo may carry are the demo fixture's four
-          # screenshots and the launcher icons `flutter create` wrote. Anything
-          # else is a picture of somebody's product.
-          echo '--- (b) tracked images and video outside the allowlist ---'
-          media=$(git ls-files \
-            | grep -iE '\.(png|jpe?g|gif|webp|bmp|ico|tiff?|avif|mp4|mov|webm)$' \
-            | grep -vE '^example/screens/[^/]+\.png$' \
-            | grep -vE '^example/ux_demo_app/(ios|android)/')
+          # screenshots and the icons `flutter create` wrote, each pinned by
+          # name, so a capture saved beside them does not pass with them.
+          # Anything else is a picture of somebody's product. A new demo image
+          # needs its own line here, not only a .gitignore negation.
+          echo '--- (b) tracked images, documents and video outside the allowlist ---'
+          media=$(git ls-files -z \
+            | grep -ziE '\.(png|jpe?g|gif|webp|bmp|ico|tiff?|avif|heic|heif|svg|pdf|mp4|mov|webm)$' \
+            | grep -zvE '^example/screens/step_[1-4]\.png$' \
+            | grep -zvE '^example/ux_demo_app/android/app/src/main/res/mipmap-[a-z]+/ic_launcher\.png$' \
+            | grep -zvE '^example/ux_demo_app/ios/Runner/Assets\.xcassets/(AppIcon\.appiconset/Icon-App-[0-9.]+x[0-9.]+@[1-3]x|LaunchImage\.imageset/LaunchImage(@[23]x)?)\.png$' \
+            | tr '\0' '\n')
           if [ -n "$media" ]; then echo "$media"; rc=1; else echo none; fi
 
+          # `--` keeps a tracked file named like an option (`-q`) from turning
+          # grep quiet for the whole tree.
           echo '--- (c1) hosts outside the allowlist ---'
-          hosts=$(git ls-files -z | xargs -0 grep -ohIE '://[a-zA-Z0-9._-]+' \
+          hosts=$(git ls-files -z | xargs -0 grep -ohIE '://[a-zA-Z0-9._-]+' -- \
             | cut -c4- | sort -u | grep -vxF "$ALLOWED_HOSTS")
           if [ -n "$hosts" ]; then echo "$hosts"; rc=1; else echo none; fi
 
@@ -130,12 +117,114 @@ jobs:
           # 180 times in this tree, nearly all of it prose about token budgets or
           # localhost URLs, so the human grep's pattern cannot be a gate as
           # written. Narrowed to the shape a real credential has -- one of those
-          # words assigned a string literal -- less the placeholder vocabulary
-          # the fixture and the stub template use on purpose.
+          # words assigned a string literal. Each assignment is judged by its own
+          # value: it is exempt only when that value starts with a whole
+          # placeholder word the fixture and the stub template use on purpose
+          # ('stub', 'not-a-real-password', 'example.invalid'). Not the path and
+          # not the rest of the line: example/ is where artifacts are committed
+          # on purpose, and `// for example` after a real key proves nothing.
           echo '--- (c2) credential words assigned a literal ---'
-          creds=$(git ls-files -z | xargs -0 grep -inIHE \
-            "(token|secret|password|passwd|api[_-]?key|bearer)['\"]?[[:space:]]*[:=][[:space:]]*['\"][^'\"]" \
-            | grep -viE 'stub|example|not-a-real|placeholder|redacted')
+          assign="(token|secret|password|passwd|api[_-]?key|bearer)['\"]?[[:space:]]*[:=][[:space:]]*['\"]"
+          creds=$(git ls-files -z | xargs -0 grep -inIHoE "${assign}[^'\"]+" -- \
+            | grep -viE "${assign}(stub|example|not-a-real|placeholder|redacted)\b")
           if [ -n "$creds" ]; then echo "$creds"; rc=1; else echo none; fi
 
           exit $rc
+
+      # The Flutter version is pinned as well, for a different reason: the
+      # numbers committed under example/ were measured on Flutter 3.47.2 /
+      # Dart 3.13.2, so a red build here means this repo changed and not that
+      # stable moved. Bump it deliberately, and expect the golden to move with
+      # it. (Stable was already 3.47.5 when this was written.)
+      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2.23.0
+        with:
+          channel: stable
+          flutter-version: 3.47.2
+
+      - name: Newest versions the ranges allow (weekly run only)
+        if: github.event_name == 'schedule'
+        run: |
+          (cd example/ux_demo_app && flutter pub upgrade)
+          (cd tools/astprobe && dart pub upgrade)
+
+      # The next two steps are the commands the README's Tests section prints,
+      # one per package. Keep them in step with the README: a command that rots
+      # there goes red here. They also leave a package_config.json in both
+      # packages, which the format gate below depends on.
+      - name: Fixture suite, as the README prints it
+        run: cd example/ux_demo_app && flutter pub get && flutter test
+
+      - name: Probe suite, as the README prints it
+        run: cd tools/astprobe && dart pub get && dart test
+
+      # The suites above call the walker with their own publish and run
+      # context, so the entry the README tells people to run, and every
+      # generated walker copies, is checked here. Its exit code is not the
+      # oracle (it is 0 when every step fails), so the walk is read back: the
+      # step statuses must match the committed example/walk.json (steps 2 and 3
+      # fail by design), and the run-context keys the report's scope clause
+      # quotes must be non-empty strings. Last, nothing the suites or the walk
+      # wrote may be committable.
+      - name: The walk, as the README's Try-it section prints it
+        working-directory: example/ux_demo_app
+        run: |
+          flutter test ux_audit/ux_journey_test.dart
+          jq -e --slurpfile want ../walk.json '
+            [.steps[].status] == [$want[0].steps[].status]
+            and all(.conditions | .mode, .renderer, .targetPlatform, .deviceProfile, .fontSource;
+                    type == "string" and length > 0)
+          ' ux-audit-out/walk.json
+          ls ux-audit-out/screens/step_{1..4}.png
+          stray=$(git ls-files --others --exclude-standard :/)
+          if [ -n "$stray" ]; then echo "committable output:"; echo "$stray"; exit 1; fi
+
+      # Without .dart_tool/package_config.json the formatter cannot read a
+      # package's language version and formats in a different style, so this has
+      # to follow the `pub get`s above.
+      - name: dart format
+        run: dart format --output=none --set-exit-if-changed example/ux_demo_app tools/astprobe
+
+      - name: flutter analyze
+        run: flutter analyze
+        working-directory: example/ux_demo_app
+
+      - name: dart analyze
+        run: dart analyze
+        working-directory: tools/astprobe
+
+      # Not `claude plugin validate`, which would need the Claude Code CLI on the
+      # runner. These two files and the skill's frontmatter are the install
+      # surface; a malformed one fails for the user and for nobody else.
+      - name: Plugin manifests parse
+        run: |
+          jq -e '.name and .version and .description and .license' .claude-plugin/plugin.json
+          jq -e '.name and .owner and (.plugins | length > 0)' .claude-plugin/marketplace.json
+
+      # Claude Code, Codex and Gemini CLI repair a frontmatter that is not valid
+      # YAML, so it loads there and fails in every strict parser: the spec's own
+      # validator and the cross-agent installer skip the skill. Psych is strict,
+      # and Ruby comes with the runner image (actions/runner-images,
+      # images/ubuntu/Ubuntu2404-Readme.md and Ubuntu2604-Readme.md), so nothing
+      # is downloaded. Limits are the Agent Skills spec's, in characters.
+      - name: SKILL.md frontmatter parses strictly
+        run: |
+          ruby -ryaml - <<'RUBY'
+          path = "skills/flutter-ux-journey/SKILL.md"
+          text = File.read(path, encoding: "UTF-8")
+          fm = text[/\A---\n(.*?\n)---\n/m, 1] or abort "#{path}: no frontmatter"
+          begin
+            # The leading newline keeps Psych's line numbers the file's own.
+            data = YAML.safe_load("\n" + fm)
+          rescue Psych::SyntaxError => e
+            abort "#{path}: #{e.problem} at line #{e.line} column #{e.column}"
+          end
+          abort "#{path}: frontmatter is not a mapping" unless data.is_a?(Hash)
+          { "name" => 64, "description" => 1024, "compatibility" => 500 }.each do |key, max|
+            next if key == "compatibility" && !data.key?(key)
+            value = data[key]
+            next if value.is_a?(String) && value.length.between?(1, max)
+            has = value.is_a?(String) ? value.length : value.inspect
+            abort "#{path}: #{key} needs 1-#{max} characters, has #{has}"
+          end
+          puts "#{path}: frontmatter OK"
+          RUBY
