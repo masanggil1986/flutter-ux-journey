@@ -209,6 +209,59 @@ void main() {
       // than the home indicator, and a CTA under it is not on screen at all.
       expect(viewportOf(tester)['foldY'], 667.0 - 300.0);
     });
+
+    testWidgets('a keyboard flutter_test only pretends to show has no height', (
+      WidgetTester tester,
+    ) async {
+      // Typing "shows" the test text input, and nothing sets viewInsets, so
+      // the walk measured a 0.0 keyboard and a fold at the bottom of the
+      // screen while a real one would cover half of it. Not a measurement:
+      // the fold is not assessable until the keyboard is down again.
+      applyDevice(tester, kIphoneSe);
+      addTearDown(tester.view.reset);
+      final SemanticsHandle handle = tester.ensureSemantics();
+      await tester.pumpWidget(
+        const MaterialApp(
+          home: Scaffold(
+            body: TextField(decoration: InputDecoration(labelText: 'Email')),
+          ),
+        ),
+      );
+      expect(viewportOf(tester)['keyboardInset'], 0.0);
+      expect(viewportOf(tester)['foldY'], 667.0);
+
+      final StepOutcome out = await performStep(tester, (
+        action: 'type',
+        target: 'Email',
+        nth: null,
+        text: 'someone@example.test',
+        expected: 'Email',
+      ));
+      expect(out.status, 'OK', reason: out.error ?? '');
+      expect(tester.testTextInput.isVisible, isTrue);
+      expect(viewportOf(tester)['keyboardInset'], isNull);
+      expect(viewportOf(tester)['foldY'], isNull);
+      handle.dispose();
+    });
+
+    testWidgets('reading order follows the app, not the host locale', (
+      WidgetTester tester,
+    ) async {
+      // The direction came from the platform locale, which is en_US under
+      // `flutter test` whatever the app does, so a right-to-left app was
+      // recorded as ltr and its placement table read reversed.
+      await tester.pumpWidget(
+        MaterialApp(
+          builder: (BuildContext c, Widget? child) =>
+              Directionality(textDirection: TextDirection.rtl, child: child!),
+          home: const Scaffold(body: Text('مرحبا')),
+        ),
+      );
+      expect(viewportOf(tester)['textDirection'], 'rtl');
+
+      await tester.pumpWidget(const UxDemoApp());
+      expect(viewportOf(tester)['textDirection'], 'ltr');
+    });
   });
 
   group('hasSiblingNavigators — the dump knows when it saw half a screen', () {

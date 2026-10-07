@@ -1052,19 +1052,33 @@ Map<String, Object?> viewportOf(WidgetTester tester) {
   final double h = view.physicalSize.height / dpr;
   final double contentTop = view.padding.top / dpr;
   final double padBottom = view.padding.bottom / dpr;
-  final double insetBottom = view.viewInsets.bottom / dpr;
+  // Under `flutter test` a type step "shows" a keyboard that has no height:
+  // nothing sets viewInsets, so a 0.0 here is not a measurement, and neither
+  // is a fold at the bottom of a screen a real keyboard would half cover.
+  // Null, so every fold-dependent field reads not assessable. On a device the
+  // test text input is not registered and the real inset is read.
+  final bool keyboardFaked =
+      tester.testTextInput.isRegistered && tester.testTextInput.isVisible;
+  final double? insetBottom = keyboardFaked
+      ? null
+      : view.viewInsets.bottom / dpr;
   final bool isTestDefault = w == 800.0 && h == 600.0 && dpr == 3.0;
+  // Asked of the APP. The platform locale is en_US under `flutter test`
+  // whatever the app forces, so a right-to-left app read ltr. Read without
+  // registering a dependency: this must not rebuild what it measures.
+  final Iterable<Element> navs = find.byType(Navigator).evaluate();
+  final TextDirection direction =
+      (navs.isEmpty
+          ? null
+          : navs.last
+                .getInheritedWidgetOfExactType<Directionality>()
+                ?.textDirection) ??
+      TextDirection.ltr;
   return <String, Object?>{
     // "Reading order" is top, then LEADING edge — left in ltr, right in rtl.
     // Without this the placement table comes out exactly reversed on an rtl
     // app and nothing in the artifact says which order produced it.
-    'textDirection':
-        (tester.platformDispatcher.locale.languageCode == 'ar' ||
-            tester.platformDispatcher.locale.languageCode == 'he' ||
-            tester.platformDispatcher.locale.languageCode == 'fa' ||
-            tester.platformDispatcher.locale.languageCode == 'ur')
-        ? 'rtl'
-        : 'ltr',
+    'textDirection': direction.name,
     'width': w,
     'height': h,
     'devicePixelRatio': dpr,
@@ -1073,7 +1087,7 @@ Map<String, Object?> viewportOf(WidgetTester tester) {
     'keyboardInset': insetBottom,
     // A keyboard hides far more than a home indicator, and a control under it
     // is not on screen at all.
-    'foldY': isTestDefault
+    'foldY': isTestDefault || insetBottom == null
         ? null
         : h - (insetBottom > padBottom ? insetBottom : padBottom),
     'isTestDefault': isTestDefault,
