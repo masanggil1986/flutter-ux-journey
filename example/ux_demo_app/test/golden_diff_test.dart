@@ -49,6 +49,7 @@ const List<String> _portableStepFields = <String>[
   'dispatched',
   'semanticsUnchanged',
   'tapsSoFar',
+  'expectedBefore',
 ];
 
 const List<String> _conditionFields = <String>[
@@ -63,6 +64,13 @@ const List<String> _conditionFields = <String>[
   'reduceMotion',
   'disableAnimations',
   'accessibleNavigation',
+  'appErrorHandlerReplaced',
+  'httpOverridesReplacedByApp',
+  'mode',
+  'renderer',
+  'targetPlatform',
+  'deviceProfile',
+  'fontSource',
 ];
 
 Map<String, Object?>? _readJson(String path) {
@@ -162,8 +170,9 @@ void main() {
       final Map<String, Object?> w =
           walk['conditions']! as Map<String, Object?>;
       // Pinned to a list, not to each other: a condition dropped from BOTH
-      // sides would otherwise pass silently, and the report's scope clause
-      // quotes all eleven.
+      // sides would otherwise pass silently. The list is everything the walk
+      // writes — the measured flags plus the entry's runContext — because the
+      // report's scope clause quotes all of it, `mode` included.
       expect(g.keys.toSet(), _conditionFields.toSet());
       expect(w.keys.toSet(), _conditionFields.toSet());
       for (final String field in _conditionFields) {
@@ -384,6 +393,8 @@ void main() {
       expect(run['setupFailed'], walk['setupFailed']);
       expect(run['networkCalls'], equals(walk['networkCalls']));
       expect(run['taps'], walk['taps']);
+      expect(run['drags'], walk['drags']);
+      expect(run['entryReached'], walk['entryReached']);
 
       final List<Map<String, Object?>> got = _mapsAt(run, 'steps');
       final List<Map<String, Object?>> want = _mapsAt(walk, 'steps');
