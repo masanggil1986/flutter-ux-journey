@@ -29,24 +29,55 @@ const _watchedWidgets = {
   'Icon',
   'Image',
   'TextField',
+  'TextFormField',
 };
-// Ancestors that already supply (or deliberately suppress) an accessible name.
+// Ancestors that supply (or deliberately suppress) an accessible name. A bare
+// `Semantics` is NOT one of them: container:, explicitChildNodes: and
+// identifier: name nothing, and the runtime reports the control under them as
+// unlabelled. It counts only with the fields [_Probe._suppliesName] checks.
 const _labelWrappers = {
   'Semantics',
   'MergeSemantics',
   'ExcludeSemantics',
   'Tooltip',
 };
-const _iconOwners = {'IconButton', ..._labelWrappers};
+// Arguments through which a control names itself, so an Icon in one of its
+// other slots (`leading:`, `icon:`, `prefixIcon:`) is decoration — the label
+// sits on the control's node, and the Icon adds no node of its own.
+const _ownerLabels = {'label', 'labelText', 'hintText', 'title', 'text'};
 
 /// Dotted callee source of a widget-shaped call: `IconButton`, `Image.network`,
-/// `material.Icon`. Null for anything that is not a call.
+/// `material.Icon`. Null for anything that is not a call. Type arguments are
+/// dropped — `const MaterialPageRoute<void>(...)` is a MaterialPageRoute.
 String? _calleeOf(AstNode node) => switch (node) {
-  InstanceCreationExpression() => node.constructorName.type.toSource(),
+  InstanceCreationExpression(:final constructorName) => [
+    constructorName.type.importPrefix?.name.lexeme,
+    constructorName.type.name.lexeme,
+    constructorName.name?.name,
+  ].nonNulls.join('.'),
   MethodInvocation() =>
     '${node.target?.toSource() ?? ''}.${node.methodName.name}',
   _ => null,
 };
+
+ArgumentList? _argsOf(AstNode node) => switch (node) {
+  InstanceCreationExpression() => node.argumentList,
+  MethodInvocation() => node.argumentList,
+  _ => null,
+};
+
+Expression? _named(ArgumentList? args, String name) {
+  for (final a
+      in args?.arguments.whereType<NamedArgument>() ??
+          const <NamedArgument>[]) {
+    if (a.name.lexeme == name) {
+      return a.argumentExpression;
+    }
+  }
+  return null;
+}
+
+bool _isTrue(Expression? e) => e is BooleanLiteral && e.value;
 
 /// Unresolved, `new Image.network(...)` parses with the WHOLE `Image.network`
 /// as the type — the parser cannot tell a named constructor from a library
@@ -422,15 +453,6 @@ class _Routes extends RecursiveAstVisitor<void> {
     return null;
   }
 
-  Expression? _named(ArgumentList args, String name) {
-    for (final a in args.arguments.whereType<NamedArgument>()) {
-      if (a.name.lexeme == name) {
-        return a.argumentExpression;
-      }
-    }
-    return null;
-  }
-
   /// The value of an UNINTERPOLATED string literal, or of a constant declared
   /// as one somewhere in the package. An interpolated literal has a runtime
   /// part, so it is not a target this can name.
@@ -491,6 +513,14 @@ class _Probe extends RecursiveAstVisitor<void> {
   }
 
   void _check(AstNode node, ArgumentList args) {
+    // A call chained on another expression — `Image.asset(...).animate()` —
+    // is an extension method, not a widget, and `IconButton.styleFrom` is a
+    // ButtonStyle. Matching their dotted segments reported the labelled
+    // widget underneath again, at its own position.
+    if (node is MethodInvocation &&
+        (node.target is! Identifier? || node.methodName.name == 'styleFrom')) {
+      return;
+    }
     final widget = _match(_calleeOf(node), _watchedWidgets);
     if (widget == null) return;
     // analyzer 14 renamed NamedExpression -> NamedArgument; `name` is a Token now.
@@ -499,8 +529,7 @@ class _Probe extends RecursiveAstVisitor<void> {
     };
     switch (widget) {
       case 'GestureDetector' || 'InkWell':
-        if (named.contains('onTap') &&
-            !_hasAncestorCall(node, _labelWrappers)) {
+        if (named.contains('onTap') && !_ancestors(node).any(_suppliesName)) {
           _add(
             node,
             'tap-without-label',
@@ -511,11 +540,12 @@ class _Probe extends RecursiveAstVisitor<void> {
           );
         }
       case 'IconButton' || 'Icon':
-        // An Icon inside an IconButton is decorative: the button is the control
-        // that needs the name, and it is judged on its own. Reporting both
-        // double-counts one control, which is how a rule set turns into noise.
-        if (widget == 'Icon' && _hasAncestorCall(node, _iconOwners)) break;
-        if (!named.contains('tooltip') && !named.contains('semanticLabel')) {
+        if (widget == 'Icon' && _isDecorative(node)) break;
+        final icon = _named(args, 'icon');
+        if (!named.contains('tooltip') &&
+            !named.contains('semanticLabel') &&
+            _named(icon == null ? null : _argsOf(icon), 'semanticLabel') ==
+                null) {
           _add(
             node,
             'icon-without-label',
@@ -525,7 +555,15 @@ class _Probe extends RecursiveAstVisitor<void> {
           );
         }
       case 'Image':
-        if (!named.contains('semanticLabel')) {
+        // Both are the SDK's own way to say "decorative": neither leaves an
+        // image node in the tree at all. A labelled Semantics around the
+        // Image does not count — measured, the Image's own unlabelled node
+        // stays beside it.
+        if (!named.contains('semanticLabel') &&
+            !_isTrue(_named(args, 'excludeFromSemantics')) &&
+            !_ancestors(
+              node,
+            ).any((a) => _match(_calleeOf(a), {'ExcludeSemantics'}) != null)) {
           _add(
             node,
             'image-without-label',
@@ -534,12 +572,8 @@ class _Probe extends RecursiveAstVisitor<void> {
             'medium',
           );
         }
-      case 'TextField':
-        final decoration = args.arguments
-            .whereType<NamedArgument>()
-            .where((a) => a.name.lexeme == 'decoration')
-            .map((a) => a.argumentExpression.toSource())
-            .join();
+      case 'TextField' || 'TextFormField':
+        final decoration = _named(args, 'decoration')?.toSource() ?? '';
         if (!decoration.contains('labelText') &&
             !decoration.contains('label:')) {
           _add(
@@ -554,11 +588,68 @@ class _Probe extends RecursiveAstVisitor<void> {
     }
   }
 
-  bool _hasAncestorCall(AstNode node, Set<String> names) {
-    for (AstNode? p = node.parent; p != null; p = p.parent) {
-      if (_match(_calleeOf(p), names) != null) return true;
+  /// An Icon that is not the control needing the name. One control, one
+  /// finding: reporting the Icon as well double-counts it, which is how a rule
+  /// set turns into noise.
+  bool _isDecorative(AstNode icon) {
+    if (_ancestors(icon).any(
+      (a) => _suppliesName(a) || _match(_calleeOf(a), {'IconButton'}) != null,
+    )) {
+      return true;
     }
-    return false;
+    // The NEAREST tap owner only. A keyboard-dismiss GestureDetector around a
+    // whole Scaffold does not own the FAB inside it, and the FAB's Icon is the
+    // true positive there.
+    for (final a in _ancestors(icon)) {
+      final args = _argsOf(a);
+      if (_named(args, 'onTap') != null || _named(args, 'onPressed') != null) {
+        // The tap rule reports these owners (or a name wrapper silenced it).
+        if (_match(_calleeOf(a), {'GestureDetector', 'InkWell'}) != null) {
+          return true;
+        }
+        break;
+      }
+    }
+    // The Icon is the direct value of a slot of a control that names itself.
+    // `child:` is the control's content rather than a slot beside its name,
+    // so only a tooltip covers it.
+    final slot = icon.parent;
+    final owner = slot?.parent?.parent;
+    if (slot is! NamedArgument || owner == null) {
+      return false;
+    }
+    final ownerArgs = _argsOf(owner);
+    return _named(ownerArgs, 'tooltip') != null ||
+        (slot.name.lexeme != 'child' &&
+            _ownerLabels.any((l) => _named(ownerArgs, l) != null));
+  }
+
+  /// Calls enclosing [node], innermost first, up to the first `on*` callback:
+  /// whatever is built inside `onPressed:` is shown elsewhere — a dialog, a
+  /// pushed route — and the wrappers around the button do not reach it.
+  Iterable<AstNode> _ancestors(AstNode node) sync* {
+    for (AstNode? p = node.parent; p != null; p = p.parent) {
+      final slot = p.parent;
+      if (p is FunctionExpression &&
+          slot is NamedArgument &&
+          slot.name.lexeme.startsWith('on')) {
+        return;
+      }
+      if (p is InstanceCreationExpression || p is MethodInvocation) yield p;
+    }
+  }
+
+  /// A Semantics counts only when it carries what labeledTapTargetGuideline
+  /// reads (label:, tooltip:) or drops the subtree altogether.
+  bool _suppliesName(AstNode call) {
+    final wrapper = _match(_calleeOf(call), _labelWrappers);
+    if (wrapper != 'Semantics') {
+      return wrapper != null;
+    }
+    final args = _argsOf(call);
+    return _named(args, 'label') != null ||
+        _named(args, 'tooltip') != null ||
+        _isTrue(_named(args, 'excludeSemantics'));
   }
 
   void _add(
