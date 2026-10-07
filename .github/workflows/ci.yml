@@ -148,6 +148,27 @@ jobs:
       - name: Probe suite, as the README prints it
         run: cd tools/astprobe && dart pub get && dart test
 
+      # The suites above call the walker with their own publish and run
+      # context, so the entry the README tells people to run, and every
+      # generated walker copies, is checked here. Its exit code is not the
+      # oracle (it is 0 when every step fails), so the walk is read back: the
+      # step statuses must match the committed example/walk.json (steps 2 and 3
+      # fail by design), and the run-context keys the report's scope clause
+      # quotes must be non-empty strings. Last, nothing the suites or the walk
+      # wrote may be committable.
+      - name: The walk, as the README's Try-it section prints it
+        working-directory: example/ux_demo_app
+        run: |
+          flutter test ux_audit/ux_journey_test.dart
+          jq -e --slurpfile want ../walk.json '
+            [.steps[].status] == [$want[0].steps[].status]
+            and all(.conditions | .mode, .renderer, .targetPlatform, .deviceProfile, .fontSource;
+                    type == "string" and length > 0)
+          ' ux-audit-out/walk.json
+          ls ux-audit-out/screens/step_{1..4}.png
+          stray=$(git ls-files --others --exclude-standard :/)
+          if [ -n "$stray" ]; then echo "committable output:"; echo "$stray"; exit 1; fi
+
       # Without .dart_tool/package_config.json the formatter cannot read a
       # package's language version and formats in a different style, so this has
       # to follow the `pub get`s above.

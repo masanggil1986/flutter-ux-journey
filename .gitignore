@@ -53,6 +53,13 @@ example/ux_demo_app/ux-audit-out/
 example/ux_demo_app/screenshots/
 example/ux_demo_app/integration_test/net_stub.dart
 example/ux_demo_app/ux_audit/net_stub.dart
+# A walk or probe output redirected by hand lands under its default name. Kept
+# below the negation so it holds inside the demo app too; the one committed walk
+# is the worked example's.
+walk.json
+static.json
+integration_response_data.json
+!example/walk.json
 
 # eval 케이스는 프롬프트·픽스처·그레이더를 통째로 실어 나른다.
 # 데모 앱을 대상으로 한 케이스만 예외적으로 negate 해서 추가한다.
