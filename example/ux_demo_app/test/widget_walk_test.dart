@@ -79,14 +79,21 @@ void main() {
       expect(y['screenSig'], x['screenSig'], reason: '$at: screenSig');
       // The chain a dead-tap finding stands on. Each link was measured wrong
       // once, and none of them moved a status or a signature when it broke.
-      // NOT `settled`: a step that never dispatched now records null where
-      // the simulator run recorded true.
+      // `expectedBefore` is what decides whether an OK proves anything, and
+      // `settled` is null on a step that never dispatched — both the
+      // simulator run and this one record that now.
       for (final String field in <String>[
         'error',
+        'settled',
         'dispatched',
         'semanticsUnchanged',
         'tapsSoFar',
         'surface',
+        'expectedBefore',
+        'resolved',
+        'centreHitsHandler',
+        'popHandled',
+        'drags',
       ]) {
         expect(y[field], x[field], reason: '$at: $field');
       }
@@ -133,6 +140,8 @@ void main() {
 
     expect(here!['taps'], sim['taps']);
     expect(here!['entrySettled'], sim['entrySettled']);
+    expect(here!['entryReached'], sim['entryReached']);
+    expect(here!['drags'], sim['drags']);
 
     final Map<String, Object?> vx =
         (a.first! as Map<String, Object?>)['semantics']!

@@ -6,7 +6,7 @@
     "flutter": "3.47.2",
     "device": "iPhone SE (3rd gen)",
     "platform": "iOS 18.6",
-    "date": "2026-09-23"
+    "date": "2026-10-07"
   },
   "conditions": {
     "platform": "ios",
@@ -19,7 +19,14 @@
     "invertColors": false,
     "reduceMotion": false,
     "disableAnimations": false,
-    "accessibleNavigation": false
+    "accessibleNavigation": false,
+    "appErrorHandlerReplaced": false,
+    "httpOverridesReplacedByApp": false,
+    "mode": "drive",
+    "renderer": "device",
+    "targetPlatform": "iOS",
+    "deviceProfile": "device-supplied",
+    "fontSource": "device"
   },
   "viewport": {
     "widthLogicalPx": 375.0,
@@ -146,6 +153,7 @@
       "settled": true,
       "dispatched": true,
       "semanticsUnchanged": false,
+      "expectedBefore": true,
       "screenSig": "a9582ba2",
       "surface": {
         "canPop": false,
@@ -155,7 +163,8 @@
         "tappableAboveFold": 8,
         "modalOpen": false
       },
-      "screenshot": "screens/step_1.png"
+      "screenshot": "screens/step_1.png",
+      "_note": "expectedBefore true: '189,000 KRW' was already on the list row before the tap, so this step's OK proves nothing about the tap. The status stays OK and the report marks the step not proven. That the tap did navigate is a separate measurement: semanticsUnchanged false, and step 2 is on another screen (4ddc18db)."
     },
     {
       "index": 2,
@@ -167,6 +176,7 @@
       "settled": false,
       "dispatched": true,
       "semanticsUnchanged": false,
+      "expectedBefore": false,
       "screenSig": "4ddc18db",
       "surface": {
         "canPop": true,
@@ -186,9 +196,10 @@
       "status": "FAILED",
       "error": "Bad state: no semantics node matches \"Back\"",
       "tapsSoFar": 2,
-      "settled": true,
+      "settled": null,
       "dispatched": false,
       "semanticsUnchanged": null,
+      "expectedBefore": false,
       "screenSig": "3afe0168",
       "surface": {
         "canPop": false,
@@ -199,7 +210,7 @@
         "modalOpen": false
       },
       "screenshot": "screens/step_3.png",
-      "_note": "dispatched false: the step failed while RESOLVING its target, so no gesture reached the app. tapsSoFar therefore stays 2, and semanticsUnchanged is null rather than true — a selector miss is not a dead control."
+      "_note": "dispatched false: the step failed while RESOLVING its target, so no gesture reached the app. tapsSoFar therefore stays 2, semanticsUnchanged is null rather than true — a selector miss is not a dead control — and settled is null, because no settle ran: the step is left out of Screen stability rather than counted as settled."
     },
     {
       "index": 4,
@@ -399,7 +410,7 @@
         ],
         "unit": "logical px"
       },
-      "evidence": "textContrastGuideline: SemanticsNode#8(Rect.fromLTRB(16.0, 64.0, 359.0, 99.0), tags: [RenderViewport.twoPane], label: \"Free returns within 14 days\", textDirection: ltr, indexInParent: 1): Expected contrast ratio of at least 4.5 but found 1.03 for a font size of 13.0. VISUAL: screens/step_1.png — the line is barely visible against the white scaffold. The guideline's ratio is advisory (its light/dark partition returned #FFFFFF as the 'dark' colour, not the authored #DDDDDD, which is 1.36:1 on white); the NODE is the signal and both numbers are far under 4.5.",
+      "evidence": "textContrastGuideline: SemanticsNode#8(Rect.fromLTRB(16.0, 64.0, 359.0, 99.0), tags: [RenderViewport.twoPane], label: \"Free returns within 14 days\", textDirection: ltr, indexInParent: 1): Expected contrast ratio of at least 4.5 but found 1.03 for a font size of 13.0. VISUAL: screens/step_1.png — the line is barely visible against the white scaffold. The guideline's ratio is advisory (its light/dark partition returned #FCFCFC, an anti-aliased near-white, as the 'dark' colour, not the authored #DDDDDD, which is 1.36:1 on white); the NODE is the signal and both numbers are far under 4.5.",
       "screenshot": "screens/step_1.png",
       "rationale": "Informational copy, not on the goal path, and the journey completes without reading it. Would be 3 if this text carried the information the goal needs.",
       "seededDefect": 4
@@ -459,7 +470,7 @@
     },
     {
       "check": "PROGRESS-BLIND",
-      "note": "The app raised no errors of its own (appErrors []). The single settled:false is step 2 waiting out its bound for a control that does not exist, which is the measurement working, not a defect in the app.",
+      "note": "The app raised no errors of its own (appErrors []), and appErrorHandlerReplaced is false, so that empty list is the walk's own collector hearing everything. Of the three steps that ran a settle, two settled; the one settled:false is step 2 waiting out its bound for a control that does not exist, which is the measurement working, not a defect in the app. Step 3 never dispatched and records settled null.",
       "steps": [
         1,
         2,
@@ -474,10 +485,11 @@
     "notReached": [
       "Steps 2 and 3 did not reach their expected screens, so nothing past the removal confirmation screen was walked. Whether a real confirmation dialog would itself be accessible is untested, not clean.",
       "The app drives Navigator directly, so there is no declared route table, no route names and no navigation graph. Screens are identified by their semantics signature instead.",
+      "The probe's third inline-push edge, _SignInScreenState -> ListScreen (pushReplacement, main_gated.dart:115), is not audited by this journey: it belongs to the second entrypoint, lib/main_gated.dart, which example/journey-gated.md walks. Its target is a screen this journey did walk, so it adds no unwalked screen.",
       "Static candidates the walk refuted, kept here rather than deleted: lib/main.dart:126 and lib/main.dart:165 (InkWell with onTap and no enclosing Semantics, confidence low). At runtime both nodes carry non-empty merged labels ('Autumn sale — 20% off every side table' and the product card text), so the probe's name-matching missed the labels its children supply. Not findings.",
       "lib/main.dart:255 (Icon with no tooltip or semanticLabel) is the decorative check mark on the removal screen; it produces no semantics node of its own and needs no name. Not a finding.",
       "Screen-reader announcement order, focus order, keyboard navigation, dynamic type, motion and reduced-motion: not measured by this run.",
-      "Platform, quoted from conditions: iOS 18.6 simulator (iPhone SE 3rd gen, devicePixelRatio 2.0), platformBrightness light, textScaleFactor 1.0, no accessibility flags set. One device size. The SE has a home button, so padBottom is genuinely 0.0 here; a notched device would move the fold line and this run cannot say by how much.",
+      "Platform, quoted from conditions: targetPlatform iOS on platform ios (Version 18.6 (Build 22G86)), mode drive, deviceProfile device-supplied (the iPhone SE (3rd gen) simulator, devicePixelRatio 2.0), renderer device, fontSource device, platformBrightness light at textScaleFactor 1.0, locale en-US, no accessibility flags set. One device size. The SE has a home button, so padBottom is genuinely 0.0 here; a notched device would move the fold line and this run cannot say by how much.",
       "Other themes and text sizes: a separate run each, and this is not one of them. Measured on this same fixture at accessibility-extra-extra-extra-large, the third product row leaves the semantics tree entirely and the second drops below the fold, while the viewport JSON is byte-identical to this run — which is why conditions is recorded rather than described.",
       "Android: this fixture ships an android/ target and the same journey was walked on an emulator (API 36, 411.4x731.4 logical at devicePixelRatio 2.625, foldY 707.4). All four guidelines fired there, textContrastGuideline included, and the journey ended the same way. The numbers in this file are the iOS run. Two differences, both measured: the walker captures no in-test screenshots on Android by design, so every step records screenshot null and the VISUAL layer comes from host capture; and screenSig is not portable across platforms, because Material BackButton carries both a label and a tooltip on Android but only a tooltip on iOS, so the detail screen hashes to 70ed0c2e there against 4ddc18db here.",
       "Step timings are recorded in the walk data as evidence and are deliberately not part of this fixture: they measure a host round-trip under a test harness, not user-perceived latency."
