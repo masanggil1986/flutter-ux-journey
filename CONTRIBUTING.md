@@ -31,11 +31,17 @@ resolve. CI runs a mechanical form of the same check over the whole tree.
 ## Run both suites
 
 ```bash
-cd example/ux_demo_app && flutter pub get && flutter test   # 72 tests on 2026-09-28
-cd tools/astprobe     && dart pub get    && dart test       # 7 tests on 2026-09-28
+cd example/ux_demo_app && flutter pub get && flutter test
+cd tools/astprobe     && dart pub get    && dart test
 ```
 
-Neither needs a simulator. The counts go up as checks land; red is the only failure.
+Neither needs a simulator. Red is the only failure. Do not write test or line counts into the docs:
+they are stale within a day of the next check landing.
+
+CI also runs the walk exactly as the README prints it (`flutter test ux_audit/ux_journey_test.dart`)
+and reads `ux-audit-out/walk.json` back: the step statuses must match the committed
+`example/walk.json`, and nothing the run wrote may be committable. Run it before a change to the
+walker or the fixture.
 
 ## Do not fix the demo app's six seeded defects
 

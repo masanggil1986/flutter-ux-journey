@@ -15,8 +15,15 @@ has a `## Setup` block and the walk installs a network stub.
 
 The values are arbitrary and the address cannot resolve (RFC 2606 `.invalid`). **No credential is
 asked for and none is used** — the stub in `integration_test/gate_stub.dart` answers the two calls
-from inside the test process, so nothing leaves the device. If a shape in that stub is wrong, a setup
-step fails and the run stops and says so; the fix is the route table, never a real account.
+from inside the test process. This app speaks only through a `dart:io` `HttpClient`, which is what
+the stub replaces, so none of its requests leave the process; an app with WebSockets, sockets,
+background isolates or native clients would not get that promise
+(`references/network-stub.md` → *What the stub cannot see*). If a shape in that stub is wrong, a
+setup step fails and the run stops and says so; the fix is the route table, never a real account.
+
+`integration_test/gated_journey_test.dart` is the `flutter drive` entry for this journey.
+`test/gated_gate_test.dart` walks the same setup and steps headless, through the real
+`walkJourney`, under plain `flutter test`.
 
 ## Device
 
@@ -47,11 +54,12 @@ Steps 2 and 3 are still expected to fail — the six seeded defects are the same
 
 | Mechanism | Where it shows up in the walk data |
 |---|---|
-| `## Setup` runs, and is kept out of the score | `setupSteps[]` separate from `steps[]`; `tapsSoFar` starts at 0 on journey step 1 even though setup tapped once |
+| `## Setup` runs, and is kept out of the score | `setupSteps[]` separate from `steps[]`; the journey's `tapsSoFar` reads 1, 2, 2, 2, the same as the ungated run, although setup tapped once |
 | `HttpOverrides.global` installed before `app.main()` | the session probe is answered at all — it fires on the first frame |
 | `networkCalls` | `["/session", "/auth/login"]`, in request order |
 | A setup failure stops the run | `setupFailed: true` and an empty `steps[]`, rather than a short journey that reads as a healthy app |
 
 The last row is the one worth keeping honest: a run that dies at the gate must not report the steps
-that did run as a journey. `test/gated_gate_test.dart` holds that path down with a deliberately
-wrong route table.
+that did run as a journey. `test/gated_gate_test.dart` holds that path down at `walkJourney` level
+with a deliberately wrong route table: `setupFailed: true`, no journey steps, and `setup_3.png` as
+the only screenshot.

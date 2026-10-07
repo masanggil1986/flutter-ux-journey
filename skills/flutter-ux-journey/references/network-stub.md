@@ -128,8 +128,10 @@ it is a `flutter drive` run on an Android emulator in airplane mode (below).
 
 A `type` step's text is recorded from the JOURNEY FILE, never read back from the screen, so
 `obscureText` on the field does nothing for it. Measured on the fixture's first gated run:
-`not-a-real-password` landed verbatim in `example/walk-gated.json`. The walker now asks the resolved
-`EditableText` whether it hides its own value, and records `<redacted N chars: ...>` when it does.
+`not-a-real-password` landed verbatim in `example/walk-gated.json`. The walker now treats every
+`type` step as hidden until it has typed into a field the resolved node owns and seen that the field
+shows its value; otherwise it records `<redacted N chars: ...>`, a failed step included, and cuts the
+value out of that step's `expected` and `error` too.
 
 That is a backstop, not the rule. The rule is that a journey types arbitrary data and the walk never
 receives a real credential — see "Credentials: never ask for them" in SKILL.md. The redaction exists

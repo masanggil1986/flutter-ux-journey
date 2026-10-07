@@ -20,6 +20,11 @@ Only `iphone-se` ships as a preset. For anything else, name the numbers in **log
 units this line already uses and the ones the report quotes back:
 `375x667 @2.0 contentTop 20 padBottom 0`. `references/walking.md` item 5 has the worked shape.
 
+This journey declares no conditions, so the walk runs at the test defaults — light, text scale 1.0,
+`en-US`, no bold text — and `conditions` records exactly that. A journey that wants another set adds
+one line each under the screen: `- textScale 3.0`, `- dark`, `- locale ko-KR`, `- boldText`. One set
+per run; a second set is a second run.
+
 ## Steps
 
 1. tap "Walnut Side Table" — expect "189,000 KRW"

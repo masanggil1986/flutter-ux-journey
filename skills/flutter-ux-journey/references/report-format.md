@@ -28,8 +28,17 @@
   which the walker increments only after the gesture lands; "taps" alone reads as the number the
   journey asked for, and on a journey with a failing step those two differ. Write `<N> steps +
   outcome`, because the walker appends the screen the journey ends on as a step of its own and it
-  was never declared. `<N> screens` is `reach.screens` — distinct `screenSig`s, not step count. A
-  severity bucket with no findings is omitted, not printed as zero.
+  was never declared. `<N> screens` is `reach.screens` — distinct `screenSig`s, not step count.
+  `<N> drags` is the walk's top-level `drags`, the scrolling `scroll until` steps did; it is not
+  reach cost, so it is printed apart from taps and omitted when zero. A severity bucket with no
+  findings is omitted, not printed as zero.
+- **A step whose `expectedBefore` is true is `OK (not proven)`.** Its expectation was already on
+  screen (or, for `expect no`, already gone) before the action, so the oracle passing says nothing
+  about what the action did. The status is the walk's and stays `OK`; the table says it was not
+  proven, the step is never cited as evidence that the goal was reached, and Not Assessable lists
+  it.
+- **Paraphrase `appErrors`; do not paste it.** The walker stores each error verbatim, and an image
+  or HTTP error carries its full URL, query string included.
 
 ## Section order
 
@@ -54,8 +63,8 @@
 
 **Goal:** <the goal, one sentence>
 **Result:** <reached | reached with friction | not reached> — <one sentence of why>
-**Run:** <N> steps + outcome, <N> taps landed, <N> screens, <N> findings (<n> critical, <n> major, <n> minor, <n> cosmetic), <n> positives
-**Environment:** Flutter <version> · <device> · <platform version> · <YYYY-MM-DD>
+**Run:** <N> steps + outcome, <N> taps landed, <N> drags, <N> screens, <N> findings (<n> critical, <n> major, <n> minor, <n> cosmetic), <n> positives
+**Environment:** Flutter <version> · <`conditions.mode`: `flutter test` on <host> | `flutter drive` on <device>> · <`deviceProfile`> · <YYYY-MM-DD>
 
 ## Verdict
 
@@ -64,18 +73,25 @@ do this and what stops them. No check IDs, no widget names, no framework vocabul
 stating the scope, because it is the reader's second question and it belongs here rather than at the
 bottom: this is one declared path, walked once, at one device size under one set of conditions.
 **Quote the conditions from `conditions` in the walk data — do not assert them.** The run records
-`platformBrightness`, `textScaleFactor` and the accessibility flags precisely so this clause is a
-measurement; without it, a walk on a dark emulator reports dark-theme contrast ratios under a
-sentence that says "light", and nothing in the artifact contradicts it.
+`platformBrightness`, `textScaleFactor`, `locale` and the accessibility flags precisely so this
+clause is a measurement; without it, a walk on a dark emulator reports dark-theme contrast ratios
+under a sentence that says "light", and nothing in the artifact contradicts it. Say whether
+`## Device` declared them (`- textScale 3.0`, `- dark`, `- locale ko-KR`, `- boldText`) or they are
+the test defaults.
+
+The network posture belongs in the clause too: cut, or stubbed past a gate — and, when the
+preflight's search found WebSocket, socket, isolate or native-client code, that that traffic was
+neither cut nor stubbed. Never call the run offline without that check.
 
 Five more fields belong in the same clause, and each of them limits a different number:
 
 - `mode` — `widget-test` (no device) or `drive` (on one).
 - `deviceProfile` — the screen the journey declared. `<name> (default, not declared)` means nobody
   chose it, and the clause says so rather than presenting the fold as requested.
-- `fontSource` — `app` is exact; `sdk-fallback` means text metrics came from a stand-in font, so
-  placement and fold are close but not the app's own; `none` means they are **not assessable** and
-  every placement finding moves to that section.
+- `fontSource` — `app` means the app's own fonts are loaded and any text in a family it does not
+  declare got the SDK stand-in; `sdk-fallback` means every text metric came from the stand-in. Both
+  are close, not the app's own, and placement and fold say so; `none` means they are **not
+  assessable** and every placement finding moves to that section. Under `drive` it reads `device`.
 - `renderer` — which rasterizer produced the contrast ratios. A headless one differs from a
   device's by a small margin, so a ratio near 4.5 is advisory either way.
 - `targetPlatform` — what the framework was told to be. Not the same as `platform`, which reads the
@@ -89,16 +105,17 @@ Five more fields belong in the same clause, and each of them limits a different 
 
 | Step | Action | Expected | Status | Taps | Screen | Screenshot |
 |---|---|---|---|---|---|---|
-| setup | <login, permissions> | — | OK / FAILED | — | — | — |
-| 1 | tap "Orders" | order list | OK | 1 | `a131d0c1` | `screens/step_1.png` |
-| 2 | tap first order card | order detail | OK | 2 | `5d28ed30` | `screens/step_2.png` |
-| 3 | back | order list, scroll kept | FAILED — scroll reset | 2 | `a131d0c1` | `screens/step_3.png` |
+| setup | <sign-in, onboarding> | — | OK / FAILED | — | — | — |
+| 1 | tap "Orders" | "Order history" | OK | 1 | `a131d0c1` | `screens/step_1.png` |
+| 2 | tap "#1042" | "#1042" | OK (not proven) | 2 | `5d28ed30` | `screens/step_2.png` |
+| 3 | back | "Order history" | FAILED — no back affordance | 2 | `5d28ed30` | `screens/step_3.png` |
 
 Setup is excluded from measurement and scoring; the row summarises `setupSteps` in the walk, and
 gets one row per setup step when one of them failed, so the step that blocked the run is named.
-`Screen` is the walk's `screenSig` — it is there so a reader can see a revisit or a loop (step 3
-above returns to step 1's screen), not because the string means anything on its own. Drop the column
-on a journey that never revisits a screen.
+`Screen` is the walk's `screenSig` — it is there so a reader can see a revisit or a loop, not
+because the string means anything on its own. Drop the column on a journey that never revisits a
+screen. Step 2 above is `OK (not proven)` because its `expectedBefore` is true: the order number was
+already on the list it was tapped from.
 
 Positions in a guideline `reason` string are **node-local** and do not match the dump's global
 rects — sizes are comparable, positions are not. Quote the reason for the node and the measured
@@ -203,7 +220,7 @@ Walked <N> of <M> declared routes (<X>%). The score below is valid over that ran
 | Tap target ≥44/48 lpx | screens with zero violations / screens measured | … |
 | Text contrast | screens passing `textContrastGuideline` / screens measured | … |
 | Accessible name | screens passing `labeledTapTargetGuideline` / screens measured | … |
-| Screen stability | steps that settled / steps measured | … |
+| Screen stability | steps that settled / steps with a non-null `settled` | … |
 | Reach | taps on the declared path; screens with a way out / screens visited | … |
 | Error handling | qualitative — marked as such | — |
 
@@ -221,6 +238,13 @@ Two buckets, split by what the reader can do about it. Never one list.
 
 **Not reached, or not measurable here** — nothing the reader can do.
 - Steps 3–4 were never reached, so every check on those screens is untested, not clean.
+- Step 2 passed on an expectation the screen already showed (`expectedBefore`), so it is not proven
+  that its tap did what the journey says.
+- Fold and placement after a `type` step, where `keyboardInset` is null: the headless keyboard has
+  no height, and the PNGs have no keyboard in them.
+- Dead taps and state loss on a screen whose text changes on its own (a countdown, a clock).
+- Network traffic outside the `HttpClient` the walk controls, when the preflight found any: it was
+  neither cut nor stubbed, and nothing in the walk records it.
 - Screen-reader announcement order, focus order, keyboard navigation, dynamic type, motion and
   reduced-motion: not measured by this run.
 - Platform: <`targetPlatform` from `conditions`, on `<platform>`>, `<mode>`, one device size
@@ -236,9 +260,11 @@ Two buckets, split by what the reader can do about it. Never one list.
 ## Method
 
 Static pass (`package:analyzer`, name matching, no type resolution) · journey walk
-(`integration_test` under `flutter drive`, measured semantics rects in logical px, the four built-in
-Flutter accessibility guidelines, viewport and fold, effective tap area, route state) · visual pass
-(screenshots read by the model) · merge and goal-relative rescoring.
+(<`conditions.mode`: `flutter test`, headless, `flutter_tester` software rasterizer, on the declared
+`deviceProfile` | `flutter drive` with `integration_test` on <device>>, measured semantics rects in
+logical px, the four built-in Flutter accessibility guidelines, viewport and fold, effective tap
+area, route state) · visual pass (screenshots read by the model) · merge and goal-relative
+rescoring.
 
 This report covers one journey. Runs are not aggregated and there is no cross-journey score —
 averaging several of these by hand would be worse than not having the number.
@@ -275,12 +301,14 @@ Same content, machine-readable, same order as the report. One object per merged 
 {
   "goal": "Find the last order and see its delivery status.",
   "result": "reached with friction",
-  "environment": {"flutter": "3.47.2", "device": "iPhone SE (3rd gen)", "platform": "iOS 18.6", "date": "2026-09-22"},
+  "environment": {"flutter": "3.47.2", "device": "iphone-se profile, headless", "platform": "flutter test on macOS", "date": "2026-10-07"},
   "conditions": {"mode": "widget-test", "deviceProfile": "iphone-se", "fontSource": "sdk-fallback",
                  "renderer": "flutter_tester (software)", "targetPlatform": "iOS", "platform": "macos",
-                 "platformBrightness": "light", "textScaleFactor": 1.0, "boldText": false,
-                 "highContrast": false, "invertColors": false, "disableAnimations": false},
-  "reach": {"tapsLanded": 3, "screens": 3, "basis": "the declared path, not a minimum; a gesture that never dispatched is not reach cost"},
+                 "platformBrightness": "light", "textScaleFactor": 1.0, "locale": "en-US",
+                 "boldText": false, "highContrast": false, "invertColors": false,
+                 "disableAnimations": false, "appErrorHandlerReplaced": false,
+                 "httpOverridesReplacedByApp": false},
+  "reach": {"tapsLanded": 3, "drags": 0, "screens": 3, "basis": "the declared path, not a minimum; a gesture that never dispatched is not reach cost"},
   "priorities": {"source": "journey.md", "declared": ["open a saved product", "remove a product"]},
   "viewport": {"widthLogicalPx": 375.0, "heightLogicalPx": 667.0, "devicePixelRatio": 2.0,
                "contentTop": 20.0, "padBottom": 0.0, "foldY": 667.0, "isTestDefault": false,
@@ -292,11 +320,14 @@ Same content, machine-readable, same order as the report. One object per merged 
   "setupFailed": false,
   "setupSteps": [
     {"index": 1, "phase": "setup", "action": "type", "target": "Email address", "nth": null,
-     "text": "ux-audit@example.invalid", "expected": "Password", "status": "OK", "error": null,
+     "text": "ux-audit@example.invalid", "expected": "Password", "absent": false,
+     "expectedBefore": true, "resolved": {"label": "Email address", "tooltip": ""},
+     "centreHitsHandler": null, "drags": null, "popHandled": null, "status": "OK", "error": null,
      "elapsedMs": 1314, "settled": true, "dispatched": true, "screenshot": null}
   ],
   "steps": [
-    {"index": 1, "action": "tap \"Orders\"", "expected": "order list", "status": "OK", "elapsedMs": 546,
+    {"index": 1, "action": "tap \"Orders\"", "expected": "Order history", "status": "OK",
+     "expectedBefore": false, "centreHitsHandler": true, "elapsedMs": 546,
      "tapsSoFar": 1, "dispatched": true, "semanticsUnchanged": false, "screenshot": "screens/step_1.png",
      "surface": {"canPop": false, "tappableCount": 8, "tappableAboveFold": 8, "modalOpen": false,
                  "navigatorCount": 1, "coverNodes": 0}}
@@ -343,15 +374,21 @@ carries `n`, `rectLogicalPx` and `name` — null when the node is unnamed — pl
 be read without the step list.
 
 `setupSteps` is the `## Setup` phase — the gate, not the product. Each entry carries `phase:
-"setup"`, the step's `action`, `target`, `nth`, `text`, `expected`, `status`, `error`, `elapsedMs`,
-`settled`, `dispatched` and `screenshot`, and nothing else: no semantics dump, no guidelines, no
-`surface` and no `tapsSoFar`, because setup taps are not reach cost. `screenshot` is null unless the
-step failed — the walker records the bare `setup_<N>.png` and this file references it as
-`screens/setup_<N>.png` like every other screenshot — and null on Android either way, where
-in-test capture is off. A field that hides its own value is redacted by the walker, so `text` reads
-`"<redacted 19 chars: the field hides its own value>"`: the audit records that a secret was typed,
-never the secret. The key is present and empty on a journey with no gate, so a reader can tell "no
-gate" from "the gate was never walked".
+"setup"`, the step's `action`, `target`, `nth`, `text`, `expected`, `absent`, `expectedBefore`,
+`resolved`, `centreHitsHandler`, `drags`, `popHandled`, `status`, `error`, `elapsedMs`, `settled`,
+`dispatched` and `screenshot`, and nothing else: no semantics dump, no guidelines, no `surface` and
+no `tapsSoFar`, because setup taps are not reach cost. `screenshot` is null unless the step failed —
+the walker records the bare `setup_<N>.png` and this file references it as `screens/setup_<N>.png`
+like every other screenshot — and null either way in the `flutter drive` fallback on Android, where
+in-test capture is off. A `type` step is redacted unless the walk saw the field show its value, so
+`text` reads `"<redacted 19 chars: the field hides its own value>"` — on a failed step too, with
+the same wording — and the value is cut out of that step's `expected` and `error`: the audit records
+that a secret was typed, never the secret. The key is present and empty on a journey with no gate,
+so a reader can tell "no gate" from "the gate was never walked".
+
+**A launch failure is the result too.** When `entryReached` is false the first target never
+appeared within 12 s: `setupSteps` and `steps` are both empty, and `entryScreenshot` (`entry.png`)
+shows what the app showed instead. Report that, naming the target that never came.
 
 **A setup failure is the result.** When `setupFailed` is true the walk stops at the failing setup
 step: `steps` is empty and `taps` is 0. Report it as a setup failure, naming the step, its `error`
