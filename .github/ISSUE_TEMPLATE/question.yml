@@ -1,0 +1,19 @@
+name: Question or idea
+description: Ask how something works, or propose something the skill should do.
+labels: [question]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ## Do not paste anything from a private app
+
+        This issue is public. **No screenshots, no route or screen names, no semantic labels, no UI
+        copy, no endpoints.** Describe the shape instead — "a checkout behind a sign-in gate", "a
+        list under a bottom navigation bar" — or point at `example/ux_demo_app`.
+  - type: textarea
+    id: what
+    attributes:
+      label: Your question or idea
+      description: For an idea, say what you were trying to do when you wanted it.
+    validations:
+      required: true
