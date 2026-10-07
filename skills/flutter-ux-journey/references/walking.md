@@ -8,8 +8,9 @@ substitute remembered ones.
 - [Why the walker runs inside the app](#why-the-walker-runs-inside-the-app)
 - [Prerequisites in the audited app](#prerequisites-in-the-audited-app)
 - [Two modes, and which files each one needs](#two-modes-and-which-files-each-one-needs)
-- [File 1 — test_driver/integration_test.dart (fallback only)](#file-1--test_driverintegration_testdart-fallback-only)
+- [File 1 — test_driver/ux_journey_driver.dart (fallback only)](#file-1--test_driverux_journey_driverdart-fallback-only)
 - [File 2 — ux_audit/ux_journey_test.dart](#file-2--ux_auditux_journey_testdart)
+- [File 3 — integration_test/ux_journey_drive.dart (fallback only)](#file-3--integration_testux_journey_drivedart-fallback-only)
 - [Trap 1 — semantics rects are local and physical](#trap-1--semantics-rects-are-local-and-physical)
 - [Trap 2 — tooltip is not the label](#trap-2--tooltip-is-not-the-label)
 - [Trap 3 — InkWell has no isButton flag](#trap-3--inkwell-has-no-isbutton-flag)
@@ -47,6 +48,11 @@ dev_dependencies:
 
 Nothing else. No third-party package is needed at any point.
 
+**What the network cut covers** in either mode is the `dart:io` `HttpClient` the app builds in the
+walk's isolate. WebSockets under `flutter test`, raw sockets, other isolates, native HTTP clients and
+native SDKs are outside it and can reach the real backend; `network-stub.md` → *What the stub cannot
+see* has the list and the search SKILL.md's preflight runs before every walk.
+
 Tell the user to gitignore the generated paths (see SKILL.md) — including `net_stub.dart` when a
 stub is used, which is the only one that holds their real endpoints. They are regenerated on every
 run; a team that wants them as a regression test promotes them deliberately.
@@ -55,12 +61,12 @@ run; a team that wants them as a regression test promotes them deliberately.
 
 | | default | fallback |
 |---|---|---|
-| run | `flutter test ux_audit/ux_journey_test.dart` | `flutter drive --driver=test_driver/integration_test.dart --target=integration_test/ux_journey_drive.dart -d <id>` |
+| run | `flutter test ux_audit/ux_journey_test.dart` | `flutter drive --driver=test_driver/ux_journey_driver.dart --target=integration_test/ux_journey_drive.dart -d <id>` |
 | device | none | a booted simulator or emulator |
-| files in the app | `ux_audit/ux_journey_test.dart` (+ `ux_audit/net_stub.dart` for a gate) | those, plus `integration_test/ux_journey_drive.dart` and `test_driver/integration_test.dart` |
+| files in the app | `ux_audit/ux_journey_test.dart` (+ `ux_audit/net_stub.dart` for a gate) | those, plus `integration_test/ux_journey_drive.dart` and `test_driver/ux_journey_driver.dart` |
 | dev_dependencies | `flutter_test` | `flutter_test` and `integration_test` |
 | screenshots | `OffsetLayer.toImage()`, any host | `takeScreenshot`, iOS only |
-| network | already cut: `flutter_test` answers every request with an empty 400 | cut it yourself (`adb shell cmd connectivity airplane-mode enable`) |
+| network | cut for the `dart:io` `HttpClient`: flutter_test answers every request with an empty 400 | cut for the `HttpClient` by the drive entry's `NetworkCut`; airplane mode on an Android emulator cuts the rest |
 | artifacts | the walk writes `ux-audit-out/walk.json` and `screens/*.png` itself | `build/integration_response_data.json`, copied to `ux-audit-out/walk.json` |
 
 **`ux_audit/` is not a style choice.** `flutter test` routes anything under `integration_test/` to a
@@ -73,11 +79,20 @@ The fallback exists for one measured reason: the walk has not been run against a
 throw `MissingPluginException`, and platform views do not render headlessly at all. Neither mode
 changes a line of the app's source.
 
-## File 1 — test_driver/integration_test.dart (fallback only)
+## File 1 — test_driver/ux_journey_driver.dart (fallback only)
 
-Verbatim, whole file. The `responseDataCallback` strip is not optional: `takeScreenshot` also stuffs
-every PNG into `reportData['screenshots']` as a JSON int array, which turned a 45 KB PNG into a
-561 KB JSON in the verification run.
+**Not `test_driver/integration_test.dart`.** That is the name Flutter's own `integration_test` README
+tells every app to create, so an app that needs this fallback is the app most likely to have one
+already — and a `.gitignore` line cannot hide a tracked file, so overwriting it puts a changed driver
+one `git add -A` from that app's history. This file has its own name and is passed with `--driver`,
+which `flutter drive` takes as given. If `test_driver/ux_journey_driver.dart` already exists and is
+not this file, stop and ask; never write over it.
+
+Verbatim, whole file — the copy that runs is `example/ux_demo_app/test_driver/ux_journey_driver.dart`.
+The `responseDataCallback` strip is not optional: `takeScreenshot` also stuffs every PNG into
+`reportData['screenshots']` as a JSON int array, which turned a 45 KB PNG into a 561 KB JSON in the
+verification run. Emptying `ux-audit-out/screens/` first is not optional either: a PNG an earlier run
+left there passes as this run's, and a missing `setup_N.png` is how a reader knows the setup passed.
 
 ```dart
 import 'dart:io';
@@ -85,17 +100,24 @@ import 'dart:io';
 import 'package:integration_test/integration_test_driver_extended.dart';
 
 Future<void> main() async {
+  // ONE output root, the one SKILL.md declares. `screenshots/` — the default
+  // this file used to write — is a conventionally TRACKED directory in a
+  // Flutter app, so a walk against somebody's repo dropped their product
+  // screenshots where `git add -A` would take them.
+  final Directory screens = Directory('ux-audit-out/screens');
+  // Emptied first: a PNG left by an earlier run would pass as this run's, and
+  // a missing setup_N.png is how a reader knows the setup passed.
+  if (screens.existsSync()) {
+    screens.deleteSync(recursive: true);
+  }
   await integrationDriver(
-    onScreenshot: (String name, List<int> bytes, [Map<String, Object?>? args]) async {
-      // ONE output root, the one SKILL.md declares. `screenshots/` — the
-      // default this file used to write — is a conventionally TRACKED
-      // directory in a Flutter app, so a walk against somebody's repo dropped
-      // their product screenshots where `git add -A` would take them.
-      final File f = File('ux-audit-out/screens/$name.png');
-      f.parent.createSync(recursive: true);
-      f.writeAsBytesSync(bytes);
-      return true;
-    },
+    onScreenshot:
+        (String name, List<int> bytes, [Map<String, Object?>? args]) async {
+          final File f = File('${screens.path}/$name.png');
+          f.parent.createSync(recursive: true);
+          f.writeAsBytesSync(bytes);
+          return true;
+        },
     // The PNGs already went to disk above. takeScreenshot ALSO stuffs each one
     // into reportData['screenshots'] as a JSON int array, which inflated a
     // 45 KB PNG into 561 KB of JSON in the Day 1 run.
@@ -148,7 +170,8 @@ non-obvious line.
 2. the `journey` list, generated from `## Steps` in `journey.md` — one `Step` record per line, see
    [Step lines → `Step` records](#step-lines--step-records),
 3. the `setup` list, generated from `## Setup`, plus `HttpOverrides.global = StubHttpOverrides();`
-   ahead of the launch if the journey has to pass a gate (`references/network-stub.md`),
+   ahead of `walkJourney` in the entry that runs, if the journey has to pass a gate — this file's
+   `main` by default, the drive entry under `flutter drive` (`references/network-stub.md`),
 4. `networkCalls`, wired to the stub's own call list when there is a stub,
 5. `device` and `deviceDeclared`, generated from `## Device`. Name the preset through
    `deviceProfileByName('<name>')` rather than pinning a const, so a journey that names a screen
@@ -255,8 +278,11 @@ one file and no structure.
 What it buys is a SECOND journey in a repo that already has one. That file imports `Step` and
 `walkJourney` from the first and adds only what is genuinely per-journey: the stub, the `setup`
 list, the `journey` list, and a `main` that installs the override and calls the walk. The worked
-instance is `example/ux_demo_app/integration_test/gated_journey_test.dart` — 105 lines, 67 of them
-code, and nearly all of that is the two step lists. Run it by pointing `--target` at it.
+instance is `example/ux_demo_app/integration_test/gated_journey_test.dart`, and nearly all of it is
+the two step lists. It is a `flutter drive` entry — it builds the drive binding and publishes into
+`reportData` — so run it by pointing `--target` at it; under `flutter test` it passes green and
+writes nothing. A second journey in the default mode is the same thing with this file's `main`:
+`TestWidgetsFlutterBinding`, `applyDevice`, `loadFonts`, `writePng` and a file `publish`.
 
 ### The Setup phase — a gate is not the product
 
@@ -275,9 +301,12 @@ evidence for "the gate is what blocked this", and a setup step that passed has n
 A `type` step's recorded `text` comes from the journey file and not from the screen, so
 `obscureText` does nothing to keep it out of the artifact — measured: `not-a-real-password` landed
 verbatim in the first run that produced `example/walk-gated.json`. When the resolved field hides its
-own value the walker now records `<redacted N chars: ...>` and keeps the length. Journeys are
-required to use arbitrary data anyway; this exists because "required" is not "guaranteed", and an
-audit artifact is the last place anyone should have to be careful.
+own value the walker now records `<redacted N chars: ...>` and keeps the length. A `type` step is
+treated as hidden until the walk sees the field show its value: a step that FAILED — a label that
+owns no field, a target that is not there — is redacted too, and the value is cut out of that step's
+`expected` and `error` as well. The marker's wording is the same either way. Journeys are required
+to use arbitrary data anyway; this exists because "required" is not "guaranteed", and an audit
+artifact is the last place anyone should have to be careful.
 
 ### Collecting the four built-in guidelines
 
@@ -310,18 +339,17 @@ Future<List<Map<String, Object?>>> _evaluateGuidelines(WidgetTester tester) asyn
 
 A production app fires background requests that outlive a step. One late async exception fails the
 test and **discards the entire report** — measured: a voucher fetch completing after the walk threw
-away a nine-step journey. Collect them instead, before `app.main()`:
+away a nine-step journey. `walkJourney` collects them instead, by three routes, each measured
+missing once:
 
-```dart
-final List<String> appErrors = <String>[];
-final FlutterExceptionHandler? previousOnError = FlutterError.onError;
-FlutterError.onError = (FlutterErrorDetails details) {
-  appErrors.add(details.exceptionAsString());
-};
-...
-FlutterError.onError = previousOnError; // the moment the walk ends
-report['appErrors'] = appErrors;
-```
+- `FlutterError.onError`, installed before `launch`;
+- a `runZonedGuarded` around the whole walk, for the raw async rejections `FlutterError.onError`
+  never sees — an unawaited request that fails under the cut. Its handler only RECORDS: completing
+  the walk from it returned mid-step and published `steps: []`;
+- a check after launch, after the entry wait and after every step: an app whose `main` installs
+  its own handler (logging boilerplate, a crash reporter) replaced the walk's, and `appErrors` read
+  `[]` on an app that was throwing. The walk now records first and forwards to the app's handler,
+  and sets `conditions.appErrorHandlerReplaced`. One error that arrives by two routes is kept once.
 
 Hand the handler back. Kept, it swallows every failure after the walk — a timer the app left
 running, an `expect` in the same test — into a list that is already published, and flutter_test
@@ -331,7 +359,12 @@ real message.
 
 What lands there is evidence in its own right. An app that shows the user
 `type 'Null' is not a subtype of type ...` is leaking internals into the UI — a real severity-3
-finding, measured on a production app.
+finding, measured on a production app. Two kinds of entry are the walk's, not the app's: a network
+image that failed under the stub (`Exception: Invalid image data`) or under the cut
+(`HTTP request failed, statusCode: 400, <url>`). A debug build paints that text in Flutter's red
+image-error box, so it is in the dump and the PNG too, and a release user never sees it — never score
+it as `JARGON-LEAK` or `ERROR-VAGUE`. And `appErrors` is stored verbatim, so an entry can carry a full
+URL with its query string: paraphrase it in a report rather than pasting it.
 
 ### Bounded settle — never call `pumpAndSettle` on a real app
 
@@ -346,8 +379,8 @@ the tool meets a production app. Measured: a real app hung here until killed.
 **"No frame is scheduled" is not "the screen is ready."** An awaiting `Future` schedules no frames,
 so a screen that renders an empty state while a request is in flight reports settled on the first
 pump. The step then fails to find what it expected, is recorded FAILED **with the wrong reason**,
-and carries `settled: true` — which is also the flag that is supposed to void its measurements.
-Measured. So when the step declares an expectation, that expectation is the stop condition: the
+and carries `settled: true` — which is also the flag the report trusts to say the next screen was
+ready. Measured. So when the step declares an expectation, that expectation is the stop condition: the
 loop polls it and returns true only when the content really arrived.
 
 **The Stopwatch is not the same clock as the pump.** `tester.pump(tick)` advances FAKE time while a
@@ -355,9 +388,15 @@ loop polls it and returns true only when the content really arrived.
 one real second and simulates minutes of app time. Bound by the pump COUNT as well as the wall
 clock, or the limit means something different in a widget test than it does on a device.
 
-Record the result as `settled` per step. `settled: false` is worth reporting on its own: a screen
-still working after the bound is either doing real work with no progress affordance, or animating
-forever for no reason.
+Record the result as `settled` per step, and `null` when no settle ran because nothing was
+dispatched — a selector miss waited for nothing, and counting it as settled put it into Screen
+stability. `settled: false` is worth reporting on its own: a screen still working after the bound is
+either doing real work with no progress affordance, or animating forever for no reason.
+
+**`settled` describes the NEXT dump.** Each step dumps, evaluates and captures BEFORE its action and
+settles AFTER it, so step N's `settled` is about the screen step N+1 measures. Void a dump's
+geometry when the step before it did not settle (step 1's when `entrySettled` is false). The outcome
+entry is the exception: it settles first and then captures, so its own `settled` speaks for it.
 
 ### Screenshots deadlock on Android when the app hosts platform views
 
@@ -374,9 +413,14 @@ then stopped dead at the first `takeScreenshot`.
 There is no in-test workaround. Capture the VISUAL layer from the HOST instead:
 
 ```bash
-adb exec-out screencap -p > step_1.png          # Android
-xcrun simctl io <udid> screenshot step_1.png    # iOS simulator
+mkdir -p ux-audit-out/screens
+adb exec-out screencap -p > ux-audit-out/screens/host_end.png          # Android
+xcrun simctl io <udid> screenshot ux-audit-out/screens/host_end.png    # iOS simulator
 ```
+
+Into the output directory, like every other artifact, and named for what it is: the screen the walk
+ENDED on, one frame after it. It is not `step_1.png`, which is the walk's name for the screen step 1
+started from.
 
 If neither is available for the run, the VISUAL layer is **not assessable** and the report says so.
 Do not silently ship a report whose visual section is empty — an empty section reads as "nothing
@@ -389,19 +433,36 @@ Only `tester.enterText(finder, text)` establishes the text-input connection — 
 leaves the field **empty and the walk hanging**, with no error. Measured on a production app.
 
 `enterText` needs a `Finder`, but the selector model is label-based, so the walker maps the resolved
-semantics node to its `EditableText` by geometry. Text entered is always ARBITRARY — see
-"Credentials: never ask for them" in SKILL.md.
+semantics node to its `EditableText`: among the fields that node OWNS — its own, or one merged or
+nested under it — the one with the largest overlap. Owned first, because a page under a dialog is
+still onstage, and on overlap alone a tall page editor took the dialog field's text. Measured. Text
+entered is always ARBITRARY — see "Credentials: never ask for them" in SKILL.md.
 
-### Ambiguity: exact match, then `nth`, then fail loudly
+Under `flutter test` the keyboard `enterText` raises has no height: nothing sets `viewInsets`. While
+it is up, `keyboardInset` and `foldY` are recorded as `null`, so fold and placement after a `type`
+step are `not assessable` rather than measured on a screen a real keyboard would half cover. A
+device reads the real inset.
+
+### Ambiguity: `nth`, then exact match, then fail loudly
+
+This is about the TARGET. The expectation is asked a different question — is it on screen at all,
+once or more — so a title that repeats its button ("Sign in" over "Sign in") is not ambiguous there,
+and `nth` never applies to it. An expectation that exists only in a scrollable's cache extent fails
+with `"X" is in the semantics tree but not on screen`.
 
 A substring selector legitimately matches both a label and a longer label containing it — a password
 field and a "forgot password" link, measured on a real app. When exactly one hit matches **exactly**,
-that is the one meant.
+that is the one meant. A lone hit that holds the needle only INSIDE a word is no match at all —
+"back" in "Send feedback" — and fails with `no semantics node matches "X" — only "…" contains it,
+inside a word`. Word characters are ASCII letters and digits only, so Hangul and CJK, which glue
+particles to the noun, keep substring matching.
 
 But two nodes can match EXACTLY and both be real: a shortcut tile and a bottom-nav tab often carry
 the same word. No matching cleverness can guess which; the journey must say, with `nth: N`
-(1-based). Taking the first hit silently audits a different widget and reports its measurements as
-the one you asked for.
+(1-based, numbered over ALL hits as the error lists them, and applied before the exact-match rule).
+It is range-checked whatever the hit count, so `nth: 2` on a label that dropped to one match fails
+instead of silently taking it. Taking the first hit silently audits a different widget and reports
+its measurements as the one you asked for.
 
 Make the error name the candidates and the fix, because each re-run is a full build:
 
@@ -418,7 +479,8 @@ wrong in their obvious form; each is wrong in a way that looks right.
 **The fold.** `view.physicalSize / devicePixelRatio` is the WHOLE display: it includes the status
 bar, the notch and the home indicator, and it does not shrink when the keyboard is up. Subtract
 `view.padding` and `view.viewInsets`, and take the LARGER of the two bottoms — a keyboard hides far
-more than a home indicator, and a control under it is not on screen at all.
+more than a home indicator, and a control under it is not on screen at all. (Under `flutter test`
+there is no keyboard height to subtract — see *Typing* — so the fold is `null` while it is up.)
 
 And in a plain `flutter test` the view is Flutter's hardcoded `Size(800, 600)` at dpr 3.0
 (`flutter_test/src/binding.dart`, `_kDefaultTestViewportSize`). That is no device. The walker
@@ -443,8 +505,14 @@ list moved down 39px. Max drift 153.6px. `loadFonts` brings it to a median of 0.
 is not enough on its own: a null `fontFamily` keeps resolving to the test font whatever is
 registered, so the registration has to name the families the THEME asks for
 (`CupertinoSystemDisplay`/`CupertinoSystemText` on iOS, `Roboto` on Android). The older `.SF UI *`
-spelling is never asked for and registering against it fails silently. `conditions.fontSource`
-reports which fonts the run actually got, and `none` makes fold and placement `not assessable`. Measured on an iPhone SE (3rd gen) the same
+spelling is never asked for and registering against it fails silently. The stand-in is registered
+ALWAYS, except over a family the app itself declares: an app with only an icon font, or a brand face
+on one title, otherwise left every default-family `Text` in the test font under a label that said
+`app`. A font from a dependency is registered under its full `packages/<pkg>/<Family>` name, which
+is what `TextStyle(package:)` asks for. `conditions.fontSource` reports which fonts the run actually
+got: `app` means the app's own fonts are loaded and text in any other family has the stand-in —
+close, not exact; `sdk-fallback` means the stand-in alone; `none` makes fold and placement
+`not assessable`. Measured on an iPhone SE (3rd gen) the same
 code returns `375.0 x 667.0 @ 2.0, contentTop 20.0, padBottom 0.0, foldY 667.0` — the SE has a home
 button, so its bottom padding really is zero.
 
@@ -464,12 +532,28 @@ have to be excluded explicitly by walking the parent chain, or every card obscur
 own label.
 
 This is **geometry, not a hit test**: the semantics tree carries no opacity and no `IgnorePointer`.
-It needs the screenshot to confirm before it becomes a finding, and it is void on any step where
-`settled` is false.
+It needs the screenshot to confirm before it becomes a finding, and it is void on a dump taken after
+a step that did not settle (see *Bounded settle*). A node that is not on screen covers nothing, and
+an intersection thinner than 0.001 lpx — the SDK's own tolerance — is not an overlap.
 
-**Screen identity.** A hash of every non-empty label ∪ tooltip ∪ value, each part prefixed with its
-RANK in reading order (top, then left) before the parts are sorted. Equal signatures mean the same
-screen in the same state, which is what makes state loss after a back step and a dead tap checkable.
+What the walk does record as a hit test is `centreHitsHandler`, per tap and long-press step: whether
+a real hit test at the press point crosses a matching handler (a `GestureDetector`'s, which `InkWell`
+and every Material button build, or a `Semantics(onTap:)`). `false` is a press into dead space — a
+`MergeSemantics` row whose centre falls between its label and its switch. A custom render object
+that handles taps itself also reads `false`, which errs safe for a dead-tap finding that requires
+`true`.
+
+**Screen identity.** A hash of every non-empty label ∪ tooltip ∪ value, plus each node's set state
+flags (`isChecked`, `isCheckStateMixed`, `isToggled`, `isSelected`, `isExpanded`), each part prefixed
+with its RANK in reading order (top, then left) before the parts are sorted. Equal signatures mean
+the same screen in the same state, which is what makes state loss after a back step and a dead tap
+checkable. The flags are there because a working checkbox, switch or chip otherwise read as
+unchanged beside a PNG that changed.
+
+Its blind spot: text that changes on its own. A countdown, a clock or a "resend in 59s" changes the
+signature between any two dumps, so on such a screen `semanticsUnchanged: false` proves nothing —
+measured, one dead button read dead once and working three times. Dead-tap and `STATE-GAP` are
+`not assessable` there.
 
 The prefix is not decoration: without one, sorting throws order away and every sort, reorder and
 move-up control in existence reads as a dead tap. It is a rank and not a quantised pixel position
@@ -486,21 +570,47 @@ journey's entry. On the fixture's removal screen all four terms hold, and every 
 accessibility guidelines passes on that same screen — which is the whole argument for auditing
 journeys instead of screens.
 
-`canPop` comes from the **deepest onstage `Navigator`**, read directly. Two earlier versions were
-measured wrong: `tester.firstState<NavigatorState>(...)` returns the ROOT navigator, which in a tab
-shell holds only the shell page; and resolving from the deepest `Scaffold` is a different thing,
-because in the common shell-owns-the-Scaffold shape that Scaffold sits *above* the per-tab
-Navigators. Finders are onstage-only, so hidden tabs do not compete, and reading the Navigator
-directly also answers on screens with no Scaffold at all.
+`canPop` comes from the **last onstage `Navigator` in element order**, read directly. When navigators
+nest — a tab shell — that is the deepest one, which is the point. When one is a SIBLING built after
+the content — a persistent mini-player, a side panel, a `Navigator` in `Scaffold.bottomSheet` — it
+is that sibling, and `canPop` answers for it rather than for the user's screen. `navigatorCount` is
+recorded so the predicate can require 1, and `panesPossiblyBlocked` flags the sibling case. Two
+earlier versions were measured wrong: `tester.firstState<NavigatorState>(...)` returns the ROOT
+navigator, which in a tab shell holds only the shell page; and resolving from the deepest `Scaffold`
+is a different thing, because in the common shell-owns-the-Scaffold shape that Scaffold sits
+*above* the per-tab Navigators. Finders are onstage-only, so hidden tabs do not compete, and reading
+the Navigator directly also answers on screens with no Scaffold at all.
 
 Nothing in the walker calls `ModalRoute.of`: it registers an inherited dependency on the audited
 app's element, so reading it can make the app rebuild. An audit must not perturb what it measures.
 `Navigator.maybeOf` and the element-list probe do not.
 
-`modalOpen` keys on the barrier's **dismissibility**, not its type. Every `ModalRoute` mounts a
-barrier, so `find.byType(ModalBarrier)` is true on every ordinary screen; narrowing to
-`AnimatedModalBarrier` then misses popup menus and dropdowns, which return a null `barrierColor`.
-A page route's barrier is not dismissible; a transient surface's is.
+`modalOpen` keys on what the barrier is FOR, not its type. Every `ModalRoute` mounts a barrier, so
+`find.byType(ModalBarrier)` is true on every ordinary screen; narrowing to `AnimatedModalBarrier`
+then misses popup menus and dropdowns, which return a null `barrierColor`; and dismissibility alone
+misses every dialog the user must answer — `showCupertinoDialog`'s default,
+`barrierDismissible: false`, a non-dismissible sheet. So a barrier counts when it is dismissible OR
+carries a semantics label: every SDK transient route names its barrier, and no page route does. An
+open drawer counts too, asked of the `Scaffold`, because its scrim is not a barrier at all.
+
+## File 3 — integration_test/ux_journey_drive.dart (fallback only)
+
+Copy `example/ux_demo_app/integration_test/ux_journey_drive.dart` and change the
+`package:<app>/main.dart` import; it imports `journey`, `setup` and `walkJourney` from File 2. It
+exists as its own file because the binding has to be chosen before anything else runs, and
+`IntegrationTestWidgetsFlutterBinding` is a live binding that would change the frame policy under a
+`flutter test` walk.
+
+It is offline by default. `HttpOverrides.global = NetworkCut(calls);` goes in before `walkJourney`:
+the real `HttpClient` with a `connectionFactory` that records the path and throws
+`SocketException` before any DNS lookup or socket — the same failure as airplane mode — and
+`networkCalls: calls` reports what it refused. Without it a drive run on the iOS simulator, which
+shares the host's network, sent the journey's requests wherever the app pointed them. Its ceiling is
+the `HttpClient` boundary above, and a client the app gives its own `connectionFactory`.
+
+A gated journey under drive makes **two** edits here: the `NetworkCut` line becomes
+`HttpOverrides.global = StubHttpOverrides();`, and `networkCalls: calls` becomes
+`networkCalls: stubCalls`. With only the first the gate opens and `networkCalls` ships `[]`.
 
 ## Trap 1 — semantics rects are local and physical
 
@@ -579,7 +689,7 @@ Fallback — on a device:
 
 ```bash
 cd <app-root>
-flutter drive --driver=test_driver/integration_test.dart \
+flutter drive --driver=test_driver/ux_journey_driver.dart \
               --target=integration_test/ux_journey_drive.dart -d <device-id>
 ```
 
@@ -590,13 +700,16 @@ Its artifacts land at:
 - `ux-audit-out/screens/setup_N.png`, and only for a setup step that FAILED. A gated run that got
   through its gate produces none, so their absence is the success case, not a missing artifact.
 
-Move both into `<app-root>/ux-audit-out/` (`walk.json`, `screens/`). Sanity check: the JSON should be
-well under 100 KB for a short journey — if it is hundreds of KB, the screenshot strip did not take.
+Copy the JSON to `<app-root>/ux-audit-out/walk.json`; the PNGs are already in `screens/`. Sanity
+check: the JSON has no top-level `screenshots` key — if it has one, the strip did not take. Its size
+is no test: the driver pretty-prints, and an ordinary journey over full screens runs to hundreds of
+KB with the strip working.
 
 ## What the walk data must contain
 
-Per step: index, action, target, expectation, status, elapsed ms, `settled`, the semantics node list
-with logical-px rects, and the four guideline evaluations with their `reason` strings. The `reason`
+Per step: index, action, target, expectation, `absent`, status, error, elapsed ms, `settled`, the
+semantics node list with logical-px rects, and the four guideline evaluations with their `reason`
+strings. The `reason`
 strings already carry node id, rect, label, measured size or contrast ratio, and the required value
 — quote them into findings verbatim instead of recomputing anything.
 
@@ -611,10 +724,15 @@ Plus, for the flow and placement half of the report:
 | `surface.canPop`, `tappableCount`, `tappableAboveFold`, `modalOpen` | per step | can the user leave, and what else is here |
 | `tapsSoFar` | per step | reach cost on the declared path — never a minimum |
 | `dispatched`, `semanticsUnchanged`, `screenSig` | per step | dead taps, revisits, state loss |
+| `expectedBefore` | per step | the oracle already held before the action, so an `OK` proves nothing about it — the report marks the step not proven |
+| `resolved` | per step | `{label, tooltip}` of the node the target resolved to; null for `back`, `system back` and a miss |
+| `centreHitsHandler` | tap and long-press steps | did the press point reach a handler at all |
+| `drags`, `popHandled` | scroll / system back steps | scroll effort; whether the app took the pop |
 | `panesPossiblyBlocked` | per dump | **true** means `nodes` is only the LAST-PAINTED pane: two SIBLING `Navigator`s (a tablet master-detail `Row`) let the later pane's `BlockSemantics` delete the earlier one before the dump can reach it — nested navigators, i.e. a tab shell, do not, which is why this asks about ancestry and not about a count. **False is not a promise the dump is whole**: measured, a `Row` of `[Scaffold, Navigator]` dumps only the `Navigator` pane while this reads false, because one `ModalRoute` is enough to delete an earlier sibling. It is a declared *suspicion*, never a clean bill |
 | `setupSteps`, `setupFailed` | per run | did the walk reach the journey's starting line, and if not which gate step stopped it. Never merged into `steps`: setup is recorded, not scored |
-| `taps`, `networkCalls`, `appErrors`, `entrySettled` | per run | totals and the app's own complaints |
-| `conditions` | per run | `mode`, `deviceProfile`, `fontSource`, `renderer`, `targetPlatform`, plus `platformBrightness`, `textScaleFactor`, locale and the accessibility flags. `platform` is the HOST under `flutter test` (`macos`), which is correct and is why `targetPlatform` is a separate field. The report's scope clause quotes these; measured, the same build at `accessibility-extra-extra-extra-large` produces a byte-identical `viewport` while a product row leaves the tree, so nothing else in the artifact distinguishes the two runs |
+| `taps`, `drags`, `networkCalls`, `appErrors`, `entrySettled` | per run | totals and the app's own complaints. `networkCalls` is the stub's answers or `NetworkCut`'s refusals, and always `[]` under `flutter test` with no stub |
+| `entryReached`, `entryScreenshot` | per run | `false`: the first target never reached the tree within 12 s and nothing was walked; `entry.png` shows what the app showed. `null`: nothing to wait for |
+| `conditions` | per run | `mode`, `deviceProfile`, `fontSource`, `renderer`, `targetPlatform`, plus `platformBrightness`, `textScaleFactor`, locale and the accessibility flags — the ones `## Device` declared, else the test defaults — and `appErrorHandlerReplaced`, `httpOverridesReplacedByApp`. `platform` is the HOST under `flutter test` (`macos`), which is correct and is why `targetPlatform` is a separate field. The report's scope clause quotes these; measured, the same build at `accessibility-extra-extra-extra-large` produces a byte-identical `viewport` while a product row leaves the tree, so nothing else in the artifact distinguishes the two runs |
 
 **`screenSig` is not portable across platforms.** It is built from the screen's labels, and
 platform-adaptive widgets label themselves differently: measured on the same build and the same

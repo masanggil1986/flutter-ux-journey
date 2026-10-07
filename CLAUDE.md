@@ -59,12 +59,21 @@ git diff --cached | grep -inE 'token|secret|password|api[_-]?key|bearer|://' \
 
 ---
 
-## 현재 상태 (2026-09-28 갱신)
+## 현재 상태 (2026-10-07 갱신, v0.4.0)
 
 **기본 실행 경로는 `flutter test`다. 디바이스가 필요 없다.** 워커는 `ux_audit/ux_journey_test.dart`에
 살고, 바인딩을 모른다 — 스크린샷(`shot`)·산출물 위치(`publish`)·엔트리만 아는 사실(`runContext`)이
-전부 주입된다. `flutter drive` 경로는 `integration_test/ux_journey_drive.dart`로 남는다.
+전부 주입된다. `flutter drive` 경로는 `integration_test/ux_journey_drive.dart`로 남는다 —
+드라이버는 `test_driver/ux_journey_driver.dart`다. `test_driver/integration_test.dart`는 Flutter
+README가 모든 앱에 만들라고 하는 이름이라, 그 이름으로 쓰면 앱의 추적 중인 드라이버를 덮어쓴다.
 근거와 실측: `docs/widget-test-mode.md`, 계획: `docs/widget-test-mode-plan.md`.
+
+**네트워크 경계 — 절대 문장 금지.** 기본 모드(flutter_test의 400)·drive 엔트리의 `NetworkCut`·게이트
+스텁은 전부 **워크 isolate에서 만든 `dart:io` `HttpClient`**만 통제한다. WebSocket(`flutter test`
+하에서), raw socket(gRPC·MQTT), 다른 isolate, 네이티브 HTTP 클라이언트(`cupertino_http` 등), 네이티브
+SDK는 밖이고 실측으로 호스트 리스너에 닿았다(`networkCalls`는 `[]`). "아무것도 기기를 떠나지 않는다"
+류의 문장을 문서에 쓰지 않는다. SKILL.md 프리플라이트가 pubspec·코드를 검색해 워크 **전에** 사용자에게
+경고한다(검색 목록은 `references/network-stub.md` "What the stub cannot see").
 
 **`integration_test/`에 두면 안 된다** — `flutter test`가 디렉터리 *이름*만 보고 디바이스 러너로
 보낸다(`flutter_tools/commands/test.dart`의 `_kIntegrationTestDirectory`). 플래그는 없다.
@@ -78,7 +87,7 @@ git diff --cached | grep -inE 'token|secret|password|api[_-]?key|bearer|://' \
 
 - `conalyz` — 실재·MIT·파싱 가능은 맞지만 (a) 출력의 70%가 실측 없는 문자열 nag, (b) 이 프로젝트의
   핵심인 탭 타깃 룰이 1083파일에서 0건, (c) **매 실행마다 기계 지문을 서드파티 서버로 POST하고
-  옵트아웃해도 비콘을 한 번 쏜다.** → `package:analyzer` 직접 작성 60줄로 대체.
+  옵트아웃해도 비콘을 한 번 쏜다.** → `package:analyzer` 위에 직접 작성한 프로브로 대체.
 - `flutter_skill` — iOS 시뮬레이터에 실제로 붙긴 하지만 **존재하지 않는 위젯을 탭해도 `success:true`를
   반환한다.** 오라클 없는 워커는 가보지도 않은 화면의 UX 결함을 자신 있게 보고한다 — 무보고보다 나쁘다.
   → `integration_test` + `flutter_test`(둘 다 SDK 동봉)로 대체. `tester.tap`은 finder 불일치 시 throw하므로
@@ -135,10 +144,14 @@ v0.1은 데모 픽스처(iOS 시뮬)와 **실제 운영 앱(Android 에뮬레이
 
 **새로 열린 갭**
 
-- **폰트.** `flutter test`는 Ahem을 쓴다 — 실측 drift 최대 153.6px. `loadFonts`가 앱 선언 폰트
-  또는 SDK Roboto를 테마가 부르는 패밀리(`CupertinoSystemDisplay`/`Roboto`)에 등록해 중앙값
-  0.0px까지 줄인다. `FontLoader`는 **null family를 못 바꾼다** — 옛 `.SF UI *` 이름에 등록하면
-  조용히 아무 일도 안 일어난다. `conditions.fontSource`가 어느 쪽인지 밝힌다.
+- **폰트.** `flutter test`는 Ahem을 쓴다 — 실측 drift 최대 153.6px. `loadFonts`가 앱 선언 폰트를
+  올리고, SDK Roboto를 테마가 부르는 패밀리(`Roboto`/`CupertinoSystemDisplay`/`CupertinoSystemText`)에
+  **항상** 등록한다(앱이 직접 선언한 패밀리 위에는 안 덮는다) — 중앙값 0.0px. `FontLoader`는
+  **null family를 못 바꾼다** — 옛 `.SF UI *` 이름에 등록하면 조용히 아무 일도 안 일어난다.
+  `conditions.fontSource`의 `app`은 "앱 폰트 + 나머지는 SDK 대체"라서 정확값이 아니라 근사다.
+- **키보드.** `flutter test`의 테스트 키보드는 높이가 없다(`viewInsets` 0). 그래서 키보드가 떠 있는
+  동안 `keyboardInset`·`foldY`를 `null`로 기록한다 — `type` 스텝 뒤의 fold·배치·가림은 헤드리스에서
+  `not assessable`. 실기기/시뮬은 실제 inset을 읽는다.
 - **대비 수치.** 헤드리스 래스터라이저가 시뮬레이터와 다르다 — 같은 노드 1.36 vs 1.03(판정 동일,
   폰트 무관). 4.5 경계값은 뒤집힐 수 있다. `conditions.renderer`가 밝힌다.
 
@@ -160,8 +173,11 @@ v0.1은 데모 픽스처(iOS 시뮬)와 **실제 운영 앱(Android 에뮬레이
 **닫힌 갭 (2026-09-23, 이후 커밋들)**
 
 - **인증 관문 통과.** `references/network-stub.md`가 동작하는 `HttpOverrides` 템플릿을 싣는다.
-  자격증명 0개로 관문을 넘어 20화면·4스텝을 측정했다(`843b1fc`, `0b80918`). 남은 것은 아래의
-  "공개 재현"뿐 — 메커니즘 자체는 검증됐다.
+  자격증명 0개로 관문을 넘어 20화면·4스텝을 측정했다(`843b1fc`, `0b80918`).
+- **관문 통과의 공개 재현 (2026-09-28).** `lib/main_gated.dart`(`dart:io` `HttpClient` 게이트),
+  `integration_test/gate_stub.dart`, `example/walk-gated.json`(`networkCalls` `["/session",
+  "/auth/login"]`, setup 3/3 OK). `test/gated_gate_test.dart`가 `flutter test`에서 실제
+  `walkJourney`로 통과 경로와 막힌 경로를 둘 다 건다.
 - **영구 애니메이션.** 데모 픽스처가 "못 잡는다"던 결함은 이제 잡는다 —
   `walker_test.dart`가 `CircularProgressIndicator`로 "never quiets" 경로를 회귀 테스트한다.
 - **디바이스·테마 다양성 (2026-09-23 실측).** 데모 픽스처를 네 조건으로 돌렸다.
@@ -202,17 +218,23 @@ v0.1은 데모 픽스처(iOS 시뮬)와 **실제 운영 앱(Android 에뮬레이
 - **Android 타겟 widget-test 런.** iOS 타겟 한 조건만 걸었다.
 - **`pixel-6` / `ipad-13` 프리셋.** `CLAUDE.md`에 크기·dpr·foldY는 있지만 `contentTop`이 없다.
   각 1회 캘리브레이션 런 뒤에 승격한다. 그때까지 `## Device`는 명시 수치를 받는다.
+- **새 스텝 문법과 `## Device` 조건.** `scroll until`·`long-press`·`system back`·`expect no`와
+  `- textScale`/`- dark`/`- locale`/`- boldText`는 헤드리스 테스트로만 확인했다. 시뮬·에뮬 런 없음.
+  `scroll until`은 세로만, 플로팅 바 아래 리스트는 중심이 바에 가린 채 끝날 수 있다.
+- **`HttpOverrides` 고정(pin)의 drive 경로.** 앱이 `HttpOverrides.global`을 바꿔도 워크가 런치 시점의
+  것을 유지하는 동작은 헤드리스로만 확인했다.
 
 - **iOS 실기기.** 시뮬레이터 전용이다. (구 메모가 "데모 앱은 시뮬레이터 슬라이스 때문에 못 돈다"고
   적었는데 그건 **비공개 앱** 사정이고 공개 데모 앱엔 해당 없다 — 데모 앱은 시뮬에서 잘 돈다.)
-- **관문 통과의 공개 재현.** 메커니즘은 검증됐지만 공개 픽스처엔 HTTP 의존성이 없어
-  `## Setup`·스텁·`networkCalls`가 공개적으로 행사되지 않는다. 픽스처에 가짜 관문을 달지 말지는
-  **사람이 결정할 일** — 픽스처를 제품으로 키우는 쪽으로 넘어가는 선이다.
-- **`expected-findings.json`과의 대조.** 런 출력 대 `example/walk.json` 대조는 자동화됐지만
-  (`widget_walk_test.dart`), 그 위에 얹히는 finding 골든은 `recipe_sync_test.dart`가 **모양만**
-  검증한다. finding 수준의 diff는 아직 사람 손이다.
+- **`expected-findings.json`과의 대조.** 런 출력 대 `example/walk.json` 대조는 자동화됐고
+  (`widget_walk_test.dart`), 골든 대 `walk.json`의 수치 대조는 `golden_diff_test.dart`가 한다
+  (조건·viewport·스텝 필드·reach·entrySurface 순서·finding rect). **새로 쓴 리포트의 finding을
+  골든과 diff하는 것**은 아직 사람 손이다.
 - **어느 모드의 exit code도 오라클이 아니다.** 모든 스텝이 실패해도 0으로 끝난다.
-  판단은 반드시 `integration_response_data.json`의 `steps[].status`로.
+  판단은 반드시 `walk.json`(기본 모드는 `ux-audit-out/walk.json`, drive는
+  `build/integration_response_data.json`)의 `steps[].status`로.
+- **`expectedBefore` 오라클.** 기대값이 액션 전부터 화면에 있으면 `OK`여도 증명이 아니다 — 상태는
+  그대로 두고 리포트가 "not proven"으로 다룬다(사용자 결정). 픽스처의 step 1이 바로 그 경우다.
 
 ## 확정된 제품 결정 (2026-09-22)
 
@@ -241,9 +263,11 @@ v0.1은 데모 픽스처(iOS 시뮬)와 **실제 운영 앱(Android 에뮬레이
    저니 파일로도, 환경변수로도, 프롬프트로도. 감사 도구가 비밀번호를 묻는 건 피싱과 같은 모양이고,
    채택을 막고, 실계정을 리포트 파일 한 번의 실수 거리에 둔다. 그리고 **불필요하다** — 워크는 앱
    프로세스 *안에서* 돌기 때문에 앱이 무엇을 보는지 통제할 수 있다.
-   기본값은 **네트워크 차단 + 임의 데이터**로 실패 경로를 감사하는 것이고(설정 0, 모든 앱에 적용,
-   요청이 기기를 떠나지 않는다), 게이트를 넘어야 하면 `app.main()` 전에 `HttpOverrides.global`로
-   HTTP를 스텁한다(앱 소스 수정 0줄). 스텁이 틀리면 스텝이 실패하고 그렇다고 말한다 — 오라클은 그대로다.
+   기본값은 **네트워크 차단 + 임의 데이터**로 실패 경로를 감사하는 것이고(설정 0, 모든 앱에 적용),
+   게이트를 넘어야 하면 `app.main()` 전에 `HttpOverrides.global`로 HTTP를 스텁한다(앱 소스 수정 0줄).
+   **차단도 스텁도 워크 isolate의 `dart:io` `HttpClient`까지만이다** — WebSocket·raw socket·다른
+   isolate·네이티브 클라이언트·네이티브 SDK는 실서버에 닿을 수 있다. 그래서 워크 전에 pubspec·코드를
+   검색해 해당하면 사용자에게 먼저 말하고, 결과를 "오프라인"이라 부르지 않는다. 스텁이 틀리면 스텝이 실패하고 그렇다고 말한다 — 오라클은 그대로다.
    **빨간 스텝을 초록으로 만들려고 실계정을 끌어오지 않는다.**
 5. **에이전트 중립.** SKILL.md 표준 포맷. 특정 MCP 서버가 사용자 머신에 있다고 전제하지 않는다 —
    전제해야 한다면 스킬이 그 의존성을 명시적으로 선언해야 한다.
@@ -270,9 +294,9 @@ v0.1은 데모 픽스처(iOS 시뮬)와 **실제 운영 앱(Android 에뮬레이
 
 - 스크립트에 로직(분기·파싱·병합·채점)이 있으면 실행 가능한 체크를 하나 남긴다.
   단순 패스스루는 테스트 대상이 아니다.
-- 워커·픽스처를 건드렸으면 `cd example/ux_demo_app && flutter test` (실행해서 나온 수를 본다 —
-  이 줄에 숫자를 박으면 매번 낡는다), 정적 룰을 건드렸으면
-  `cd tools/astprobe && dart test` (7종). 둘 다 통과해야 한다.
+- 워커·픽스처를 건드렸으면 `cd example/ux_demo_app && flutter test`, 정적 룰을 건드렸으면
+  `cd tools/astprobe && dart test`. 둘 다 통과해야 한다 (실행해서 나온 수를 본다 — 문서에 테스트
+  수·줄 수를 박으면 매번 낡는다. 박지 않는다).
 - `references/walking.md`와 워커 구현은 `recipe_sync_test.dart`로 서로 고정돼 있다 — 레시피에 워커를
   다시 베껴 넣으면 실패한다. 포인터를 고치지, 사본을 만들지 않는다.
 - 저니 포맷(`# Goal` / `## Setup` / `## Device` / `## Steps` / `## Priorities`)을 바꿨으면 `example/journey.md`와

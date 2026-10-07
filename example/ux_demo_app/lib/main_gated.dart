@@ -15,7 +15,7 @@
 //                                               # the default audit mode —
 //                                               # offline, arbitrary data,
 //                                               # the failure path nobody tests.
-//   flutter drive --driver=test_driver/integration_test.dart \
+//   flutter drive --driver=test_driver/ux_journey_driver.dart \
 //     --target=integration_test/gated_journey_test.dart -d <device-id>
 //                                               # with the stub installed, the
 //                                               # gate opens and the journey
@@ -35,9 +35,10 @@ import 'main.dart' show ListScreen;
 void main() => runApp(const GatedDemoApp());
 
 /// The host is `*.example.invalid`, which RFC 2606 guarantees can never
-/// resolve. With no stub installed the app gets a DNS failure, never somebody
-/// else's server — an audit tool must not be able to reach production by
-/// accident.
+/// resolve. Under `flutter run` with no stub the app gets a DNS failure, never
+/// somebody else's server — an audit tool must not be able to reach production
+/// by accident. A walk never gets that far: `flutter test` answers 400, and the
+/// drive entry's NetworkCut refuses before any DNS lookup.
 const String _baseUrl = 'https://api.example.invalid';
 
 class GatedDemoApp extends StatelessWidget {
@@ -141,8 +142,10 @@ class _SignInScreenState extends State<SignInScreen> {
       // walk refused the whole setup phase: `ambiguous: 2 nodes match "Sign in"
       // — 1=Sign in @343x48, 2=Sign in @62x28`. The title and the button were
       // the same string, the selector would have had to guess which one a
-      // journey meant, and it declined to. Left as a comment rather than
-      // deleted, because a real app hits this constantly and the fix is a
+      // journey meant, and it declined to. The expectation no longer would —
+      // it only asks that "Sign in" be on screen — but `tap "Sign in"` still
+      // has two exact matches. Left as a comment rather than deleted, because
+      // a real app hits this constantly and the fix for a target is a
       // journey's `nth:` — not a cleverer matcher.
       appBar: AppBar(title: const Text('Welcome back')),
       body: Padding(

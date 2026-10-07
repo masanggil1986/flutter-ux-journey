@@ -34,12 +34,13 @@ body:
     attributes:
       label: Environment
       description: >-
-        Output of `flutter --version`, the device id from `flutter devices`, the `version` field of
-        `.claude-plugin/plugin.json`, and which agent you ran the skill under.
+        Output of `flutter --version`, the mode (`flutter test`, or `flutter drive` with the device
+        id from `flutter devices`), the `version` field of `.claude-plugin/plugin.json`, and which
+        agent you ran the skill under.
       placeholder: |
         Flutter: 3.47.2 stable / Dart 3.13.2
-        Device: iPhone SE (3rd generation) simulator, iOS 18.6
-        Plugin version: 0.3.1
+        Mode: flutter test (headless), `## Device` iphone-se
+        Plugin version: 0.4.0
         Host agent: Claude Code 2.x
     validations:
       required: true

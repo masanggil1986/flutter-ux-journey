@@ -41,18 +41,31 @@ meant to fail; the run still exits 0, so read `steps[].status`, never `$?`.
 On a device instead, for an app whose plugins or platform views need one:
 
 ```bash
-flutter drive --driver=test_driver/integration_test.dart \
+flutter drive --driver=test_driver/ux_journey_driver.dart \
               --target=integration_test/ux_journey_drive.dart -d <device-id>
 ```
 
-`flutter test` holds six suites, and between them they pin every part of the walk that was measured
-wrong at least once: `walker_test.dart` (rect maths, the fold line, screen signatures, route state,
-the dead-tap oracle, the settle bound), `fixture_test.dart` (the six defects are still seeded),
-`recipe_sync_test.dart` (the reference docs and both journey files still describe the walker that
-exists), `golden_diff_test.dart` ([`../expected-findings.json`](../expected-findings.json) still
-agrees with [`../walk.json`](../walk.json), and with a fresh run when one has left an artifact
-behind) and `gated_gate_test.dart` (the gate's failure paths: a wrong route table, a stub that
-answers everything, no stub at all).
+`flutter test` runs every suite under `test/`, and between them they pin the parts of the walk that
+were measured wrong at least once:
+
+- `walker_test.dart` — rect maths, the fold line, screen signatures, route state, the dead-tap
+  oracle, the settle bound, the entry wait, error collection, the network pin, redaction.
+- `walker_steps_test.dart` — `scroll until`, `long-press`, `system back` and `expect no`, each on a
+  small app built to make it fail the obvious way.
+- `walker_device_test.dart` — the `## Device` conditions (text scale, dark, locale, bold text).
+- `walker_fonts_test.dart` — `loadFonts`, in a process of its own because font registration
+  persists per process.
+- `widget_walk_test.dart` — the headless walk against the simulator run in
+  [`../walk.json`](../walk.json): step outcomes, errors, `dispatched`, `semanticsUnchanged`, screen
+  signatures, surface counts and guideline verdicts, with rects bounded rather than equal.
+- `fixture_test.dart` — the six defects are still seeded.
+- `recipe_sync_test.dart` — the reference docs, both journey files and the stub template still
+  describe the code that exists.
+- `golden_diff_test.dart` — [`../expected-findings.json`](../expected-findings.json) still agrees
+  with [`../walk.json`](../walk.json), and with a fresh drive run when one has left an artifact
+  behind.
+- `gated_gate_test.dart` — the gate: a walk through the stub, a walk the gate stops, a wrong route
+  table, a stub that answers everything, no stub at all, and the drive entry's network cut.
 
 The drive writes its walk to `build/integration_response_data.json` and its screenshots to
 `ux-audit-out/screens/`. Both are gitignored; the four PNGs pinned for the public example live in
@@ -64,9 +77,10 @@ The journey being walked is [`../journey.md`](../journey.md); the report it prod
 Steps 2 and 3 are **expected to fail** — that is the fixture working. `flutter drive` exits 0 either
 way, so read `steps[].status` in `build/integration_response_data.json`, never `$?`.
 
-Verified on an iPhone SE (3rd gen) simulator and an Android emulator (API 36). On Android the walk
-records `screenshot: null` on every step by design; capture from the host with
-`adb exec-out screencap -p` instead.
+The drive path is verified on an iPhone SE (3rd gen) simulator and an Android emulator (API 36).
+Under drive on Android the walk records `screenshot: null` on every step by design; capture the end
+state from the host with `adb exec-out screencap -p` instead. The headless walk above writes PNGs
+for any target platform.
 
 ## The gated entrypoint
 
@@ -81,9 +95,13 @@ publicly exercised: the ungated fixture has no HTTP layer at all, so the one mec
 audit past a real app's front door had only ever been verified in private.
 
 ```bash
-flutter drive --driver=test_driver/integration_test.dart \
+flutter drive --driver=test_driver/ux_journey_driver.dart \
               --target=integration_test/gated_journey_test.dart -d <device-id>
 ```
+
+That entry is drive-only: it builds the drive binding and publishes into `reportData`, so under
+`flutter test` it passes green and writes nothing. Headless, the same gate is walked by
+`test/gated_gate_test.dart` through the real `walkJourney`.
 
 Measured on an iPhone SE (3rd gen) simulator, iOS 18.6: setup 3/3 OK,
 `networkCalls: ["/session", "/auth/login"]` in request order, `taps: 2`, and the same three screen
@@ -102,9 +120,10 @@ Its first run found two traps that the ungated fixture could not reach:
 
 - The AppBar title and the primary button both read "Sign in", and the selector refused the whole
   setup phase: `ambiguous: 2 nodes match "Sign in"`. The fixture's title is "Welcome back" now,
-  with the reason left at the call site, because a real app hits this constantly and the fix there
-  is a journey's `nth:`, not a cleverer matcher.
+  with the reason left at the call site. Today only half of that would fail: an expectation is
+  asked presence, so `expect "Sign in"` passes with two on screen, but `tap "Sign in"` still has two
+  exact matches, and the fix for a target is the journey's `nth:`, not a cleverer matcher.
 - The `type` step's text landed in the artifact. `obscureText` keeps a value out of the semantics
   tree, but the walk records a `type` step's text from the journey file, so the first gated run
-  wrote the password into the walk data. The walker now asks the field and records
-  `<redacted 19 chars: the field hides its own value>`.
+  wrote the password into the walk data. The walker now treats a `type` step as hidden until it sees
+  the field show its value, and records `<redacted 19 chars: the field hides its own value>`.

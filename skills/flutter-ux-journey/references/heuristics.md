@@ -117,9 +117,9 @@ Static rules:
 | Static rule | Check | Note |
 |---|---|---|
 | `GestureDetector`/`InkWell` with `onTap`, no semantics | `RECALL-TAX` | confirm against the walk's `tappable` nodes |
-| `IconButton`/`Icon` with no `tooltip` and no `semanticLabel` | `RECALL-TAX` | |
-| `Image` with no `semanticLabel` | `RECALL-TAX` | 1 unless the image carries meaning the journey needs |
-| unlabeled `TextField` | `FORM-FRICTION` | |
+| `IconButton`/`Icon` with no `tooltip` and no `semanticLabel` | `RECALL-TAX` | an `Icon` in a slot of a control that names itself, or under a tap owner the first rule reports, is decorative and not listed |
+| `Image` with no `semanticLabel` | `RECALL-TAX` | 1 unless the image carries meaning the journey needs; `excludeFromSemantics: true` and `ExcludeSemantics` opt out |
+| unlabeled `TextField` / `TextFormField` | `FORM-FRICTION` | |
 
 ## Measurement predicates
 
@@ -131,15 +131,16 @@ and say so.
 
 | Check | Predicate (all terms come from the walk) | Layer it earns |
 |---|---|---|
-| `DEAD-END` | `surface.canPop == false` **and** `surface.tappableCount == 0` **and** `surface.modalOpen == false` **and** the screen is not the journey's entry. When `surface.navigatorCount > 1`, `canPop` is an answer about one navigator among several — require `VISUAL` before firing | `RUNTIME` |
-| `FAKE-AFFORDANCE` *(dead tap — looks tappable, no tap action)* | `dispatched == true` **and** `semanticsUnchanged == true` **and** a second layer agrees (below) | `RUNTIME` + `VISUAL` |
+| `DEAD-END` | `surface.canPop == false` **and** `surface.tappableCount == 0` **and** `surface.modalOpen == false` **and** the screen is not the journey's entry. When `surface.navigatorCount > 1`, `canPop` is an answer about one navigator among several — require `VISUAL` before firing. A `system back` step with `popHandled == false` on that screen is the `canPop` term measured through the platform's own back button: nothing in the app took the pop, so on Android the app closes | `RUNTIME` |
+| `FAKE-AFFORDANCE` *(dead tap — looks tappable, no tap action)* | a `tap` or `long-press` step with `dispatched == true` **and** `centreHitsHandler == true` **and** `semanticsUnchanged == true` **and** a second layer agrees (below), on a screen with no text that changes on its own | `RUNTIME` + `VISUAL` |
 | `FAKE-AFFORDANCE` *(silent control — the reverse: a tap action with no role)* | the node has a tap action but no role flag (`isButton`/`isLink`), **and** `VISUAL` agrees it does not read as a control. The dead-tap terms deliberately do not apply: the tap works, so `semanticsUnchanged` is false by construction, and gating this mode on them makes the "or the reverse" half of the check unfireable. `InkWell` alone is not the finding — without the `VISUAL` half this fires on every Material app | `RUNTIME` + `VISUAL` |
 | `TOUCH-TARGET` *(effective-area variant only)* | `effectivePct < 1.0` **or** `centreCovered == true`, on a node the journey needs. The ordinary size variant is not gated — it fires from a guideline `reason` like any other measurement | `RUNTIME` + `VISUAL` |
 | `HIERARCHY-FLAT` | the node the journey's own step taps is `aboveFold == false`, **or** tap targets that appear in no declared priority precede it in reading order | `RUNTIME` |
-| `STATE-GAP` | the walk establishes a state (text typed, a filter chosen, a scroll performed) whose `screenSig` is S2, leaves, and returns to a step whose `screenSig` equals the PRE-state signature S1 — i.e. S2 never recurs. Equal signature no longer *implies* equal state was lost; it implies the state itself is gone | `RUNTIME` |
+| `STATE-GAP` | the walk establishes a state (text typed, a filter chosen, a `scroll until` performed) whose `screenSig` is S2, leaves, and returns to a step whose `screenSig` equals the PRE-state signature S1 — i.e. S2 never recurs. Equal signature no longer *implies* equal state was lost; it implies the state itself is gone. Not assessable on a screen whose text changes on its own, where no two signatures are equal | `RUNTIME` |
 
-`aboveFold` means the node **starts** in the visible band (`top >= 0 && top < foldY`) — the user
-can see it without scrolling. `fullyVisible` is the stricter question and is a separate field:
+`aboveFold` means the node is on screen and **starts** in the visible band
+(`onScreen && top >= 0 && top < foldY`) — the user can see it without scrolling. `onScreen` already
+excludes a node clipped to nothing (`isHidden`), such as a row behind a bottom bar. `fullyVisible` is the stricter question and is a separate field:
 requiring the whole rect inside the fold reads *false* for every bottom-pinned CTA and every hero
 taller than the fold, which is most apps on any device with a home indicator, and `aboveFold` is
 the only term in HIERARCHY-FLAT's first clause. Measured both ways on the same widget: a 88 lpx
@@ -169,8 +170,8 @@ both fire on nearly every real app:
   375.0 × 667.0 lpx) that is 125,062.5 lpx², and the largest tappable there, a product row at
   `[16.0, 239.0, 343.0, 108.0]` = 37,044 lpx², is nowhere near it and is named besides. The
   fixture records `coverNodes: 0` on all four steps, so **no committed run exercises this
-  exclusion**: the threshold above is read off the walker's own condition, not off a run that hit
-  it. `surface.tappableCount` already excludes these; `surface.coverNodes` says how many were
+  exclusion**: the threshold above is read off the walker's own condition, and
+  `test/walker_test.dart` pins it on a constructed form screen rather than on a run that hit it. `surface.tappableCount` already excludes these; `surface.coverNodes` says how many were
   excluded.
 - **Nodes with `onScreen == false`.** A scrollable builds rows past the viewport into its cache
   extent, and they arrive in the dump with rects to match. Counting them inflates every surface
@@ -195,23 +196,45 @@ both fire on nearly every real app:
    ship a threshold the literature already killed.
 2. **Taps are "on this journey", never "the minimum".** A minimum needs paths nobody declared, which
    is a crawl — an explicit non-goal. Write `3 taps on the declared path`, never `3 taps deep`.
-3. **A dead tap needs two layers.** `semanticsUnchanged` is necessary and not sufficient: a control
-   that only repaints — a selection chip, a tab highlight, a toggled icon colour — is byte-identical
-   in semantics to one wired to nothing. Measured in the fixture's `walker_test.dart`. Confirm with
-   the screenshots (`cmp -s screens/step_N.png screens/step_N+1.png`) before raising
-   a **dead-tap** `FAKE-AFFORDANCE`. This rule is about that mode only — the silent-control mode is
-   a working tap with no role, and none of these terms apply to it. **Identical semantics with differing pixels is its own finding**: a state
-   change invisible to assistive technology.
+3. **A dead tap needs two layers.** `semanticsUnchanged` is necessary and not sufficient: a custom
+   control that only repaints — a highlight drawn by hand, a toggled icon colour — is byte-identical
+   in semantics to one wired to nothing. (A Material checkbox, switch, chip or tab is not: it sets a
+   state flag — `isChecked`, `isToggled`, `isSelected` — and the signature reads it.) Measured in the
+   fixture's `walker_test.dart`. Confirm with the screenshots
+   (`cmp -s screens/step_N.png screens/step_N+1.png`) before raising a **dead-tap**
+   `FAKE-AFFORDANCE`. It applies to `tap` and `long-press` steps only — a `scroll until`, `type` or
+   `back` step is not a press on a control — and needs `centreHitsHandler == true`: `false` means
+   the press landed in dead space between a control's parts, which is a geometry observation, not
+   a dead control. On a screen whose text changes on its own (a countdown, a clock), the signature
+   moves between any two dumps, so `semanticsUnchanged: false` proves nothing and the check is
+   `not assessable` there. This rule is about the dead-tap mode only — the silent-control mode is a
+   working tap with no role, and none of these terms apply to it. **Identical semantics with
+   differing pixels is its own finding**: a state change invisible to assistive technology.
 4. **`semanticsUnchanged` is null unless the gesture went out.** A step that fails while *resolving*
    its target never touched the app. Read `dispatched` first, or every selector miss reads as a dead
    tap — measured on the fixture's step 3.
 5. **`effectivePct` is geometry, not a hit test.** The semantics tree carries no opacity and no
    `IgnorePointer`, so an overlapping decorative node counts and a transparent one does too. It
-   needs `VISUAL` confirmation before it becomes a finding, and it is void on any step where
-   `settled == false`.
+   needs `VISUAL` confirmation before it becomes a finding, and it is void on a dump taken on a
+   screen that had not settled. Each step dumps BEFORE its action and settles AFTER it, so step N's
+   dump is void when step N−1's `settled` is false (step 1's when `entrySettled` is false); the
+   outcome entry settles first, so its own `settled` speaks for it. `settled: null` (nothing was
+   dispatched) voids nothing.
 6. **A blank fold blanks the column.** When `viewport.isTestDefault` is true the run measured
    Flutter's hardcoded 800×600 @ 3.0 test surface, not a device: `foldY` is null, `aboveFold` is
-   null, and every fold-dependent sentence is `not measurable here`.
+   null, and every fold-dependent sentence is `not measurable here`. The same holds on any dump whose
+   `keyboardInset` is null — a headless test keyboard was up and nothing measured its height.
+7. **An `OK` the screen already satisfied proves nothing.** When a step's `expectedBefore` is true,
+   its expectation held before the action (for `expect no`, the text was already gone), so the
+   oracle passing says nothing about what the action did. The status stays `OK`; the report marks
+   the step **not proven**, never counts it as evidence that the goal was reached, and lists it under
+   Not Assessable. A dead or wrong action on such a step still shows in `semanticsUnchanged` and the
+   PNGs — judge it from those, not from the status.
+8. **A failed network image is the walk, not the app.** Under the cut every `Image.network` fails
+   with `HTTP request failed, statusCode: 400, <url>`, under the stub with
+   `Exception: Invalid image data`, and a debug build paints that text in Flutter's red image-error
+   box — in the dump, in the PNG and in `appErrors`. A release user never sees it. Never raise
+   `JARGON-LEAK` or `ERROR-VAGUE` on a label that equals an `appErrors` entry.
 
 ## Placement vs priority — the only honest route to "this is buried"
 
@@ -270,6 +293,8 @@ Run them over the whole walk after the per-step checks:
 - **Back recovery** — after a back step, is the user where they were? Scroll position, filters,
   entered text, selection. Lost state is `STATE-GAP`.
 - **Dead end** — does any visited screen offer no forward and no return? `DEAD-END`, usually 4.
+  A `system back` the app did not handle (`popHandled: false`) on a screen past the entry is the
+  same question asked through the platform button.
 - **Destructive without confirmation** — an irreversible action reachable in one tap, with no
   confirmation and no undo. `DARK-PATTERN` or `TRUST-GAP`, usually 4.
 - **Drift** — the same concept named or styled differently across steps. `PATTERN-DRIFT`.
@@ -338,14 +363,16 @@ about. Recorded here because the next reader of the semantics flag list will thi
 | Use `namesRoute` as the screen's name | Rides on the `AppBar` title and nothing else, keyed to `defaultTargetPlatform`: **zero nodes on iOS, on every screen**, and zero on any `AppBar`-less screen. On modals it returns a localized generic ("Alert"), never the dialog's title. |
 | A content-free structure signature (drop labels, keep quantised rects) to detect "the same screen template" | **Text width is content.** "Walnut Side Table" is 376 dp and "Oak Side Table" is 312 dp, and a longer blurb wraps 24 dp → 40 dp, so two instances of one screen differ at every grid from 1 dp to 64 dp. Only dropping rects entirely collides them — and nothing consumes that today. |
 | `find.byType(ModalBarrier)` to detect an open dialog | **Every `ModalRoute` mounts a barrier**, so this reads true on every ordinary screen. |
-| …so narrow it to `AnimatedModalBarrier` | Misses the whole `PopupRoute` family: `_PopupMenuRoute` and `_DropdownRoute` return a null `barrierColor` and build the plain barrier, while `canPop` flips to true. Measured: `popup menu open → canPop true, modalOpen false`. The probe that works is the barrier's **`dismissible`** flag — a page route's is false, a transient surface's is true. |
+| …so narrow it to `AnimatedModalBarrier` | Misses the whole `PopupRoute` family: `_PopupMenuRoute` and `_DropdownRoute` return a null `barrierColor` and build the plain barrier, while `canPop` flips to true. Measured: `popup menu open → canPop true, modalOpen false`. |
+| …so key it on the barrier's `dismissible` flag alone | Misses every dialog the user must answer: `showCupertinoDialog`'s default, `barrierDismissible: false`, a non-dismissible sheet. What works is dismissible **or** carrying a semantics label — every SDK transient route names its barrier, no page route does. Not the colour: `CupertinoPageRoute` has one. |
 | `tester.firstState<NavigatorState>(...).canPop()` | Returns the **root** navigator. In any tab-shell app the root holds only the shell page, so it reads false while the user is pages deep inside a branch. |
-| …so resolve the navigator from the deepest `Scaffold` | Not the same thing. In the common shell-owns-the-Scaffold shape that Scaffold sits **above** the per-tab Navigators, so the probe lands back on the root and reports the same false — measured — while claiming to be authoritative. It also answers null on any screen with no Scaffold. Read the deepest onstage `Navigator` directly. |
+| …so resolve the navigator from the deepest `Scaffold` | Not the same thing. In the common shell-owns-the-Scaffold shape that Scaffold sits **above** the per-tab Navigators, so the probe lands back on the root and reports the same false — measured — while claiming to be authoritative. It also answers null on any screen with no Scaffold. Read the onstage `Navigator`s directly: the last in element order is the deepest when they nest, and a later SIBLING (a mini-player, a side panel) when they do not — which is why `navigatorCount` is recorded beside `canPop`. |
 | Refuse to tap a target whose centre is covered | `effectivePct`/`centreCovered` are geometry, not a hit test, so this fails a step — and voids the audit — on overlays that block nothing. Measured: a badge whose padded layout box swallows a button's centre leaves the button tappable at 94% free area. Tap anyway; gate the FINDING on `VISUAL`, not the gesture. |
 | Tap whatever the selector resolved | A scrollable's cache extent puts rows above and below the viewport into the dump. Tapping one dispatches into nothing: `dispatched` records true, the semantics do not change, the screenshots are identical — so a working list row passes the FAKE-AFFORDANCE predicate **and** its two-layer confirmation. Refuse only what is genuinely off the surface, and say that is what happened. |
 | A sorted multiset of labels as the screen signature | Sorting throws order away, so every sort / reorder / move-up control in existence reports `semanticsUnchanged: true` — and then trips the finding reserved for a state change assistive tech cannot see. Prefix each part with its **rank in reading order** before sorting — not with a quantised position: a pixel bucket puts its edge on Material's own 8-dp grid, where a 0.02 lpx relayout flips the hash. Measured; see `screenSignature` in the fixture's `ux_journey_test.dart`. |
 | Bound the settle loop with a `Stopwatch` | `tester.pump(tick)` advances FAKE time while a Stopwatch measures real time, so under `flutter test` the loop simulates minutes inside one real second. Bound by the pump count as well. |
-| Stop settling when the frame queue is quiet | An awaiting Future schedules no frames, so a screen rendering an empty state while a request is in flight reports settled on the first pump. The step then fails for the wrong reason while recording `settled: true`, which is also the flag that is supposed to void its measurements. Poll the step's own expectation inside the bound instead. |
+| Stop settling when the frame queue is quiet | An awaiting Future schedules no frames, so a screen rendering an empty state while a request is in flight reports settled on the first pump. The step then fails for the wrong reason while recording `settled: true`, which is also the flag that vouches for the next dump. Poll the step's own expectation inside the bound instead. |
+| Resolve the expectation the way the target is resolved | An expectation that appears twice — a "Sign in" title over a "Sign in" button — failed as ambiguous after burning the whole settle bound, and `nth`, the error's own remedy, never reached it. The oracle asks presence; only the target is asked identity. |
 | Count a tap when the walker issues it | `_tapTarget` throws on an unresolvable or off-surface target, so counting before it lands counts gestures ATTEMPTED. The report's headline reach cost is then wrong in the direction that flatters the app. |
 | `tester.view.physicalSize / devicePixelRatio` as the viewport | That is the whole display, including the status bar, the notch and the home indicator, and it does not shrink for the keyboard. Subtract `padding` and `viewInsets`. In a plain `flutter test` it is Flutter's hardcoded 800×600 @ 3.0 and means nothing at all. |
 | `ModalRoute.of(context)` for the route name | Registers an **inherited dependency** on the audited app's element, so reading it can make the app rebuild. An audit must not perturb what it measures. `Navigator.maybeOf` resolves through `findAncestorStateOfType` and is safe. |

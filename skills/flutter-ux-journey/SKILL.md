@@ -26,7 +26,7 @@ Three rules hold for the whole run:
 - The Flutter app's project root.
 - Nothing else for the default mode. Only the `flutter drive` fallback needs a device id from
   `flutter devices` — a booted iOS simulator or Android emulator. Measurement is verified on both;
-  see the frontmatter for the one difference (screenshots).
+  the one difference, in-test screenshots on Android, is in step [3].
 
 ### journey.md format
 
@@ -35,7 +35,7 @@ Three rules hold for the whole run:
 See that a failed sign-in tells the user what to do next. Done = the message is on screen.
 
 ## Setup (excluded from measurement and scoring)
-1. dismiss the notification permission dialog
+1. tap "Skip" — expect "Sign in"
 
 ## Device (optional)
 `iphone-se`
@@ -56,9 +56,11 @@ See that a failed sign-in tells the user what to do next. Done = the message is 
 2. recover a forgotten password
 ```
 
-`## Setup` is mandatory when the app gates the journey (a permission dialog, an onboarding sheet,
-a PIN pad). It is excluded from measurement and from scoring. Without it, a run that dies in setup
-gets reported as a short successful journey. The heading is matched on the word `Setup`; the
+`## Setup` is mandatory when the app gates the journey (an onboarding sheet, a sign-in form, a PIN
+pad the app draws itself). It is excluded from measurement and from scoring. Without it, a run that
+dies in setup gets reported as a short successful journey. An OS permission dialog cannot be a setup
+step: under `flutter test` there is no OS to show one, and under `flutter drive` it is native UI
+outside the semantics tree the walk reads. The heading is matched on the word `Setup`; the
 parenthetical above is a reminder to whoever reads the file, so a bare `## Setup` is the same
 heading. Nothing parses this file but the agent reading it — the lists it produces are the ones it
 generates into the walker.
@@ -73,9 +75,20 @@ it fails when nothing in the app takes the pop, because on Android that closes t
 `long-press` resolves and refuses exactly as `tap` does and counts as reach the same way.
 `scroll until "X"` drags the vertical list that holds X, at most 20 times, until X can be tapped
 where it stands; it reaches a declared target and is never a crawl, and its drags are recorded
-apart from taps. Add `nth: N` (1-based) to a step whose label
-legitimately matches more than one node; the walker's ambiguity error lists the candidates and
-their sizes so one re-run is enough.
+apart from taps. It is vertical only, and a row drawn under a floating bar can still end with its
+centre under the bar. A `tap` on a target wholly below the fold, with no `scroll until` before it,
+FAILS with "cannot reach it without scrolling": that is the journey's missing step, a tool limit,
+not a finding about the app. Add `nth: N` (1-based) to a step whose TARGET legitimately matches
+more than one node; the walker's ambiguity error lists the candidates and their sizes so one re-run
+is enough. The expectation needs no `nth`: it only has to be on screen, once or more. `scroll
+until`, `long-press`, `system back` and `expect no` are verified headless only, not yet on a device.
+
+**Choose an expectation that is not on the screen the step starts from.** The oracle is what turns
+a dispatch into a result, but only if the action is what put the text there. A price that a list
+row already shows, a title that persists across screens, a nav label: each passes before the tap
+lands. The walk records `expectedBefore` per step, and when it is true the step stays `OK` but
+proves nothing about its action — the report treats it as **not proven** (see
+`references/report-format.md`).
 
 `## Device` names the screen (`iphone-se`, or explicit logical-px numbers) and may add one
 condition per line: `- textScale 3.0`, `- dark`, `- locale ko-KR`, `- boldText`. Leave a line out
@@ -93,29 +106,59 @@ declaration the report says `not declared` rather than guessing. See
 **Do not ask the user for a username, password, PIN, or token. Not in the journey file, not in an
 environment variable, not in a prompt.** An audit tool that asks for a password is a phishing
 shape, it blocks adoption, and it puts a real account one bug away from a report file. It is also
-unnecessary — the walk runs *inside* the app process, so it can control what the app sees.
+unnecessary — the walk runs *inside* the app process, so it can control what the app's
+`HttpClient` gets back.
 
-Two mechanisms, in order of preference:
+Two mechanisms, in order of preference, and one boundary both share.
 
-### 1. Offline + arbitrary data (default; no setup, works on any app)
+**The boundary.** The walk controls the `dart:io` `HttpClient` that the app builds in the walk's
+isolate — which is what Dio, `package:http`'s `IOClient` and `NetworkImage` sit on. Nothing else.
+WebSockets (under `flutter test`), raw sockets (gRPC, MQTT), other isolates (`Isolate.run`,
+`compute`), native HTTP clients (`cupertino_http`, `cronet_http`, `native_dio_adapter`) and native
+plugin SDKs (Firebase Auth and the like) go round it and can reach the real backend. WebSockets, raw
+sockets, other isolates and `cupertino_http` were measured doing so with `networkCalls` reading
+`[]`; the rest are outside by construction. Never
+tell anyone a run was offline without the pre-walk check in step
+[0]; the list and the search are in `references/network-stub.md` → *What the stub cannot see*.
 
-Cut the device off the network, type obviously-fake values, and audit what the app does when the
-call fails. This needs no credentials, no stub, and **no request ever leaves the device** — an
-audit tool must never throw sign-in attempts at production.
+### 1. Network cut + arbitrary data (default; no setup, works on any app)
 
-In the default mode this needs no command at all: `flutter test` installs its own `HttpOverrides`
-and answers every request with an empty 400, so nothing leaves the host and there is no device
-setting to put back. The commands below are for the `flutter drive` fallback.
+Type obviously-fake values and audit what the app does when its requests fail. This needs no
+credentials and no stub, and sends no sign-in attempt to production through the app's `HttpClient`.
+
+The cut is already in place in both modes. The walk pins whichever override is current at launch
+for everything it runs, so an app whose `main` assigns its own `HttpOverrides.global` does not swap
+in a real client; the walk records `conditions.httpOverridesReplacedByApp: true` when one tried.
+Code the app runs inside its own `HttpOverrides.runZoned` keeps its own, and the pin is verified
+headless, not yet on a device.
+
+- **`flutter test` (default):** flutter_test installs its own `HttpOverrides` and answers every
+  request with an empty 400. Nothing to run, nothing to put back. `networkCalls` stays `[]` — that
+  mock records nothing, so an empty list here does not mean "no requests".
+- **`flutter drive` (fallback):** the drive entry installs `NetworkCut`, the real `HttpClient` with a
+  `connectionFactory` that records the path and fails with `SocketException` before any DNS lookup
+  or socket, as airplane mode would. `networkCalls` lists the paths it refused.
+
+On an **Android emulator** under `flutter drive` you can go further and cut the device too, which is
+the only posture that also stops the traffic listed above:
 
 ```bash
-adb shell cmd connectivity airplane-mode enable      # Android
-# iOS simulator: it shares the host network; use the stub below instead.
+adb shell cmd connectivity airplane-mode enable      # Android emulator only
 ...run the walk...
 adb shell cmd connectivity airplane-mode disable     # always restore
 ```
 
 Airplane mode is a change to somebody's device, not to the audit. Restore it in the same turn,
-before writing the report, whether the walk passed, failed or threw.
+before writing the report, whether the walk passed, failed or threw. The iOS simulator shares the
+host's network and has no equivalent: there `NetworkCut` is the only cut, and it covers the
+`HttpClient` alone.
+
+**Start a `flutter drive` run from a clean install.** `flutter drive` installs over the existing app
+and keeps its data, so a debug build that someone signed into earlier walks THEIR account — real
+labels in the dump and the screenshots, real taps against production. Clear it first:
+`adb shell pm clear <applicationId>` on Android, `xcrun simctl uninstall <udid> <bundleId>` (or a
+fresh simulator) on iOS. Drive uninstalls the app when it finishes, so this matters for the first
+run on a device that already had the app.
 
 This is not a lesser fallback. The failure path — wrong password, no signal, server down — is the
 path every real user eventually hits, and it is the one nobody tests. Measured on a production app,
@@ -124,26 +167,41 @@ this alone surfaced a severity-3 defect that the happy path cannot show.
 ### 2. A network stub, authored from the app's own models (to walk past a gate)
 
 To walk *past* sign-in, stub the HTTP layer from inside the test, before `app.main()`. The app is
-not modified: `HttpOverrides.global` intercepts `dart:io` `HttpClient`, which is what Dio, `http`,
-and most clients sit on.
+not modified: `HttpOverrides.global` replaces the `HttpClient` described above, and the boundary
+above is the stub's boundary too.
 
-`references/network-stub.md` carries the working template and the two mistakes that each cost a
-run. Only the route table is app-specific: stub the sign-in endpoint, run, read `networkCalls` and
+`references/network-stub.md` carries the working template and the mistakes that each cost a run.
+The route table is the app-specific part: stub the sign-in endpoint, run, read `networkCalls` and
 the failing step, add what it names, repeat. Three or four rounds is typical — that loop is faster
-than reading the app's API surface up front.
+than reading the app's API surface up front. Routing matches a substring of the request PATH and
+ignores method, query and body, so a single-endpoint GraphQL or JSON-RPC app gets one answer for
+every operation; this template cannot stub it per operation.
 
-There is a worked instance to copy rather than re-derive: `example/journey-gated.md` walked against
-`example/ux_demo_app/lib/main_gated.dart` with `integration_test/gate_stub.dart`, measured on a
-simulator — `networkCalls: ["/session", "/auth/login"]`, setup 3/3 OK, and a journey byte-identical
-to the ungated run's. Its walker, `integration_test/gated_journey_test.dart`, is 105 lines against
-the first walker's 1155, and 67 of those are code — nearly all of it the two step lists. That is
-because `walkJourney` is public: a second journey imports the walk from the first rather than
-copying it. (The public copy is named `gate_stub.dart` because `net_stub.dart` is the generated
-name and is gitignored.)
+Where the stub goes depends on the entry that runs:
 
-Run it with the device offline (`adb shell cmd connectivity airplane-mode enable`). If a response
-arrives at all, the stub is intercepting — a real request could not have succeeded. That is also
-the guarantee that the audit never touches production.
+- **Default mode:** in the generated `ux_audit/ux_journey_test.dart`'s `main`, put
+  `HttpOverrides.global = StubHttpOverrides();` before `walkJourney`, and pass
+  `networkCalls: stubCalls`. The stub file is `ux_audit/net_stub.dart`.
+- **Drive fallback:** in `integration_test/ux_journey_drive.dart`, replace the `NetworkCut` line with
+  the stub **and** change `networkCalls: calls` to `networkCalls: stubCalls`. The walker's own
+  `main` never runs under drive.
+
+There is a worked instance to copy rather than re-derive: `example/journey-gated.md` against
+`example/ux_demo_app/lib/main_gated.dart`, with the stub in `integration_test/gate_stub.dart`.
+Its walker, `integration_test/gated_journey_test.dart`, is a **`flutter drive` fallback** entry —
+it builds the drive binding and publishes into `reportData`, so run under `flutter test` it passes
+green and writes nothing. Measured on a simulator: `networkCalls: ["/session", "/auth/login"]`,
+setup 3/3 OK, and the same three journey screen signatures as the ungated run. The same gate is
+walked headless by `test/gated_gate_test.dart`, through the real `walkJourney`, once through the
+stub and once with a route table that refuses the sign-in. A second journey can be this small
+because `walkJourney` is public: it imports the walk from the first rather than copying it. (The
+fixture names its stub `gate_stub.dart` because this repo gitignores `net_stub.dart`; in the
+audited app the stub goes in `ux_audit/`, which the `.gitignore` lines below cover.)
+
+To check that the stub is what answered, read `networkCalls` and the setup steps: a stub installed
+in a `main` that never ran shows as a red setup step. On an Android emulator under drive, airplane
+mode turns that into proof — a response arriving at all means the stub answered, because a real
+request could not have.
 
 If the stub is wrong, the journey step fails and says so — the oracle still holds. Never reach for
 a real account to make a red step go green.
@@ -166,15 +224,16 @@ to the audited app's `.gitignore`:
 ux-audit-out/
 ux_audit/
 integration_test/ux_journey_drive.dart
-test_driver/integration_test.dart
+test_driver/ux_journey_driver.dart
 ```
 
 The default mode writes ONE file into the app — `ux_audit/ux_journey_test.dart` — plus
 `ux_audit/net_stub.dart` when the journey has a gate to walk past. The other two exist only when
-the run falls back to `flutter drive`. Together they are everything a run writes into the app. It needs no fifth line: the walk's JSON lands
-in `build/`, which Flutter's own `.gitignore` template already covers, and the screenshots go to
-`ux-audit-out/screens/` — never to `screenshots/`, which is a conventionally tracked directory in a
-Flutter app and not ours to claim.
+the run falls back to `flutter drive`. Together they are everything a run writes into the app. It
+needs no fifth line: the default walk writes `ux-audit-out/walk.json` itself, the drive fallback's
+JSON lands in `build/`, which Flutter's own `.gitignore` template already covers, and the
+screenshots go to `ux-audit-out/screens/` in both modes — never to `screenshots/`, which is a
+conventionally tracked directory in a Flutter app and not ours to claim.
 
 `net_stub.dart` matters most of them: it is the only generated file that holds the app's real
 endpoints and real response bodies.
@@ -198,17 +257,34 @@ seconds, needs no device, and its `routes` block is this step's input:
 }
 ```
 
-`declared` is a GoRouter route table. `pushed` is what reaches a screen: `inline-push` for an app
-with no declarative router — the bundled `example/ux_demo_app` is one, and its whole graph comes
-out as three `inline-push` edges — and `go-nav` for a literal `context.go`/`pushNamed` target.
+What the probe reads, and nothing else: `GoRoute` trees; `MaterialApp`/`CupertinoApp` `routes:`
+and `onGenerateRoute`, which it reports as present rather than reading; the `Navigator` push verbs
+(`push`, `pushReplacement`, `pushAndRemoveUntil`, `replace(newRoute:)`) carrying an inline
+`MaterialPageRoute`/`CupertinoPageRoute`/`PageRouteBuilder`; and the string-route verbs —
+`go`/`goNamed`/`pushNamed` and Navigator's named and restorable verbs. `declared` is a GoRouter
+route table. `pushed` is what reaches a screen: `inline-push` for a route pushed inline — the
+bundled `example/ux_demo_app` has no declarative router, and its whole graph comes out as three
+`inline-push` edges — and `go-nav` for a literal `context.go`/`pushNamed` target.
+
+A path or target can be a constant: a top-level or `static` `const`/`final` string literal,
+resolved as Dart would (parameter or local first, then the enclosing type's statics, then the top
+level). Anything else — a function-local constant, an interpolation, a field — is not read.
+`screen` and `to` are the constructor's name as written, dotted when it is dotted
+(`EditScreen.create`, `BlocProvider.value`), without type arguments, and `null` when a builder can
+return more than one thing. A `pageBuilder` route names the page's `child:`, not its transition.
 
 **Read `notAssessable` before reading either.** An `onGenerateRoute`, an interpolated path, a
-builder that is a torn-off function: each is navigation the probe can see exists and cannot read,
-and each belongs in the report's Not Assessable section. `declared: []` with a non-empty
-`notAssessable` means the router is unreadable, not that the app has no routes — and an app with no
-declarative router at all has no route table to reconcile the walk against, which the report says
-out loud. `example/report.md` does exactly this under *Feature map* and *Not Assessable*; copy its
-shape.
+builder that is a torn-off function, a nested route under a parent whose path cannot be read, a
+`goBranch`, a GetX app, a generated route table (`@AutoRouterConfig`, `@TypedGoRoute`): each is
+navigation the probe can see exists and cannot read, and each belongs in the report's Not
+Assessable section. `declared: []` with a non-empty `notAssessable` means the router is
+unreadable, not that the app has no routes.
+
+**Empty everywhere means "no route table this probe can read"**, not "no router". Before writing
+that the app has no declarative router, read `pubspec.yaml`: Beamer, routemaster, fluro and
+`Navigator(pages:)` produce no line at all. Only when pubspec names no router either does the report
+say the app has no route table to reconcile the walk against. `example/report.md` does exactly this
+under *Feature map* and *Not Assessable*; copy its shape.
 
 `from` is the enclosing class declaration verbatim — `_ListScreenState`, not `ListScreen`. The probe
 does not strip the underscore or the `State` suffix, because that is a guess about naming
@@ -230,7 +306,20 @@ supplies it. Step 4 reports where the two disagree; it never derives one from th
 
 Read `journey.md` and restate it back as a checklist: the goal in one sentence, the setup steps, the
 numbered journey steps with their expected outcome, the app path, the device id, the output dir.
-Name anything ambiguous (which tab is "Orders"? what proves the goal is reached?).
+Name anything ambiguous (which tab is "Orders"? what proves the goal is reached?), and any step
+whose expectation is already on the screen it starts from — that step can pass without its action
+doing anything.
+
+**PRE-WALK WARNING — what the network cut does not cover.** Read the app's `pubspec.yaml` and grep
+its `lib/` for the search in `references/network-stub.md` → *What the stub cannot see*
+(`web_socket_channel`, `WebSocket.connect`, `grpc`, `mqtt`, `socket_io`, `Socket.connect`,
+`SecureSocket`, `Isolate.run`, `compute(`, `cupertino_http`, `cronet_http`, `native_dio_adapter`,
+`firebase_`, `webview`). This is reading files, not running anything. If any of them is there, say so
+in the checklist, before the walk, in plain words: that traffic is neither cut nor stubbed, and
+during the walk it may reach the app's real backend from this machine (or from the simulator, which
+shares its network). Name the package and, where the grep shows it, the journey step it sits on.
+The only posture that cuts it is a `flutter drive` run on an Android emulator in airplane mode. Do
+not describe the run as offline afterwards when this check found something.
 
 **Then stop and wait for confirmation. Do not run anything in this step.**
 
@@ -255,16 +344,35 @@ nothing in Bash. If the token is still there literally, the skill was copied rat
 as a plugin: read it as the clone root, the directory holding `skills/`, `tools/` and `example/`,
 two levels above this skill's folder. There is no `pub get` step: `dart run` resolves the
 probe's dependencies itself. It does write a `.dart_tool/` beside the probe, which is a resolution
-cache and the one thing that lands in the skill directory — no audit output ever does.
+cache and the one thing that lands in the skill directory — no audit output ever does. So the first
+run needs that directory to be writable (a read-only install fails with `PathAccessException`) and
+needs pub.dev or a warm `~/.pub-cache`.
 
-Four rules: unlabeled `GestureDetector`/`InkWell` with `onTap`, `IconButton`/`Icon` with neither
-`tooltip` nor `semanticLabel`, `Image` without `semanticLabel`, unlabeled `TextField`.
+Four rules, each held to what the runtime would call named:
+
+- an unlabeled `GestureDetector`/`InkWell` with `onTap`;
+- an `IconButton` or `Icon` with neither `tooltip` nor `semanticLabel`. An `IconButton` counts its
+  icon's `semanticLabel`. An `Icon` is decorative, and not reported, when it sits in a slot of a
+  control that names itself (`label:`, `labelText:`, `hintText:`, `title:`, `text:`, or a
+  `tooltip:` on the owner), or when its nearest tap owner is a `GestureDetector`/`InkWell` the
+  first rule already reports;
+- an `Image` without `semanticLabel`, unless it has `excludeFromSemantics: true` or sits under
+  `ExcludeSemantics`;
+- an unlabeled `TextField` or `TextFormField`.
+
+A `Semantics` ancestor names its subtree only with `label:`, `tooltip:` or `excludeSemantics: true`.
+A call chained on a widget (`.animate()`) and `IconButton.styleFrom` are not widgets. Known holes,
+each a candidate the runtime may refute: an `Icon` in an `InkWell` under `MergeSemantics`, an icon
+in a control named by its `child:` (`MenuItemButton`) or by a default tooltip (`PopupMenuButton`),
+and an `IconButton` under a labelled `Semantics`, which is still reported.
 
 Read `filesScanned` before reading the findings: `0 findings` with `filesScanned: 0` means the path
 was wrong, not that the code is clean. And pass `<app-root>/lib`, never `<app-root>` — the probe
-scans whatever directory it is given, so on the bundled fixture `<app-root>` scans 11 files and
-reports 3 candidates inside `test/`, which is not the app, and would scan the walker this skill just
-generated as well. Each finding's `file` is relative to the directory passed in, so with
+scans every `.dart` file under whatever directory it is given, `test/` included, so on the bundled
+fixture `<app-root>` reports 3 candidates inside `test/`, which is not the app, and would scan the
+walker this skill just generated as well. Generated `*.g.dart` files and macOS `._*.dart` files are
+skipped and not counted; a source with a stray non-UTF-8 byte is read leniently, as Dart reads it.
+Each finding's `file` is relative to the directory passed in, so with
 `<app-root>/lib` it reads `main.dart`; quote it as `lib/main.dart:126`, the form every other document
 uses.
 
@@ -300,34 +408,52 @@ connected". `ux_audit/` is outside it, and outside `test/` too, so the audited a
 
 **Fallback** — the app needs a real device under it (plugins that throw `MissingPluginException`,
 platform views that must actually render). Also generate `integration_test/ux_journey_drive.dart`
-and `test_driver/integration_test.dart`, add `integration_test` to dev_dependencies, and run:
+and `test_driver/ux_journey_driver.dart` (never over an existing file of that name — see
+`references/walking.md`, File 1), add `integration_test` to dev_dependencies, start from a clean
+install (see *Credentials* above), and run:
 
 ```bash
-flutter drive --driver=test_driver/integration_test.dart \
+flutter drive --driver=test_driver/ux_journey_driver.dart \
               --target=integration_test/ux_journey_drive.dart -d <device-id>
 ```
 
 then copy `build/integration_response_data.json` into the output dir as `walk.json`. The PNGs are
-already there: the driver writes them straight to `ux-audit-out/screens/`.
+already there: the driver empties `ux-audit-out/screens/` and writes them straight into it. The
+drive entry is offline by default — `NetworkCut` refuses every `HttpClient` request and lists it in
+`networkCalls`.
 
 Per step the walk records, besides the semantics dump and the four guidelines:
 
 | Field | What it is for |
 |---|---|
-| `surface.canPop` / `tappableCount` / `modalOpen` | `DEAD-END` as a measurement instead of a selector miss |
-| `semantics.viewport` (`foldY`, `contentTop`, `keyboardInset`, `isTestDefault`) | what is on screen without scrolling — and when that is not knowable |
-| per-node `onScreen`, `aboveFold`, `coversSurface` | what is really on the surface — cache-extent rows are in the dump too, and the full-screen keyboard-dismiss `GestureDetector` must be excluded from placement |
+| `surface.canPop` / `tappableCount` / `modalOpen` / `navigatorCount` | `DEAD-END` as a measurement instead of a selector miss. `modalOpen` is true for a dismissible barrier, for any barrier the SDK labels (a dialog that must be answered) and for an open drawer |
+| `semantics.viewport` (`foldY`, `contentTop`, `keyboardInset`, `isTestDefault`, `textDirection`) | what is on screen without scrolling — and when that is not knowable. Under `flutter test` a `type` step raises a test keyboard with no height, so while it is up `keyboardInset` and `foldY` are **null**, not a measurement. `textDirection` is the app's own `Directionality` |
+| per-node `onScreen`, `aboveFold`, `coversSurface` | what is really on the surface — cache-extent rows and nodes clipped to nothing (`isHidden`) are in the dump too, and the full-screen keyboard-dismiss `GestureDetector` must be excluded from placement. A merged child (a `SwitchListTile`'s `Switch`) is part of its parent's node, not a second entry |
 | per-node `effectivePct`, `centreCovered`, `obscuredBy` | controls that are nominally big enough but partly covered |
-| `tapsSoFar` | reach cost on the declared path |
-| `dispatched`, `semanticsUnchanged`, `screenSig` | dead taps, revisits, state loss |
+| `tapsSoFar` | reach cost on the declared path: landed taps and long presses |
+| `drags` | a `scroll until` step's drags; the run total is top-level `drags`, kept apart from `taps` because scrolling is not reach cost |
+| `dispatched`, `semanticsUnchanged`, `screenSig` | dead taps, revisits, state loss. The signature hashes labels, tooltips, values and the state flags `isChecked`, `isCheckStateMixed`, `isToggled`, `isSelected`, `isExpanded`, so a working checkbox or chip reads as a change |
+| `expectedBefore` | the oracle already held before the action — `expected` on screen, or for `expect no`, already gone. The status is unchanged; the report treats the step as **not proven** |
+| `absent` | the step's tail was `expect no "Y"`: the oracle required Y to be gone |
+| `resolved` | `{label, tooltip}` of the node the target resolved to, so a mis-resolution leaves a trace. Null for `back`, `system back` and a selector miss |
+| `centreHitsHandler` | tap and long-press only: did a real hit test at the press point cross a matching handler? `false` is a press into dead space (a merged row whose centre falls between its label and its switch) |
+| `popHandled` | `system back` only: did anything in the app take the pop? `false` fails the step, because on Android the app would close |
+| `settled` | did the step's expectation arrive and the frame queue go quiet within the bound, AFTER its action. `null` when nothing was dispatched, so no settle ran. Because each step's dump is taken before its own action, step N's `settled` describes step N+1's dump — see [3] |
 | `semantics.panesPossiblyBlocked` | true: the dump saw only the last-painted pane — two sibling `Navigator`s, so the report says `not assessable` for the other rather than clean. False is a declared *suspicion*, not a guarantee the dump is whole |
-| `conditions` (top level, once per run) | the brightness, text scale and accessibility flags the numbers above were measured under, plus `mode` (`widget-test` or `drive`), `deviceProfile` (or `<name> (default, not declared)`), `fontSource` (`app` exact / `sdk-fallback` close / `none` — fold and placement **not assessable**), `renderer` and `targetPlatform`. The scope clause quotes all of it. `platform` is the HOST under `flutter test`, which is why `targetPlatform` is separate |
+| `conditions` (top level, once per run) | the brightness, text scale, locale and accessibility flags the numbers above were measured under — the ones `## Device` declared, or the test defaults — plus `mode` (`widget-test` or `drive`), `deviceProfile` (or `<name> (default, not declared)`), `fontSource`, `renderer` and `targetPlatform`. `fontSource` is `app` (the app's own fonts are loaded; text in a family the app does not declare still uses the SDK stand-in, so close, not exact), `sdk-fallback` (the SDK's Roboto standing in — close, not exact) or `none` (fold and placement **not assessable**). `appErrorHandlerReplaced` and `httpOverridesReplacedByApp` say the app installed its own error handler or HTTP override during the walk; `appErrors` is complete either way, and the walk kept its network barrier. The scope clause quotes all of it. `platform` is the HOST under `flutter test`, which is why `targetPlatform` is separate |
 | `setupSteps` (top level) | the `## Setup` phase, recorded beside `steps` and never merged into it: no semantics dump, no guidelines, no reach cost. A setup step carries a `screenshot` only when it failed (`setup_N.png`) |
 | `setupFailed` (top level) | true: the walk never reached the journey's starting line, and `steps` is empty by construction |
+| `entryReached`, `entryScreenshot` (top level) | `false`: the first setup or journey target never reached the semantics tree within 12 s of launch, so nothing was walked and `entry.png` shows what the app showed instead. `null`: there was nothing to wait for |
 
-`report['networkCalls']` must be filled from the stub's own call list when a stub is installed
-(`references/network-stub.md`) — the field is documented and the template's list is named
-`stubCalls`, so copying it across is a step, not an assumption.
+`networkCalls` means something different per posture, and the report says which:
+
+- a stub installed: the paths the stub answered — wire `networkCalls: stubCalls`, or the field
+  ships empty (`references/network-stub.md`);
+- the drive entry's `NetworkCut`: the paths it refused;
+- `flutter test` with no stub: always `[]`, because flutter_test's 400 records nothing. Empty there
+  does not mean the app made no requests; `appErrors` usually shows the ones that failed.
+
+None of the three sees the traffic listed under *Credentials* → *The boundary*.
 
 **Neither mode's exit code is the oracle. Read the JSON.** Both exit 0 even when every journey step
 failed — by design, because the walker collects Evaluations and step errors instead of asserting
@@ -336,12 +462,17 @@ failed — by design, because the walker collects Evaluations and step errors in
 `walk.json`, never by `$?`. A green exit with three `FAILED` steps is the normal shape of a journey
 that hit a real defect.
 
-**No PNGs but a green run**, in the `flutter drive` fallback, means the recipe was mis-copied:
-`takeScreenshot` appends into `reportData['screenshots']`, so assigning a fresh map to `reportData`
-at the end deletes them all silently. See the MUTATE-never-replace note in
-`references/walking.md`. In the default mode there is no such hazard — the walk writes each PNG
-straight to disk — but a step whose `screenshot` is null still means its capture failed, and the
-VISUAL layer for that step is `not assessable`.
+**No PNGs but a green run**, in the `flutter drive` fallback **on iOS**, means the recipe was
+mis-copied: `takeScreenshot` appends into `reportData['screenshots']`, so assigning a fresh map to
+`reportData` at the end deletes them all silently. See the MUTATE-never-replace note in
+`references/walking.md`. On Android under drive there are no in-test PNGs by design (see [3]). In
+the default mode there is no such hazard — the walk writes each PNG straight to disk, after
+deleting the previous run's — but a step whose `screenshot` is null still means its capture failed,
+and the VISUAL layer for that step is `not assessable`.
+
+**If `entryReached` is false, stop.** The app never showed the first target within 12 s, so no step
+was walked; `entryScreenshot` is what it showed instead — a splash, a loading screen, a gate the
+journey did not declare. Report that, not an empty journey.
 
 **If the run dies during `## Setup`, stop.** The walk says so itself: `setupFailed: true`, the last
 entry in `setupSteps` carries the error and its `setup_N.png`, and `steps` is empty. Report a setup
@@ -350,38 +481,61 @@ that never started has no findings.
 
 If a journey step fails (the target is not on screen, or the expected outcome never appears), that is
 itself a finding — record the step as `FAILED`, keep its screenshot, and continue only if the next
-step does not depend on it.
+step does not depend on it. Two failures are about the journey file, not the app: a target wholly
+below the fold with no `scroll until` before it, and `ambiguous: N nodes match` (add `nth:`). Fix the
+journey and re-run rather than reporting either.
 
 ## [3] VISUAL — look at the screenshots
 
 Read every `screens/step_*.png`. No script; the model does this.
 
-**On Android there are none.** The walk gates in-test screenshots on `Platform.isIOS`, so every
-step's `screenshot` is null and this whole layer is `not assessable` — say that, and say which checks
-it takes down with it. Two cannot fire without a pixel comparison: `FAKE-AFFORDANCE` in its dead-tap
-mode, whose second layer is `cmp` on consecutive PNGs, and the effective-area variant of
-`TOUCH-TARGET`, whose `effectivePct` is geometry until an image confirms it. A host capture (the
-`adb exec-out screencap` form is in `references/walking.md`) documents the end state only, one frame
-after the walk, so it supplies neither — it is evidence for the last screen, not for a transition.
+**In the default mode every step has a PNG, whatever `targetPlatform` says** — the capture is the
+golden-file path and needs no device. Only a platform view's area comes out blank; say
+`not assessable` for that area, not for the screen.
+
+**In the `flutter drive` fallback on Android there are none.** The drive entry gates in-test
+screenshots on `Platform.isIOS`, so every step's `screenshot` is null and this whole layer is
+`not assessable` — say that, and say which checks it takes down with it. Two cannot fire without a
+pixel comparison: `FAKE-AFFORDANCE` in its dead-tap mode, whose second layer is `cmp` on consecutive
+PNGs, and the effective-area variant of `TOUCH-TARGET`, whose `effectivePct` is geometry until an
+image confirms it. A host capture (the `adb exec-out screencap` form is in `references/walking.md`)
+documents the end state only, one frame after the walk, so it supplies neither — it is evidence for
+the last screen, not for a transition.
 
 Look for what the semantics tree cannot say: overflow stripes and clipped text, content hidden behind
-a keyboard or a sheet, an empty state that looks like a failure, a primary action that is not the most
-prominent thing on screen, an element styled as tappable that carries no tap action in the walk data
-(and the reverse), a screen that gives no way back.
+a sheet, an empty state that looks like a failure, a primary action that is not the most prominent
+thing on screen, an element styled as tappable that carries no tap action in the walk data (and the
+reverse), a screen that gives no way back. Content hidden behind the keyboard is **not assessable**
+in the default mode: the headless PNGs have no keyboard in them.
+
+Two things in the PNGs are the walk, not the app. Flutter's red image-error box, carrying text like
+`HTTP request failed, statusCode: 400, <url>` or `Exception: Invalid image data`, is what a debug
+build paints when a network image fails under the cut or the stub; a release user never sees it. It
+is also in the semantics dump, so never raise `JARGON-LEAK` or `ERROR-VAGUE` on a label that equals
+an `appErrors` entry. Flutter's red `ErrorWidget` for a build exception shows only in the PNG, never in
+the dump; its cause is in `appErrors`.
 
 When eye and measurement disagree, **geometry is settled by the measurement** (rects, ratios) and
 **meaning is settled by the eye** (is this actually the primary action?).
 
 Two things the visual pass is now the second layer for, and must actually be run:
 
-- **Dead taps.** A step with `dispatched: true` and `semanticsUnchanged: true` is a candidate, not a
-  finding: a control that only repaints is byte-identical in semantics to one wired to nothing.
-  `cmp -s screens/step_N.png screens/step_N+1.png` settles it for free. Identical pixels AND
-  identical semantics → `FAKE-AFFORDANCE`. Differing pixels with identical semantics is its own
-  finding: a state change assistive technology cannot see.
+- **Dead taps.** A `tap` or `long-press` step with `dispatched: true`, `semanticsUnchanged: true`
+  and `centreHitsHandler: true` is a candidate, not a finding: a control that only repaints is
+  byte-identical in semantics to one wired to nothing. `cmp -s screens/step_N.png
+  screens/step_N+1.png` settles it for free. Identical pixels AND identical semantics →
+  `FAKE-AFFORDANCE`. Differing pixels with identical semantics is its own finding: a state change
+  assistive technology cannot see. `centreHitsHandler: false` is a press into dead space between a
+  control's parts — report the target's geometry, not a dead control. On a screen whose labels
+  change on their own (a countdown, a clock, a "resend in 59s"), `semanticsUnchanged: false` proves
+  nothing, so the dead-tap check is `not assessable` there.
 - **Partly covered controls.** `effectivePct < 1.0` is geometry, not a hit test — the semantics tree
-  has no opacity and no `IgnorePointer`. Look at the screenshot before reporting it, and drop it
-  when the step's `settled` is false.
+  has no opacity and no `IgnorePointer`. Look at the screenshot before reporting it. **Void a
+  dump's geometry when the screen it was taken on had not settled**: step N's dump comes after step
+  N−1's action, so it is void when step N−1's `settled` is `false` (step 1's when `entrySettled` is
+  false). The outcome entry settles before its own capture, so its own `settled` speaks for it.
+  `settled: null` means nothing was dispatched and the screen did not change, so the next dump is
+  as good as the one before it.
 
 ## [4] MERGE + RESCORE — one report, scored, with a direction
 
@@ -392,8 +546,15 @@ judgement. Five checks now have a **measurement predicate** and do not fire with
 **Open with a verdict, not a table.** Two or three sentences in the words a user would use, naming
 what happens to the person trying to do this and what stops them — no check IDs, no widget names.
 Then one clause of scope, quoting `conditions` from the walk data rather than asserting it: one
-declared path, walked once, one device size, the brightness and text scale the run recorded. A reader who
-meets a feature map and a score table before a single defect stops reading.
+declared path, walked once, one device size, the brightness, text scale and locale the run recorded,
+whether `## Device` declared them, and the network posture (cut, stubbed, and anything the pre-walk
+check found outside the cut). A reader who meets a feature map and a score table before a single
+defect stops reading.
+
+**An `OK` step with `expectedBefore: true` is not proven.** Its expectation was on screen (or, for
+`expect no`, already gone) before the action, so the oracle passing says nothing about what the
+action did. Keep its status, mark it `OK (not proven)` in the step table, never cite it as evidence
+that the journey reached its goal, and list it under Not Assessable.
 
 **Flow and placement.** Report reach cost as `N taps on the declared path`, never "N taps deep" and
 never a minimum — the walk knows the path it was given, and the shortest one needs paths nobody
@@ -409,9 +570,13 @@ severity 2, naming which were capped. Never infer a ranking.
 | Tap target ≥44/48 lpx | screens with zero violations / screens measured; plus unique nodes passing |
 | Text contrast | screens passing `textContrastGuideline` / screens measured |
 | Accessible name | screens passing `labeledTapTargetGuideline` / screens measured |
-| Screen stability | steps that settled / steps measured |
+| Screen stability | steps that settled / steps with a non-null `settled` (a never-dispatched step settled nothing) |
 | Reach | taps on the declared path; screens with a way out / screens visited |
 | Error handling | qualitative — mark it as such |
+
+`appErrors` is evidence for Error handling, quoted with care: paraphrase it rather than pasting it,
+because an entry can carry a full request URL, query string included. An image that failed under the
+cut or the stub is a walk artifact (see [3]), not an error-handling finding.
 
 Publish the weighting inline so a reader can disagree with it, state plainly what the score does NOT
 cover, and **publish no composite number** — a single figure over these would imply a measurement

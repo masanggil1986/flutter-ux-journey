@@ -63,9 +63,12 @@ What you get:
   the mode, device profile, font source and rasterizer every number above was produced under.
 - `ux-audit-out/screens/step_{1..4}.png` — one screenshot per step.
 
-Compare what you get against [`example/report.md`](example/report.md) — the write-up of exactly this
-run — and against [`example/walk.json`](example/walk.json), which is that same JSON committed (only
-the per-step timings move between runs). The fixture's six defects, and the two traps seeded for the
+Compare what you get against [`example/report.md`](example/report.md) and
+[`example/walk.json`](example/walk.json). Both come from the same journey walked on an iPhone SE
+(3rd gen) simulator, so your headless run matches them on step outcomes, screen signatures,
+guideline verdicts and tap-target rects, and differs where the device mattered: `conditions` (the
+host platform, plus the mode, font source and rasterizer keys), the contrast ratio (1.36 headless
+against 1.03), text rects by a few lpx, and the per-step timings. The fixture's six defects, and the two traps seeded for the
 walker rather than for the report, are catalogued in
 [`example/ux_demo_app/README.md`](example/ux_demo_app/README.md).
 
@@ -137,7 +140,7 @@ into the app under audit. What *does* land in the audited app is spelled out und
    Done = a confirmation screen names the order.
 
    ## Setup (excluded from measurement and scoring)
-   1. dismiss the notification permission dialog
+   1. tap "Skip" — expect "Shop"
 
    ## Device (optional)
    `iphone-se`
@@ -157,8 +160,12 @@ into the app under audit. What *does* land in the audited app is spelled out und
    ```
 
    The five headings are the format, not decoration: `## Steps` is what the walker is generated
-   from, `## Setup` is what keeps a permission dialog out of your score, and `## Device` is the
-   screen and the conditions (text scale, dark, locale, bold text) the walk is measured under. Full spec in
+   from, `## Setup` is what keeps an onboarding sheet or a sign-in gate out of your score, and
+   `## Device` is the screen and the conditions (text scale, dark, locale, bold text) the walk is
+   measured under. An OS permission dialog cannot be a setup step: headless there is no OS to show
+   one, and on a device it is outside the semantics tree the walk reads. Pick each `expect` so it is
+   not already on the screen the step starts from — a step whose expectation was already there is
+   reported as not proven. Full spec in
    [`SKILL.md`](skills/flutter-ux-journey/SKILL.md); a real one in
    [`example/journey.md`](example/journey.md).
 
@@ -172,9 +179,12 @@ into the app under audit. What *does* land in the audited app is spelled out und
    4 when it blocks the goal and a 2 when there is a way around it.
 
 **If the app starts behind a sign-in screen, the audit still never asks you for a credential.** The
-walk runs inside the app's own process, so it stubs the HTTP layer there instead
+walk runs inside the app's own process, so it stubs the `dart:io` `HttpClient` there instead
 ([`references/network-stub.md`](skills/flutter-ux-journey/references/network-stub.md)) and declares
-the gate as `## Setup`, which is excluded from measurement and scoring. The worked instance is
+the gate as `## Setup`, which is excluded from measurement and scoring. The stub, like the default
+network cut, covers that client and nothing else: before walking, the audit checks your
+`pubspec.yaml` and code for WebSockets, sockets, background isolates and native HTTP clients, and
+tells you if any of them could still reach your backend. The worked instance is
 [`example/journey-gated.md`](example/journey-gated.md): three setup steps, arbitrary values, and
 `networkCalls: ["/session", "/auth/login"]` in
 [`example/walk-gated.json`](example/walk-gated.json) — no account involved.
@@ -184,7 +194,9 @@ the gate as `## Setup`, which is excluded from measurement and scoring. The work
 The skill generates `ux_audit/ux_journey_test.dart` into the app being audited — one file, plus a
 network stub beside it if the journey has a gate to walk past — writes its output under
 `ux-audit-out/`, and tells you to add those paths to that app's `.gitignore`. The `flutter drive`
-fallback adds two more, `integration_test/ux_journey_drive.dart` and a driver file.
+fallback adds two more, `integration_test/ux_journey_drive.dart` and
+`test_driver/ux_journey_driver.dart` — its own name, so it never touches the
+`test_driver/integration_test.dart` your app may already have.
 
 `ux_audit/` rather than `integration_test/` for two reasons, both measured: `flutter test` routes
 anything under `integration_test/` to a device runner on the directory name alone, and anything
@@ -206,7 +218,7 @@ into your app at all.**
 
 ```
 journey.md
-  └─ 0a. feature map  the app's router, listed — which routes exist, which this journey covers
+  └─ 0a. feature map  the app's declared routes, where the probe can read them, and which this journey covers
      0. preflight     confirm the parsed goal + steps before running anything
      1. static        package:analyzer over the source — missing labels, unlabeled tap handlers
      2. walk          a generated test, run with `flutter test` (`flutter drive` as fallback)
@@ -234,7 +246,9 @@ Sizes and positions below are in **lpx** — logical pixels, the unit Flutter's 
 rects come out of the tree in physical pixels, so the walk divides by `devicePixelRatio`: 44 lpx is
 44 lpx at any screen density.
 
-Flutter ships four accessibility guidelines in `package:flutter_test`; all four were run on a real
+Flutter ships four ready-made accessibility guidelines in `package:flutter_test` (it also has
+configurable contrast classes, `MinimumTextContrastGuidelineAAA` and
+`CustomMinimumContrastGuideline`, which this walk does not run). All four were run on a real
 simulator and headless, with identical verdicts, and return a node, a pixel `Rect`, the measured
 value and the required value:
 
@@ -249,10 +263,11 @@ for the flow half of the report, measurements the guidelines do not provide:
 
 | measured | what it answers |
 |---|---|
-| `viewport` — `foldY`, `contentTop`, `keyboardInset` | what is on screen without scrolling. `physicalSize` alone is the whole display, so system padding and the keyboard inset are subtracted; in a plain `flutter test` it is Flutter's hardcoded 800×600 and the report blanks the column rather than quoting a fold for a phone that does not exist |
+| `viewport` — `foldY`, `contentTop`, `keyboardInset` | what is on screen without scrolling. `physicalSize` alone is the whole display, so system padding and the keyboard inset are subtracted; in a plain `flutter test` it is Flutter's hardcoded 800×600 and the report blanks the column rather than quoting a fold for a phone that does not exist. Headless, a keyboard has no height, so while one is up the fold is recorded as unknown rather than guessed |
 | `effectivePct` / `centreCovered` per tap target | whether a control that passes every size check is actually hittable. A 48 lpx CTA under a banner keeps a 16 lpx strip — and its own rect still reads 48 lpx |
 | `canPop` / `tappableCount` / `modalOpen` per step | `DEAD-END` as a measurement rather than a guessed label that failed to match |
-| `dispatched` / `semanticsUnchanged` / screen signature | dead taps, revisits, state lost on the way back |
+| `dispatched` / `semanticsUnchanged` / screen signature | dead taps, revisits, state lost on the way back. The signature reads checked/selected/toggled state, so a working checkbox is a change |
+| `expectedBefore` / `centreHitsHandler` per step | whether the step's expectation was already on screen before it acted — then its `OK` is reported as not proven — and whether a tap reached a handler at all |
 | `onScreen` / `coversSurface` per node | what is really on the surface. A scrollable builds rows past the viewport into the dump; a full-screen keyboard-dismiss `GestureDetector` is always first and always largest. Counting either wrecks every placement number |
 | `tapsSoFar` | reach cost **on the declared path** — never a minimum, because a minimum needs paths nobody declared |
 
@@ -295,6 +310,8 @@ or it is printed as an observation.
 > `takeScreenshot` deadlocks on Android — no error, no timeout — when the app embeds platform views,
 > and from inside the test there is no way to tell in advance. The visual layer is captured from the
 > host instead (`adb exec-out screencap` / `xcrun simctl io`), or reported as not assessable.
+> The newer step lines — `scroll until`, `long-press`, `system back`, `expect no` — and the
+> `## Device` conditions are verified headless only, not yet on a simulator or emulator.
 > **Real devices are not verified and are not claimed.**
 
 ## What this cannot see
@@ -315,6 +332,23 @@ not be assessed is listed as `not assessable` instead of quietly omitted.
   worse: in-test capture is gated to iOS because `takeScreenshot` deadlocks on Android whenever the
   app hosts one, so there every step records `screenshot: null` and a host capture
   (`adb exec-out screencap`) puts the visual layer back by hand.
+- **Network traffic outside `dart:io`'s `HttpClient`.** The default cut, the drive entry's cut and
+  the gate stub all work by replacing the `HttpClient` the app builds in the walk's isolate. A
+  WebSocket under `flutter test`, a raw socket (gRPC, MQTT), a background isolate (`Isolate.run`,
+  `compute`), a native HTTP client (`cupertino_http`, `cronet_http`, `native_dio_adapter`) or a
+  native SDK (Firebase Auth and the like) goes round it — measured reaching a host listener with
+  `networkCalls` empty. The audit greps for these before it walks and tells you; only an Android
+  emulator in airplane mode under `flutter drive` cuts them.
+- **The keyboard, headless.** Under `flutter test` a `type` step raises a keyboard with no height
+  and the screenshots have none, so fold, placement and occlusion after typing are not assessable.
+  On a device they are measured.
+- **Scrolling beyond `scroll until`.** It drags vertical lists only, toward a declared target, at
+  most 20 times; a horizontal carousel is out of reach, and a row drawn under a floating bar can
+  end with its centre still covered. A target wholly below the fold with no `scroll until` before it
+  fails the step — a gap in the journey, not a finding about the app.
+- **Screens whose text changes on its own.** A countdown or a clock changes the screen signature
+  between any two dumps, so on such a screen a dead tap and lost state cannot be told apart from a
+  working one, and the report says not assessable.
 - **Anything with no semantics node.** Tappables are enumerated by *tap action*, not by widget type,
   so custom-painted decoration that exposes nothing to the semantics tree is invisible to the walk.
 - **Whether a screen reader actually sounds right.** Labels and roles are measured; VoiceOver's real
@@ -336,12 +370,12 @@ not be assessed is listed as `not assessable` instead of quietly omitted.
   Direction section, naming the measurement it stands on and what would disprove it.
 - **How the app is doing overall.** One report covers one journey. There is no cross-journey score,
   because averaging several by hand would be worse than not having the number.
-- **Every theme and text size at once.** A run measures the one it was given. It now *records* which
-  one — `conditions.platformBrightness`, `conditions.textScaleFactor` and the accessibility flags go
-  into the walk data, so the report quotes its conditions instead of asserting them. Measured on the
-  demo fixture: at `accessibility-extra-extra-extra-large` the third product row leaves the semantics
-  tree and the second drops below the fold, while the viewport JSON is byte-identical to the default
-  run.
+- **Every theme and text size at once.** A run measures the one it was given — `## Device` can
+  declare text scale, dark, locale and bold text — and *records* it: `conditions.platformBrightness`,
+  `textScaleFactor`, `locale` and the accessibility flags go into the walk data, so the report quotes
+  its conditions instead of asserting them. Measured on the demo fixture: at
+  `accessibility-extra-extra-extra-large` the third product row leaves the semantics tree and the
+  second drops below the fold, while the viewport JSON is byte-identical to the default run.
   Comparing two conditions is two runs, and the reader has to ask for the second.
 
 ## Tests
@@ -410,8 +444,8 @@ project does not depend on either.
 - **[conalyz](https://pub.dev/packages/conalyz)** — a real MIT static analyzer, but its tap-target
   rules returned 0 hits across 1,083 files of a real app, and it POSTs a machine fingerprint to a
   third-party server on every run (one beacon still goes out after opting out). Replaced by
-  `tools/astprobe/bin/probe.dart`: 223 lines of `package:analyzer`, 169 of them not blank or
-  comment. → [`docs/day1/conalyz.md`](docs/day1/conalyz.md)
+  `tools/astprobe/bin/probe.dart`, written directly on `package:analyzer`.
+  → [`docs/day1/conalyz.md`](docs/day1/conalyz.md)
 - **flutter_skill** — it does connect to an iOS simulator, but it returns `success: true` for taps on
   widgets that do not exist. With no oracle, a walker confidently reports UX defects on screens it
   never reached, which is worse than reporting nothing. Replaced by `integration_test` +
@@ -430,6 +464,8 @@ carry this project's specific load.
 | No PNGs on Android, `flutter drive` fallback | By design: in-test capture is gated on `Platform.isIOS`. Capture from the host instead. | [`references/walking.md`](skills/flutter-ux-journey/references/walking.md) § Screenshots deadlock |
 | No PNGs on any platform, green run | The driver file was mis-copied. `reportData` must be **mutated**, never replaced — assigning a fresh map deletes the screenshots silently. | [`SKILL.md`](skills/flutter-ux-journey/SKILL.md) § `[2] WALK` |
 | A label matched twice | The walker refuses to pick one. Disambiguate the step with `nth: N`. | [`references/walking.md`](skills/flutter-ux-journey/references/walking.md) § Ambiguity |
+| A step fails with "cannot reach it without scrolling" | The target is below the fold and the journey has no `scroll until "X"` before it. A gap in the journey, not a finding. | [`SKILL.md`](skills/flutter-ux-journey/SKILL.md) § journey.md format |
+| `entryReached: false`, no steps | The first target never appeared within 12 s of launch — a splash, a loading screen, a gate the journey did not declare. `entry.png` shows what was there. | [`SKILL.md`](skills/flutter-ux-journey/SKILL.md) § `[2] WALK` |
 | The run hangs | Something called `pumpAndSettle`, whose default timeout is 10 minutes. The recipe uses a bounded settle and records `settled` per step. | [`references/walking.md`](skills/flutter-ux-journey/references/walking.md) § Bounded settle |
 | `${CLAUDE_PLUGIN_ROOT}` appears literally in a command | Nothing substituted it: the skill is running from a copy, not as a Claude Code plugin, and the token is never an environment variable. Read it as your clone root. | [Install](#install) |
 

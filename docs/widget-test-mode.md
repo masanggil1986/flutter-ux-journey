@@ -2,6 +2,21 @@
 
 > 2026-09-28. 이 문서는 구현 **전**의 설계다. 구현이 끝나면 확정 사항은 `CLAUDE.md`로 올라가고
 > 이 문서는 근거 기록으로 남는다.
+>
+> **구현 후 정정 (2026-10-07, v0.4.0).** 아래 설계와 지금 코드가 다른 곳 — 코드가 기준이다:
+>
+> - **폰트(§4):** `'app'`은 "drift 0"이 아니다. 앱 폰트를 올린 뒤에도 SDK Roboto를 세 패밀리에
+>   **항상** 등록한다(앱이 직접 선언한 패밀리 위에는 안 덮는다). 아이콘 폰트만 있는 앱이 `'app'`으로
+>   잡히고 기본 텍스트는 Ahem에 남던 버그(242.0 vs 112.3) 때문이다. `'app'` = 앱 폰트 + SDK 대체, 근사.
+> - **`FlutterError.onError` 복원(조사 항목 1):** 결국 넣었다(v0.3.1). 워크가 끝나는 순간 돌려주지
+>   않으면 워크 뒤의 실패가 이미 발행된 리스트로 들어가 10분 타임아웃까지 매달린다(실측 2초 vs 60초+).
+>   앱이 자기 핸들러로 바꿔도 워크가 계속 듣는다(`conditions.appErrorHandlerReplaced`).
+> - **네트워크(§2 표):** "기본 차단"은 워크 isolate의 `dart:io` `HttpClient`만이다. WebSocket·raw
+>   socket·다른 isolate·네이티브 클라이언트·네이티브 SDK는 밖이다(`references/network-stub.md`). drive
+>   모드도 airplane-mode에만 기대지 않는다 — drive 엔트리가 `NetworkCut`을 설치한다.
+> - **키보드:** 테스트 키보드는 높이가 없어 키보드가 떠 있는 동안 `keyboardInset`·`foldY`를 `null`로
+>   기록한다. 이 설계엔 없던 갭이다.
+> - **드라이버 이름:** `test_driver/ux_journey_driver.dart`. 아래 표는 그 이름으로 고쳐 두었다.
 
 ## 결론
 
@@ -64,7 +79,7 @@ Ahem은 글리프 하나가 em 정사각형이라 "Saved items"가 112.3px → 2
 
 ### 1. 워커 API — 바인딩 의존을 콜백 2개로
 
-워커 1155줄 중 `integration_test`에 닿는 곳은 4군데뿐이다(`ensureInitialized`,
+워커에서 `integration_test`에 닿는 곳은 4군데뿐이다(`ensureInitialized`,
 `convertFlutterSurfaceToImage`, `takeScreenshot`, `reportData`). 그 4개를 주입으로 바꾼다.
 
 ```dart
@@ -105,7 +120,7 @@ Future<void> walkJourney(
 | 바인딩 | `TestWidgetsFlutterBinding` | `IntegrationTestWidgetsFlutterBinding` |
 | `shot` | `writePng(tester, 'ux-audit-out/screens/$name.png')` | iOS: `takeScreenshot` / Android: `null` |
 | `publish` | `File('ux-audit-out/walk.json').writeAsStringSync(...)` | `(binding.reportData ??= {}).addAll(r)` |
-| 앱에 생기는 파일 | **1개** — 워커 자신 | 3개 — 워커 + `ux_journey_drive.dart` + `test_driver/integration_test.dart` |
+| 앱에 생기는 파일 | **1개** — 워커 자신 | 3개 — 워커 + `ux_journey_drive.dart` + `test_driver/ux_journey_driver.dart` |
 | 네트워크 | **기본 차단**(SDK가 400 반환), airplane-mode 불필요 | airplane-mode 토글 필요 |
 
 두 바인딩을 한 파일에 둘 수는 없다 — 바인딩은 다른 무엇보다 먼저 정해져야 하고,
