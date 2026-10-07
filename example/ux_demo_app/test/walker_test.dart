@@ -1689,7 +1689,292 @@ void main() {
         isNull,
       );
     });
+
+    testWidgets('a typed value stays out of the artifact on every path', (
+      WidgetTester tester,
+    ) async {
+      // Redaction keyed on a SUCCESSFUL type into an obscured field, so a
+      // step that failed recorded the value verbatim, and `expected` and
+      // `error` carried it whatever happened. Hidden until the walk sees the
+      // field show it.
+      final TextEditingController name = TextEditingController();
+      addTearDown(name.dispose);
+      Map<String, Object?>? report;
+      await walkJourney(
+        tester,
+        launch: () => runApp(
+          MaterialApp(
+            home: Scaffold(
+              body: Column(
+                children: <Widget>[
+                  // A label drawn as separate text: it owns no field.
+                  const Text('Password'),
+                  const TextField(obscureText: true),
+                  const TextField(
+                    obscureText: true,
+                    decoration: InputDecoration(labelText: 'PIN code'),
+                  ),
+                  TextField(
+                    controller: name,
+                    decoration: const InputDecoration(labelText: 'Name'),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+        journey:
+            const <
+              ({
+                String action,
+                String target,
+                int? nth,
+                String? text,
+                String expected,
+              })
+            >[
+              (
+                action: 'type',
+                target: 'Password',
+                nth: null,
+                text: 'secret-A-verbatim',
+                expected: 'PIN code',
+              ),
+              (
+                action: 'type',
+                target: 'Passcode',
+                nth: null,
+                text: 'secret-C-unresolved',
+                expected: 'PIN code',
+              ),
+              (
+                action: 'type',
+                target: 'PIN code',
+                nth: null,
+                text: 'secret-D-in-expected',
+                expected: 'secret-D-in-expected',
+              ),
+              (
+                action: 'type',
+                target: 'Name',
+                nth: null,
+                text: 'Visible Name',
+                expected: 'Name',
+              ),
+            ],
+        publish: (Map<String, Object?> r) async => report = r,
+      );
+      final String json = jsonEncode(report);
+      for (final String secret in <String>[
+        'secret-A-verbatim',
+        'secret-C-unresolved',
+        'secret-D-in-expected',
+      ]) {
+        expect(json, isNot(contains(secret)));
+      }
+      final List<Object?> steps = report!['steps']! as List<Object?>;
+      expect(
+        steps
+            .take(3)
+            .map((Object? s) => (s! as Map<String, Object?>)['status']),
+        <String>['FAILED', 'FAILED', 'FAILED'],
+      );
+      expect(
+        (steps[3]! as Map<String, Object?>)['text'],
+        'Visible Name',
+        reason: 'a field that shows its own value is recorded as typed',
+      );
+      expect(name.text, 'Visible Name');
+    });
+
+    testWidgets('a type step fills the dialog field, not the one behind it', (
+      WidgetTester tester,
+    ) async {
+      // Every onstage EditableText competed on overlap with the node rect,
+      // and a page under a dialog is still onstage: a tall page editor
+      // outscored the dialog's own field, took the text, and decided the
+      // redaction. Measured.
+      applyDevice(tester, kIphoneSe);
+      addTearDown(tester.view.reset);
+      final TextEditingController page = TextEditingController();
+      final TextEditingController dialog = TextEditingController();
+      addTearDown(page.dispose);
+      addTearDown(dialog.dispose);
+      final SemanticsHandle handle = tester.ensureSemantics();
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(body: TextField(controller: page, maxLines: 20)),
+        ),
+      );
+      showDialog<void>(
+        context: tester.element(find.byType(Scaffold)),
+        builder: (_) => AlertDialog(
+          title: const Text('Rename'),
+          content: TextField(
+            controller: dialog,
+            decoration: const InputDecoration(labelText: 'Name'),
+          ),
+        ),
+      );
+      await tester.pump();
+      await tester.pump(const Duration(seconds: 1));
+      final StepOutcome out = await performStep(tester, (
+        action: 'type',
+        target: 'Name',
+        nth: null,
+        text: 'Groceries',
+        expected: 'Rename',
+      ));
+      expect(out.status, 'OK', reason: out.error ?? '');
+      expect(dialog.text, 'Groceries');
+      expect(page.text, isEmpty);
+      handle.dispose();
+    });
+
+    testWidgets('and still types into a field its scroll view half hides', (
+      WidgetTester tester,
+    ) async {
+      // The semantics rect is clipped to the visible band and the editable box
+      // is not, so "the box sits inside the node" — the obvious fix for the
+      // case above — refuses this field. Ownership does not.
+      applyDevice(tester, kIphoneSe);
+      addTearDown(tester.view.reset);
+      final TextEditingController email = TextEditingController();
+      addTearDown(email.dispose);
+      final SemanticsHandle handle = tester.ensureSemantics();
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: ListView(
+              children: <Widget>[
+                const SizedBox(height: 610),
+                TextField(
+                  controller: email,
+                  decoration: const InputDecoration(labelText: 'Email'),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+      final StepOutcome out = await performStep(tester, (
+        action: 'type',
+        target: 'Email',
+        nth: null,
+        text: 'someone@example.test',
+        expected: 'Email',
+      ));
+      expect(out.status, 'OK', reason: out.error ?? '');
+      expect(email.text, 'someone@example.test');
+      handle.dispose();
+    });
   });
+
+  group('performStep — what one step records', () {
+    testWidgets('a step that never dispatched has no settle to report', (
+      WidgetTester tester,
+    ) async {
+      // It defaulted to true, so a selector miss counted toward "screen
+      // stability" on a screen nobody waited for.
+      await tester.pumpWidget(const UxDemoApp());
+      final SemanticsHandle handle = tester.ensureSemantics();
+      final StepOutcome out = await performStep(tester, (
+        action: 'tap',
+        target: 'Proceed to checkout',
+        nth: null,
+        text: null,
+        expected: 'Saved items',
+      ));
+      expect(out.dispatched, isFalse);
+      expect(out.settled, isNull);
+      handle.dispose();
+    });
+
+    testWidgets('a tap records whether its point reaches a tap handler', (
+      WidgetTester tester,
+    ) async {
+      // A MergeSemantics row is one tappable node, and its centre can fall in
+      // the gap between the label and the switch: the tap lands on nothing,
+      // the semantics and the pixels stay the same, and a working switch
+      // reads as a dead control on both layers. Measured.
+      final SemanticsHandle handle = tester.ensureSemantics();
+      bool on = false;
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: StatefulBuilder(
+              builder: (BuildContext c, StateSetter set) => MergeSemantics(
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: <Widget>[
+                    const Text('Push notifications'),
+                    Switch(value: on, onChanged: (bool v) => set(() => on = v)),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+      final StepOutcome merged = await performStep(tester, (
+        action: 'tap',
+        target: 'Push notifications',
+        nth: null,
+        text: null,
+        expected: 'Push notifications',
+      ));
+      expect(merged.dispatched, isTrue);
+      expect(merged.centreHitsHandler, isFalse);
+      expect(on, isFalse, reason: 'the ground truth: nothing took the tap');
+
+      await tester.pumpWidget(const UxDemoApp());
+      final StepOutcome card = await performStep(tester, journey[0]);
+      expect(card.centreHitsHandler, isTrue);
+      handle.dispose();
+    });
+
+    testWidgets('the outcome entry settles before it captures', (
+      WidgetTester tester,
+    ) async {
+      // The outcome's PNG and dump were taken BEFORE its settle, while its
+      // guidelines came after: one entry describing two screens. Measured: a
+      // dump of "Processing" beside a contrast failure on "Payment failed".
+      Map<String, Object?>? report;
+      await walkJourney(
+        tester,
+        launch: () => runApp(MaterialApp(home: _Payment())),
+        journey:
+            const <
+              ({
+                String action,
+                String target,
+                int? nth,
+                String? text,
+                String expected,
+              })
+            >[
+              (
+                action: 'tap',
+                target: 'Pay',
+                nth: null,
+                text: null,
+                expected: 'Processing',
+              ),
+            ],
+        publish: (Map<String, Object?> r) async => report = r,
+      );
+      final Map<String, Object?> outcome =
+          (report!['steps']! as List<Object?>).last! as Map<String, Object?>;
+      final List<Object?> labels =
+          ((outcome['semantics']! as Map<String, Object?>)['nodes']!
+                  as List<Object?>)
+              .map((Object? n) => (n! as Map<String, Object?>)['label'])
+              .toList();
+      expect(labels, contains('Payment failed'));
+      expect(labels, isNot(contains('Processing')));
+    });
+  });
+
   group('applyDevice — the viewport the device used to supply', () {
     testWidgets('iphone-se reproduces the committed simulator viewport', (
       WidgetTester tester,
@@ -2541,6 +2826,41 @@ class _SlowLoadState extends State<_SlowLoad> {
             },
             child: const Text('Load'),
           ),
+  );
+}
+
+/// Pay shows a spinner, and the failure lands 8 s later — after the last
+/// step's own settle gave up.
+class _Payment extends StatefulWidget {
+  @override
+  State<_Payment> createState() => _PaymentState();
+}
+
+class _PaymentState extends State<_Payment> {
+  String _state = 'idle';
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+    body: Center(
+      child: switch (_state) {
+        'idle' => TextButton(
+          onPressed: () {
+            setState(() => _state = 'processing');
+            Future<void>.delayed(const Duration(seconds: 8), () {
+              if (mounted) {
+                setState(() => _state = 'failed');
+              }
+            });
+          },
+          child: const Text('Pay'),
+        ),
+        'processing' => const Column(
+          mainAxisSize: MainAxisSize.min,
+          children: <Widget>[Text('Processing'), CircularProgressIndicator()],
+        ),
+        _ => const Text('Payment failed'),
+      },
+    ),
   );
 }
 

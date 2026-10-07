@@ -402,11 +402,12 @@ Future<void> walkJourney(
         'target': step.target,
         'nth': step.nth,
         'text': recordedText(step, out.obscured),
-        'expected': step.expected,
+        'expected': scrubbed(step.expected, step, out.obscured),
         'expectedBefore': out.expectedBefore,
         'resolved': out.resolved,
+        'centreHitsHandler': out.centreHitsHandler,
         'status': out.status,
-        'error': out.error,
+        'error': scrubbed(out.error, step, out.obscured),
         'elapsedMs': sw.elapsedMilliseconds,
         'settled': out.settled,
         'dispatched': out.dispatched,
@@ -457,11 +458,12 @@ Future<void> walkJourney(
           'target': step.target,
           'nth': step.nth,
           'text': recordedText(step, out.obscured),
-          'expected': step.expected,
+          'expected': scrubbed(step.expected, step, out.obscured),
           'expectedBefore': out.expectedBefore,
           'resolved': out.resolved,
+          'centreHitsHandler': out.centreHitsHandler,
           'status': out.status,
-          'error': out.error,
+          'error': scrubbed(out.error, step, out.obscured),
           'elapsedMs': sw.elapsedMilliseconds, // EVIDENCE ONLY — never scored
           'settled': out.settled,
           'tapsSoFar': taps,
@@ -488,6 +490,11 @@ Future<void> walkJourney(
       // captures the screen it starts from, so the final outcome — the error
       // state, the confirmation, the dead end — falls off the end. Measured:
       // without this, an audit of a failed sign-in never looks at the failure.
+      // Settled FIRST, then everything taken back to back with no pump in
+      // between, so the PNG, the dump, the surface and the guidelines are one
+      // frame. Measured the other way round: a dump of "Processing" beside a
+      // contrast failure on the "Payment failed" that replaced it.
+      final bool outcomeSettled = await settle(tester);
       final String? outcomeShot = await _capture(
         shot,
         'step_${steps.length + 1}',
@@ -502,7 +509,7 @@ Future<void> walkJourney(
         'status': 'OK',
         'error': null,
         'elapsedMs': 0,
-        'settled': await settle(tester),
+        'settled': outcomeSettled,
         'tapsSoFar': taps,
         // The outcome screen needs its own PNG, or the last real step has no
         // "after" image and the dead-tap confirmation (compare step N's PNG with
@@ -587,7 +594,9 @@ Future<void> walkJourney(
 typedef StepOutcome = ({
   String status,
   String? error,
-  bool settled,
+  // Null when no settle ran: a step that never dispatched waited for nothing,
+  // and counting it as settled put a selector miss into "screen stability".
+  bool? settled,
   bool dispatched,
   bool tapped,
   bool obscured,
@@ -600,6 +609,11 @@ typedef StepOutcome = ({
   // needle, and without this a mis-resolution leaves no trace in the artifact.
   // Null when nothing was resolved — a `back` step, or a selector miss.
   Map<String, Object?>? resolved,
+  // A tap step only: did a real hit test at the tap point cross a tap
+  // handler? false is a tap into dead space — a MergeSemantics row whose
+  // centre falls between its label and its switch — which changes nothing
+  // and reads as a dead control on both layers. Null for any other step.
+  bool? centreHitsHandler,
 });
 
 /// Perform one step and say what happened. **Never throws**: a failing step IS
@@ -608,14 +622,18 @@ typedef StepOutcome = ({
 Future<StepOutcome> performStep(WidgetTester tester, Step step) async {
   String status = 'OK';
   String? error;
-  bool settled = true;
+  bool? settled;
   // Did the gesture actually go out? A step that fails while RESOLVING its
   // target never touched the app, so "the semantics did not change" is
   // trivially true and means nothing. Without this, every selector miss
   // reads as a dead tap — measured on this fixture's step 3.
   bool dispatched = false;
   bool tapped = false;
-  bool obscured = false;
+  // Hidden until the walk sees the field show it. Keyed only on a SUCCESSFUL
+  // type, a step that failed — a label that owns no field, a target that is
+  // not there — wrote the value into the artifact verbatim.
+  bool obscured = step.action == 'type';
+  bool? centreHitsHandler;
   final bool expectedBefore = _present(tester, step.expected);
   Map<String, Object?>? resolved;
   try {
@@ -642,7 +660,7 @@ Future<StepOutcome> performStep(WidgetTester tester, Step step) async {
           step.nth,
         );
         resolved = _provenance(node);
-        await _tapTarget(tester, node, step.target);
+        centreHitsHandler = await _tapTarget(tester, node, step.target);
         tapped = true;
       default:
         throw StateError('unknown action "${step.action}"');
@@ -671,6 +689,7 @@ Future<StepOutcome> performStep(WidgetTester tester, Step step) async {
     obscured: obscured,
     expectedBefore: expectedBefore,
     resolved: resolved,
+    centreHitsHandler: centreHitsHandler,
   );
 }
 
@@ -692,6 +711,19 @@ Map<String, Object?> _provenance(Map<String, Object?> node) =>
 String? recordedText(Step step, bool obscured) => obscured && step.text != null
     ? '<redacted ${step.text!.length} chars: the field hides its own value>'
     : step.text;
+
+/// [s] with every occurrence of a redacted value cut out. The value reaches
+/// `expected` when a journey expects to see what it typed, and `error` when
+/// that expectation fails — and the redaction above is worth nothing if the
+/// next field carries the secret anyway. Even inside a word: over-redacting a
+/// short value garbles a message, under-redacting leaks one.
+String? scrubbed(String? s, Step step, bool obscured) {
+  final String? secret = step.text;
+  if (s == null || !obscured || secret == null || secret.isEmpty) {
+    return s;
+  }
+  return s.replaceAll(secret, recordedText(step, true)!);
+}
 
 /// Pump until the frame queue is quiet or [limit] elapses, then carry on.
 /// `pumpAndSettle` only gives up after a 10-minute default timeout, so a
@@ -1621,15 +1653,24 @@ Future<bool> _typeInto(
   final List<double> r = node['rect']! as List<double>;
   final Rect target = Rect.fromLTWH(r[0], r[1], r[2], r[3]);
 
-  // Largest OVERLAP, not "is the centre inside". A field whose semantics node
-  // spans its label, helper text and a multi-line error is much taller than
-  // its editable, so its centre can fall outside the box it belongs to — the
-  // same geometric failure that was removed from the tap path.
+  // Only a field the resolved node OWNS — its own editable, or one merged or
+  // nested under it. A page under a dialog is still onstage, and on overlap
+  // alone a tall page editor outscored the dialog's own field, took the text
+  // and decided the redaction. Measured. Not "the box sits inside the node":
+  // a field half hidden by its scroll view has its node clipped to the visible
+  // band and its box not, and that rule refuses it.
+  //
+  // Then the largest OVERLAP, not "is the centre inside". A field whose
+  // semantics node spans its label, helper text and a multi-line error is
+  // much taller than its editable, so its centre can fall outside the box it
+  // belongs to — the same geometric failure that was removed from the tap
+  // path.
+  final int id = node['id']! as int;
   Element? hit;
-  double best = 0;
+  double best = -1;
   for (final Element e in find.byType(EditableText).evaluate()) {
     final RenderBox? box = e.renderObject as RenderBox?;
-    if (box == null || !box.hasSize) {
+    if (box == null || !box.hasSize || !_owns(tester, id, e)) {
       continue;
     }
     final Rect b = box.localToGlobal(Offset.zero) & box.size;
@@ -1658,7 +1699,26 @@ Future<bool> _typeInto(
   return (field.widget as EditableText).obscureText;
 }
 
-Future<void> _tapTarget(
+/// Is [field]'s semantics node the node [id], or inside it?
+bool _owns(WidgetTester tester, int id, Element field) {
+  SemanticsNode? n;
+  try {
+    // Walks up to the node a merged editable is merged into.
+    n = tester.getSemantics(find.byElementPredicate((Element e) => e == field));
+  } catch (_) {
+    return false; // no semantics at all — behind a barrier, say
+  }
+  for (; n != null; n = n.parent) {
+    if (n.id == id) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/// Tap [node]'s centre. Returns whether a real hit test at that point crosses
+/// a tap handler — see `StepOutcome.centreHitsHandler`.
+Future<bool> _tapTarget(
   WidgetTester tester,
   Map<String, Object?> node,
   String needle,
@@ -1706,7 +1766,22 @@ Future<void> _tapTarget(
   // Refusing there would fail a whole audit on an overlay that blocks nothing.
   // The measurement stays in the dump; heuristics.md gates the finding on
   // VISUAL confirmation.
+  //
+  // What IS recorded is whether the point reaches a tap handler at all: a
+  // GestureDetector's (which InkWell and every Material button build) or a
+  // Semantics(onTap). A bare Listener does not count — the Navigator's and
+  // every scrollable's are on every path. Known ceiling: a custom render
+  // object that handles taps itself reads false, which errs safe once a
+  // dead-tap finding requires true.
+  final bool hitsHandler = tester.hitTestOnBinding(centre).path.any((
+    HitTestEntry entry,
+  ) {
+    final Object t = entry.target;
+    return (t is RenderSemanticsGestureHandler && t.onTap != null) ||
+        (t is SemanticsAnnotationsMixin && t.properties.onTap != null);
+  });
   await tester.tapAt(centre); // logical px
+  return hitsHandler;
 }
 
 /// The oracle: [needle] must be ON SCREEN, as the [Step] contract says. A
