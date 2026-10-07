@@ -4,6 +4,129 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.0] - 2026-10-07
+
+Journeys can scroll, long-press, press the system back button and expect something to be gone,
+and declare the text size, theme and locale they are measured under. Every step now says whether
+its own oracle proved anything, and the docs state the network boundary the walk really has.
+
+**Upgrading a generated `flutter drive` fallback:** the driver is now
+`test_driver/ux_journey_driver.dart`, passed with `--driver`. If an earlier run wrote the skill's
+driver to `test_driver/integration_test.dart`, restore your own file there (or delete it if you had
+none) and update the `.gitignore` line.
+
+### Added
+
+- **Four step lines.** `scroll until "X"` drags the vertical list that holds X, at most 20 times,
+  until X can be pressed where it stands; its drags are recorded per step and per run, apart from
+  taps, because scrolling is not reach cost. `long-press "X"` resolves and refuses as a tap does.
+  `system back` sends what Android's back button sends and records `popHandled`; a pop nothing
+  takes fails the step. `— expect no "Y"` is the absence oracle. All four are verified headless,
+  not yet on a device.
+- **`## Device` conditions.** `- textScale 3.0`, `- dark`, `- locale ko-KR` and `- boldText` set the
+  test platform dispatcher before launch, and `conditions` reads the same dispatcher back. Large-text
+  failures no longer need a simulator. One set per run.
+- **Each step says what its oracle proved.** `expectedBefore` is true when the expectation already
+  held before the action — the fixture's own step 1 expects a price its list row already shows. The
+  status is unchanged, and the report now renders such a step as `OK (not proven)`, never as
+  evidence the goal was reached. `resolved` records which node the target resolved to, and
+  `centreHitsHandler` whether a hit test at the press point reached a handler at all; a dead-tap
+  finding now requires it.
+- **The walk waits for the app.** Launch is followed by a bounded wait (12 s) for the first target
+  to reach the semantics tree, so an async `main` or a splash on a timer is no longer measured as
+  the entry screen. `entryReached: false` means nothing was walked, and `entry.png` shows what the
+  app showed instead.
+- **`conditions.appErrorHandlerReplaced` and `conditions.httpOverridesReplacedByApp`** say the app
+  installed its own error handler or HTTP override during the walk. The walk keeps hearing errors
+  and keeps its network barrier either way.
+- **The `flutter drive` entry cuts the network.** `NetworkCut` is the real `HttpClient` with a
+  `connectionFactory` that records the path and fails before any DNS lookup, as airplane mode would.
+  A drive run on the iOS simulator used to send the journey's requests wherever the app pointed
+  them. `networkCalls` lists what it refused.
+- **A pre-walk network warning.** SKILL.md's preflight now greps the app's `pubspec.yaml` and code
+  for WebSockets, sockets, background isolates, native HTTP clients and native SDKs, and tells the
+  user before walking that such traffic is neither cut nor stubbed.
+- **The probe names the routers it cannot read.** A GetX app and a generated route table
+  (`@AutoRouterConfig` and older auto_route annotations, `@TypedGoRoute` and its shell twins) each
+  leave one not-assessable line instead of an empty block that read as "no declarative router".
+  `goBranch`, the restorable `Navigator` verbs, `Navigator.replace(newRoute:)` and
+  `PageRouteBuilder` are now read or reported.
+
+### Changed
+
+- **The `flutter drive` driver is `test_driver/ux_journey_driver.dart`.** The old name is the file
+  Flutter's `integration_test` README tells every app to create, so the fallback overwrote a
+  tracked file. The recipe now refuses to write over an existing driver of the new name.
+- **The oracle asks presence; only the target is asked identity.** An expectation that appears
+  twice no longer fails as ambiguous after burning the settle bound, and one that is only in a
+  scrollable's cache extent fails as "in the semantics tree but not on screen". For targets, `nth`
+  is range-checked whatever the hit count, and a lone hit that holds the needle only inside a word
+  ("back" in "Send feedback") is no match. Hangul and CJK keep substring matching.
+- **`settled` is `null` on a step that never dispatched**, so a selector miss no longer counts as
+  a settled screen. The docs now void a dump's geometry when the step BEFORE it did not settle: each
+  step dumps before its action and settles after, so the old rule voided the wrong screen.
+- **No keyboard height is invented.** Under `flutter test` the test keyboard has no inset, so while
+  it is up `keyboardInset` and `foldY` are `null` and placement after a `type` step reads not
+  assessable instead of 0.0.
+- **`viewport.textDirection` is the app's own `Directionality`**, not the platform locale, which is
+  `en_US` under `flutter test` whatever the app forces.
+- **`modalOpen` counts a dialog that must be answered** — any barrier the SDK labels, not only a
+  dismissible one — and **the screen signature reads state flags** (`isChecked`, `isToggled`,
+  `isSelected`, `isExpanded`, `isCheckStateMixed`), so a working checkbox or chip is a change.
+  Signatures of screens with none of these set are unchanged.
+- **Fonts.** The SDK stand-in is always registered under `Roboto`, `CupertinoSystemDisplay` and
+  `CupertinoSystemText`, except over a family the app declares, and a dependency's font keeps its
+  `packages/<pkg>/` name. `fontSource: app` now means the app's fonts plus the stand-in — close, not
+  exact — and the docs say so.
+- **The static label rules agree with the runtime on named controls.** An `Icon` in a slot of a
+  control that names itself, or under a tap owner the tap rule already reports, is decorative; an
+  `IconButton` counts its icon's `semanticLabel`; a `Semantics` ancestor names only with `label:`,
+  `tooltip:` or `excludeSemantics:`; `excludeFromSemantics` and `ExcludeSemantics` opt an `Image`
+  out; `TextFormField` is held to the `TextField` rule. Over Flutter's own `examples/api` the
+  findings went from 433 to 298 (icons 290 to 139, plus 16 `TextFormField`s).
+- **The route map stops inventing edges.** Only top-level or static `const`/`final` string literals
+  are resolved as constants, in Dart's lookup order; `screen` and `to` are the dotted constructor
+  name (`EditScreen.create`) and null for a builder that can return more than one thing; a
+  `pageBuilder` route names its page's `child:`; a route under a parent whose path cannot be read is
+  not assessable rather than printed as an absolute path the app does not answer.
+- **The docs state the network boundary.** The cut and the stub control the `dart:io`
+  `HttpClient` built in the walk's isolate and nothing else; WebSockets under `flutter test`, raw
+  sockets, other isolates, native HTTP clients and native SDKs were measured going round it. No doc
+  now says that nothing leaves the device, as 0.2.0's notes did.
+- **Both entries empty `ux-audit-out/screens/` before walking**, so an earlier run's PNG — a
+  `setup_3.png` from a failed gate above all — no longer reads as this run's evidence.
+- The setup examples no longer use an OS permission dialog, which no mode can walk: there is no OS
+  under `flutter test`, and under drive it is outside the semantics tree.
+- The probe declares Dart 3.11, the floor its locked `analyzer` and `test` already required.
+- Blank issues are off, and anything that can only be shown with a private app is pointed at
+  private reporting.
+- CI runs the README's walk and reads its JSON back, checks that nothing a run writes is
+  committable, parses SKILL.md's frontmatter as strict YAML within the spec's limits, upgrades
+  dependencies on the weekly run, and runs the leak guard first, over every file name.
+
+### Fixed
+
+- **Nodes clipped to nothing are no longer on screen.** A row behind a bottom bar kept its full
+  rect, read as visible and tappable, and the walk's tap landed on the bar. Merged children are no
+  longer dumped as a second control, sub-0.001 lpx intersections are no longer overlaps, and
+  `obscuredBy` names an icon button by its tooltip.
+- **A failed `type` step no longer writes its value into the artifact.** A step is now hidden until
+  the walk sees the field show its value, and the value is cut out of `expected` and `error` too.
+  A `type` step chooses only among the fields its resolved node owns, so a page editor behind a
+  dialog no longer takes the dialog field's text.
+- **The outcome entry is one frame**: it settles first and captures everything back to back.
+- **An app that installs its own `FlutterError.onError` no longer empties `appErrors`.** The walk
+  records first and forwards to the app's handler; an error arriving by two routes is kept once.
+- **An app that assigns `HttpOverrides.global` no longer swaps a real client into the walk.** The
+  override in place at launch is pinned for the whole walk (verified headless).
+- **The stub template answers every `HttpClient` method.** It implemented only `openUrl`, so
+  `NetworkImage` (which calls `getUrl`) recorded a `TypeError` the app does not have and painted it
+  on screen. Cookies are mutable, `flush()` completes, and a request awaited twice is recorded once.
+- **One stray file no longer aborts the static pass.** A macOS `._*.dart` file is skipped and a
+  non-UTF-8 byte is read leniently, as Dart reads it; both used to exit 255 with an empty
+  `static.json`.
+- `main_gated.dart`'s drive command gained the `--driver` it needs.
+
 ## [0.3.1] - 2026-10-05
 
 Three fixes found by a full review of 0.3.0, released ahead of the rest because each one breaks a
@@ -165,6 +288,7 @@ Initial release.
 - `example/ux_demo_app`, a public fixture with six seeded defects, each proven to fire through the
   framework's own guidelines.
 
+[0.4.0]: https://github.com/masanggil1986/flutter-ux-journey/releases/tag/v0.4.0
 [0.3.1]: https://github.com/masanggil1986/flutter-ux-journey/releases/tag/v0.3.1
 [0.3.0]: https://github.com/masanggil1986/flutter-ux-journey/releases/tag/v0.3.0
 [0.2.0]: https://github.com/masanggil1986/flutter-ux-journey/releases/tag/v0.2.0
