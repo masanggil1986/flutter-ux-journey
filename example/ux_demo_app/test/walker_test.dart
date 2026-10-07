@@ -1407,6 +1407,184 @@ void main() {
     });
   });
 
+  group('the oracle and the target — two different questions', () {
+    testWidgets('an expectation on screen twice is present, not ambiguous', (
+      WidgetTester tester,
+    ) async {
+      // A title that repeats its button — "Sign in" over a "Sign in" — is the
+      // commonest form screen there is. The oracle asks "did it arrive", not
+      // "which one", and the error's own remedy (nth) never reached it.
+      final SemanticsHandle handle = tester.ensureSemantics();
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            appBar: AppBar(title: const Text('Sign in')),
+            body: Column(
+              children: <Widget>[
+                const TextField(
+                  decoration: InputDecoration(labelText: 'Password'),
+                ),
+                FilledButton(onPressed: () {}, child: const Text('Sign in')),
+              ],
+            ),
+          ),
+        ),
+      );
+      final StepOutcome out = await performStep(tester, (
+        action: 'type',
+        target: 'Password',
+        nth: null,
+        text: 'x',
+        expected: 'Sign in',
+      ));
+      expect(out.status, 'OK', reason: out.error ?? '');
+      expect(out.settled, isTrue, reason: 'the poll saw it arrive, too');
+      handle.dispose();
+    });
+
+    testWidgets('an expectation only past the edge of the screen is absent', (
+      WidgetTester tester,
+    ) async {
+      // A cache-extent row is in the tree and not on screen. The Step contract
+      // says the expectation must be ON SCREEN.
+      tester.view.physicalSize = const Size(750, 1334);
+      tester.view.devicePixelRatio = 2.0;
+      addTearDown(tester.view.reset);
+      final SemanticsHandle handle = tester.ensureSemantics();
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            appBar: AppBar(
+              actions: <Widget>[
+                IconButton(
+                  tooltip: 'Refresh',
+                  onPressed: () {},
+                  icon: const Icon(Icons.refresh),
+                ),
+              ],
+            ),
+            body: ListView(
+              children: <Widget>[
+                for (int i = 0; i < 40; i++)
+                  SizedBox(height: 40, child: Text('row $i')),
+              ],
+            ),
+          ),
+        ),
+      );
+      final StepOutcome out = await performStep(tester, (
+        action: 'tap',
+        target: 'Refresh',
+        nth: null,
+        text: null,
+        expected: 'row 20',
+      ));
+      expect(out.status, 'FAILED');
+      expect(out.error, contains('in the semantics tree but not on screen'));
+      handle.dispose();
+    });
+
+    testWidgets('nth is checked against a single match too', (
+      WidgetTester tester,
+    ) async {
+      // Checked only when there were two or more hits, so `nth: 2` on a label
+      // that dropped to one match at run time silently tapped that one.
+      await tester.pumpWidget(const UxDemoApp());
+      final SemanticsHandle handle = tester.ensureSemantics();
+      expect(
+        () => resolve(tester, 'Sort', 2),
+        throwsA(
+          isA<StateError>().having(
+            (StateError e) => e.message,
+            'message',
+            contains('out of range — "Sort" matches 1'),
+          ),
+        ),
+      );
+      expect(resolve(tester, 'Sort', 1)['tooltip'], 'Sort');
+      handle.dispose();
+    });
+
+    testWidgets('a lone match inside a word is not a match', (
+      WidgetTester tester,
+    ) async {
+      // "back" is inside "Send feedback": when the control the journey meant
+      // is missing — exactly when the audit has something to report — a bare
+      // substring taps a different one and the step reads OK.
+      final SemanticsHandle handle = tester.ensureSemantics();
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: Column(
+              children: <Widget>[
+                TextButton(
+                  onPressed: () {},
+                  child: const Text('Send feedback'),
+                ),
+                // Korean glues particles to the noun, so Hangul keeps
+                // substring matching: "상품" is meant to find "상품을".
+                const Text('상품을 담았습니다'),
+              ],
+            ),
+          ),
+        ),
+      );
+      expect(
+        () => resolve(tester, 'Back'),
+        throwsA(
+          isA<StateError>().having(
+            (StateError e) => e.message,
+            'message',
+            contains('inside a word'),
+          ),
+        ),
+      );
+      expect(resolve(tester, 'feedback')['label'], 'Send feedback');
+      expect(resolve(tester, '상품')['label'], '상품을 담았습니다');
+      handle.dispose();
+    });
+
+    testWidgets('a merged card label still matches one of its lines', (
+      WidgetTester tester,
+    ) async {
+      await tester.pumpWidget(const UxDemoApp());
+      final SemanticsHandle handle = tester.ensureSemantics();
+      expect(
+        resolve(tester, '189,000 KRW')['label'],
+        startsWith('Walnut Side Table'),
+      );
+      handle.dispose();
+    });
+
+    testWidgets('a step says which node it acted on, and what was there', (
+      WidgetTester tester,
+    ) async {
+      // `target` is the needle; the node it resolved to was nowhere in the
+      // artifact, so a mis-resolution could not be seen. And an expectation
+      // already on screen before the action proves nothing about the action:
+      // the fixture's own step 1 expects a price its list row already shows.
+      await tester.pumpWidget(const UxDemoApp());
+      final SemanticsHandle handle = tester.ensureSemantics();
+      final StepOutcome first = await performStep(tester, journey[0]);
+      expect(first.status, 'OK', reason: first.error ?? '');
+      expect(first.expectedBefore, isTrue);
+      expect(
+        first.resolved?['label'],
+        startsWith('Walnut Side Table'),
+        reason: 'the card, not just the needle',
+      );
+
+      final StepOutcome second = await performStep(tester, journey[1]);
+      expect(second.expectedBefore, isFalse, reason: 'no "Cancel" before it');
+      expect(second.resolved?['label'], 'Remove from list');
+
+      final StepOutcome miss = await performStep(tester, journey[2]);
+      expect(miss.dispatched, isFalse);
+      expect(miss.resolved, isNull, reason: 'nothing was resolved');
+      handle.dispose();
+    });
+  });
+
   group('performStep on a `type` step — what reaches the artifact', () {
     Widget form() => const MaterialApp(
       home: Scaffold(

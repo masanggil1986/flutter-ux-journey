@@ -26,10 +26,11 @@ import 'package:ux_demo_app/main.dart' as app;
 /// — always ARBITRARY data. The walker never receives real credentials: an
 /// audit tool must not ask for them, and must not authenticate against
 /// production.
-/// [nth] disambiguates when a label legitimately appears more than once — a
-/// shortcut tile and a nav tab can carry the SAME text, and no amount of
-/// matching cleverness can guess which one a journey means. 1-based; null
-/// means "there must be exactly one".
+/// [nth] disambiguates the TARGET when a label legitimately appears more than
+/// once — a shortcut tile and a nav tab can carry the SAME text, and no amount
+/// of matching cleverness can guess which one a journey means. 1-based, over
+/// the matches as the ambiguity error numbers them; null means "there must be
+/// exactly one". The expectation needs no nth: it only has to be present.
 typedef Step = ({
   String action,
   String target,
@@ -329,6 +330,8 @@ Future<void> walkJourney(
         'nth': step.nth,
         'text': recordedText(step, out.obscured),
         'expected': step.expected,
+        'expectedBefore': out.expectedBefore,
+        'resolved': out.resolved,
         'status': out.status,
         'error': out.error,
         'elapsedMs': sw.elapsedMilliseconds,
@@ -381,6 +384,8 @@ Future<void> walkJourney(
           'nth': step.nth,
           'text': recordedText(step, out.obscured),
           'expected': step.expected,
+          'expectedBefore': out.expectedBefore,
+          'resolved': out.resolved,
           'status': out.status,
           'error': out.error,
           'elapsedMs': sw.elapsedMilliseconds, // EVIDENCE ONLY — never scored
@@ -488,6 +493,15 @@ typedef StepOutcome = ({
   bool dispatched,
   bool tapped,
   bool obscured,
+  // Was `expected` already on screen BEFORE the action? Then the oracle
+  // passing proves nothing about the action — the fixture's own step 1
+  // expects a price its list row already shows. Recorded, not judged: the
+  // status is unchanged and the report decides what an unproven OK is worth.
+  bool expectedBefore,
+  // The node the target resolved to, read before acting: `target` is only the
+  // needle, and without this a mis-resolution leaves no trace in the artifact.
+  // Null when nothing was resolved — a `back` step, or a selector miss.
+  Map<String, Object?>? resolved,
 });
 
 /// Perform one step and say what happened. **Never throws**: a failing step IS
@@ -504,10 +518,18 @@ Future<StepOutcome> performStep(WidgetTester tester, Step step) async {
   bool dispatched = false;
   bool tapped = false;
   bool obscured = false;
+  final bool expectedBefore = _present(tester, step.expected);
+  Map<String, Object?>? resolved;
   try {
     switch (step.action) {
       case 'type':
-        obscured = await _typeInto(tester, step.target, step.text!, step.nth);
+        final Map<String, Object?> node = resolve(
+          tester,
+          step.target,
+          step.nth,
+        );
+        resolved = _provenance(node);
+        obscured = await _typeInto(tester, node, step.target, step.text!);
       case 'back':
         // pageBack() exercises the on-screen back AFFORDANCE. It only
         // looks for a tooltip-'Back' button or a Cupertino back button, so
@@ -516,7 +538,13 @@ Future<StepOutcome> performStep(WidgetTester tester, Step step) async {
         // CANDIDATE, never the evidence: read surface.canPop first.
         await tester.pageBack();
       case 'tap':
-        await _tapTarget(tester, step.target, step.nth);
+        final Map<String, Object?> node = resolve(
+          tester,
+          step.target,
+          step.nth,
+        );
+        resolved = _provenance(node);
+        await _tapTarget(tester, node, step.target);
         tapped = true;
       default:
         throw StateError('unknown action "${step.action}"');
@@ -531,7 +559,7 @@ Future<StepOutcome> performStep(WidgetTester tester, Step step) async {
       tester,
       until: () => _present(tester, step.expected),
     );
-    _requireTarget(tester, step.expected); // the oracle
+    _requireOnScreen(tester, step.expected); // the oracle
   } catch (e) {
     status = 'FAILED';
     error = e.toString();
@@ -543,8 +571,13 @@ Future<StepOutcome> performStep(WidgetTester tester, Step step) async {
     dispatched: dispatched,
     tapped: tapped,
     obscured: obscured,
+    expectedBefore: expectedBefore,
+    resolved: resolved,
   );
 }
+
+Map<String, Object?> _provenance(Map<String, Object?> node) =>
+    <String, Object?>{'label': node['label'], 'tooltip': node['tooltip']};
 
 /// What goes in the artifact for a `type` step.
 ///
@@ -615,14 +648,14 @@ Future<bool> settle(
 }
 
 /// Is [needle] on screen right now? Never throws — it is a poll, not an oracle.
-bool _present(WidgetTester tester, String needle) {
-  try {
-    resolve(tester, needle);
-    return true;
-  } catch (_) {
-    return false;
-  }
-}
+///
+/// PRESENCE, not [resolve]: the oracle asks "did it arrive", not "which one".
+/// A title that repeats its button ("Sign in" over "Sign in") is not
+/// ambiguous here, and `nth` — which picks a TARGET — never reached it anyway.
+bool _present(WidgetTester tester, String needle) => _hits(
+  tester,
+  needle,
+).any((Map<String, Object?> n) => n['onScreen'] == true);
 
 Future<List<Map<String, Object?>>> _evaluateGuidelines(
   WidgetTester tester,
@@ -1362,22 +1395,53 @@ void _annotateEffectiveArea(
 String _norm(String s) =>
     s.replaceAll(RegExp(r'\s+'), ' ').trim().toLowerCase();
 
-/// Matches over label ∪ tooltip ∪ value (Trap 2), normalised substring, and
-/// ERRORS on ambiguity instead of silently auditing a different widget.
-Map<String, Object?> resolve(WidgetTester tester, String needle, [int? nth]) {
-  final Map<String, Object?> dump = dumpSemantics(tester);
+String _hay(Map<String, Object?> node) =>
+    _norm(<Object?>[node['label'], node['tooltip'], node['value']].join(' '));
+
+/// Every node whose label ∪ tooltip ∪ value (Trap 2) contains [needle],
+/// normalised, in paint order.
+List<Map<String, Object?>> _hits(WidgetTester tester, String needle) {
   final String n = _norm(needle);
-  final List<Map<String, Object?>> hits =
-      (dump['nodes']! as List<Map<String, Object?>>).where((
-        Map<String, Object?> node,
-      ) {
-        final String hay = _norm(
-          <Object?>[node['label'], node['tooltip'], node['value']].join(' '),
-        );
-        return hay.contains(n);
-      }).toList();
+  return (dumpSemantics(tester)['nodes']! as List<Map<String, Object?>>)
+      .where((Map<String, Object?> node) => _hay(node).contains(n))
+      .toList();
+}
+
+/// The one node a step's TARGET means. Matches like [_hits], and ERRORS on
+/// ambiguity instead of silently auditing a different widget.
+Map<String, Object?> resolve(WidgetTester tester, String needle, [int? nth]) {
+  final String n = _norm(needle);
+  final List<Map<String, Object?>> hits = _hits(tester, needle);
   if (hits.isEmpty) {
     throw StateError('no semantics node matches "$needle"');
+  }
+  // A lone hit that holds the needle only INSIDE a word is not the control
+  // the journey named: "back" is in "Send feedback". It bites when the meant
+  // control is missing — exactly when the audit has something to report — and
+  // the step then reads OK on a tap nobody asked for. Merged card labels still
+  // match: a line of one is a run of whole words. Word characters are ASCII
+  // letters and digits only, on purpose: Korean glues particles to the noun
+  // ("상품" in "상품을"), so Hangul and CJK keep substring matching.
+  if (hits.length == 1) {
+    final String hay = _hay(hits.single);
+    if (!RegExp('(?<![a-z0-9])${RegExp.escape(n)}(?![a-z0-9])').hasMatch(hay)) {
+      throw StateError(
+        'no semantics node matches "$needle" — only "$hay" contains it, '
+        'inside a word',
+      );
+    }
+  }
+  // Checked whatever the hit count. Checked only on two or more, `nth: 2` on a
+  // label that dropped to one match at run time silently took that one.
+  // Numbered over ALL hits, as the ambiguity message below numbers them, so
+  // it overrides the exact-match rule.
+  if (nth != null) {
+    if (nth < 1 || nth > hits.length) {
+      throw StateError(
+        'nth: $nth is out of range — "$needle" matches ${hits.length}',
+      );
+    }
+    return hits[nth - 1];
   }
   if (hits.length > 1) {
     // A substring selector legitimately matches a label and a longer label
@@ -1394,14 +1458,6 @@ Map<String, Object?> resolve(WidgetTester tester, String needle, [int? nth]) {
         node['value'],
       ].any((Object? v) => v is String && _norm(v) == n);
     }).toList();
-    if (nth != null) {
-      if (nth < 1 || nth > hits.length) {
-        throw StateError(
-          'nth: $nth is out of range — "$needle" matches ${hits.length}',
-        );
-      }
-      return hits[nth - 1];
-    }
     if (exact.length == 1) {
       return exact.single;
     }
@@ -1433,11 +1489,10 @@ Map<String, Object?> resolve(WidgetTester tester, String needle, [int? nth]) {
 /// semantics node is mapped to its EditableText by geometry.
 Future<bool> _typeInto(
   WidgetTester tester,
+  Map<String, Object?> node,
   String needle,
-  String text, [
-  int? nth,
-]) async {
-  final Map<String, Object?> node = resolve(tester, needle, nth);
+  String text,
+) async {
   final List<double> r = node['rect']! as List<double>;
   final Rect target = Rect.fromLTWH(r[0], r[1], r[2], r[3]);
 
@@ -1478,8 +1533,11 @@ Future<bool> _typeInto(
   return (field.widget as EditableText).obscureText;
 }
 
-Future<void> _tapTarget(WidgetTester tester, String needle, [int? nth]) async {
-  final Map<String, Object?> node = resolve(tester, needle, nth);
+Future<void> _tapTarget(
+  WidgetTester tester,
+  Map<String, Object?> node,
+  String needle,
+) async {
   if (node['tappable'] != true) {
     throw StateError('"$needle" carries no tap action');
   }
@@ -1526,5 +1584,14 @@ Future<void> _tapTarget(WidgetTester tester, String needle, [int? nth]) async {
   await tester.tapAt(centre); // logical px
 }
 
-void _requireTarget(WidgetTester tester, String needle) =>
-    resolve(tester, needle);
+/// The oracle: [needle] must be ON SCREEN, as the [Step] contract says. A
+/// cache-extent row is in the tree and nowhere the user can see it.
+void _requireOnScreen(WidgetTester tester, String needle) {
+  final List<Map<String, Object?>> hits = _hits(tester, needle);
+  if (hits.isEmpty) {
+    throw StateError('no semantics node matches "$needle"');
+  }
+  if (!hits.any((Map<String, Object?> n) => n['onScreen'] == true)) {
+    throw StateError('"$needle" is in the semantics tree but not on screen');
+  }
+}
