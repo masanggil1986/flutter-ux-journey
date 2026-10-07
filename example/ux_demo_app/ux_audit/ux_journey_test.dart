@@ -120,6 +120,50 @@ final DeviceProfile device = deviceProfileByName('iphone-se');
 /// one.
 const bool deviceDeclared = true;
 
+/// The conditions `## Device` may declare beside the screen: `textScale 3.0`,
+/// `dark`, `locale ko-KR`, `boldText`. Null (false for boldText) is "not
+/// declared", which leaves the test default exactly as it was.
+typedef DeviceConditions = ({
+  double? textScale,
+  Brightness? brightness,
+  Locale? locale,
+  bool boldText,
+});
+
+/// example/journey.md declares none.
+const DeviceConditions deviceConditions = (
+  textScale: null,
+  brightness: null,
+  locale: null,
+  boldText: false,
+);
+
+/// Hand [c] to the app the way the OS would: through the dispatcher, which is
+/// also what `conditions` reads back, so the report quotes what was set. The
+/// caller clears it.
+///
+/// ONE set per run. A matrix of them in one process is unsound — app globals
+/// leak from one walk into the next (measured) — so a second condition set is
+/// a second run.
+void applyConditions(TestPlatformDispatcher pd, DeviceConditions c) {
+  if (c.textScale case final double scale) {
+    pd.textScaleFactorTestValue = scale;
+  }
+  if (c.brightness case final Brightness b) {
+    pd.platformBrightnessTestValue = b;
+  }
+  if (c.locale case final Locale l) {
+    // Both: an app resolves its locale from the LIST.
+    pd.localeTestValue = l;
+    pd.localesTestValue = <Locale>[l];
+  }
+  if (c.boldText) {
+    pd.accessibilityFeaturesTestValue = const FakeAccessibilityFeatures(
+      boldText: true,
+    );
+  }
+}
+
 /// One output root, the one SKILL.md declares. Never `screenshots/`, which is a
 /// conventionally TRACKED directory in a Flutter app and not ours to claim.
 const String outDir = 'ux-audit-out';
@@ -141,6 +185,10 @@ void main() {
     debugDefaultTargetPlatformOverride = device.targetPlatform;
     applyDevice(tester, device);
     addTearDown(tester.view.reset);
+    // A teardown is right here: these are dispatcher test values, not
+    // foundation debug variables, so _verifyInvariants does not check them.
+    applyConditions(tester.platformDispatcher, deviceConditions);
+    addTearDown(tester.platformDispatcher.clearAllTestValues);
     final String fontSource = await loadFonts(tester);
 
     // A previous run's PNGs are not this run's evidence. Writes only create
