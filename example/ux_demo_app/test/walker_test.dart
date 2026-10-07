@@ -1910,6 +1910,100 @@ void main() {
     });
   });
 
+  group('walkJourney — the entry is the app, not the test harness', () {
+    testWidgets('an app that awaits the platform before runApp is waited for', (
+      WidgetTester tester,
+    ) async {
+      // The production norm: `main` awaits a plugin or a platform call before
+      // runApp. The walk used to drop that Future, settle on flutter_test's
+      // own "Test starting..." frame and measure it as the app's entry —
+      // every guideline passing on a screen with no controls.
+      Map<String, Object?>? report;
+      await walkJourney(
+        tester,
+        launch: () async {
+          await SystemChrome.setPreferredOrientations(<DeviceOrientation>[
+            DeviceOrientation.portraitUp,
+          ]);
+          runApp(const UxDemoApp());
+        },
+        journey: journey,
+        publish: (Map<String, Object?> r) async => report = r,
+      );
+      expect(report!['entryReached'], isTrue);
+      final Map<String, Object?> first =
+          (report!['steps']! as List<Object?>).first! as Map<String, Object?>;
+      expect(first['status'], 'OK', reason: '${first['error']}');
+      expect(
+        (first['surface']! as Map<String, Object?>)['tappableCount'],
+        greaterThan(0),
+        reason: 'step 1 measured the app, not the placeholder',
+      );
+    });
+
+    testWidgets('a splash that hands over on a timer is waited out', (
+      WidgetTester tester,
+    ) async {
+      // A quiet frame is not a ready screen: a static splash schedules no
+      // frames while its timer runs, so the entry settled on the splash and
+      // step 1 failed on a target that was 800 ms away.
+      Map<String, Object?>? report;
+      await walkJourney(
+        tester,
+        launch: () => runApp(MaterialApp(home: _Splash())),
+        journey:
+            const <
+              ({
+                String action,
+                String target,
+                int? nth,
+                String? text,
+                String expected,
+              })
+            >[
+              (
+                action: 'tap',
+                target: 'Start',
+                nth: null,
+                text: null,
+                expected: 'Started',
+              ),
+            ],
+        publish: (Map<String, Object?> r) async => report = r,
+      );
+      expect(report!['entryReached'], isTrue);
+      final Map<String, Object?> first =
+          (report!['steps']! as List<Object?>).first! as Map<String, Object?>;
+      expect(first['status'], 'OK', reason: '${first['error']}');
+    });
+
+    testWidgets('an app that never reaches runApp is not walked', (
+      WidgetTester tester,
+    ) async {
+      // Reported as one fact — the app never showed its first target — not as
+      // N journey failures on a screen that was never the app's.
+      final List<String> shots = <String>[];
+      Map<String, Object?>? report;
+      await walkJourney(
+        tester,
+        launch: () async {
+          await Future<void>.value();
+          throw StateError('plugin init failed');
+        },
+        journey: journey,
+        shot: (String name) async => shots.add(name),
+        publish: (Map<String, Object?> r) async => report = r,
+      );
+      expect(report!['entryReached'], isFalse);
+      expect(report!['steps'], isEmpty);
+      expect(report!['setupSteps'], isEmpty);
+      expect(report!['taps'], 0);
+      expect(report!['appErrors'], contains(contains('plugin init failed')));
+      expect(shots, <String>['entry'], reason: 'what it showed instead');
+      expect(report!['entryScreenshot'], 'entry.png');
+    });
+  });
+
   group('walkJourney — the two injection points', () {
     testWidgets('a shot that throws costs that step its image, not the walk', (
       WidgetTester tester,
@@ -2237,6 +2331,41 @@ class _TabShell extends StatelessWidget {
       ),
     ),
     bottomNavigationBar: const SizedBox(height: 56),
+  );
+}
+
+/// A static splash that hands over on a timer: no frames while it waits.
+class _Splash extends StatefulWidget {
+  @override
+  State<_Splash> createState() => _SplashState();
+}
+
+class _SplashState extends State<_Splash> {
+  bool _ready = false;
+  bool _started = false;
+
+  @override
+  void initState() {
+    super.initState();
+    Future<void>.delayed(const Duration(milliseconds: 800), () {
+      if (mounted) {
+        setState(() => _ready = true);
+      }
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+    body: Center(
+      child: !_ready
+          ? const Text('ACME')
+          : _started
+          ? const Text('Started')
+          : TextButton(
+              onPressed: () => setState(() => _started = true),
+              child: const Text('Start'),
+            ),
+    ),
   );
 }
 

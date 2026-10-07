@@ -295,15 +295,36 @@ Future<void> walkJourney(
   // The zone can only write them, which is also what makes a walk cut short by
   // a late rejection still publish what it did measure.
   bool entrySettled = false;
+  // false until the first target shows up, so a `launch` that throws before
+  // it does reads as "never reached" rather than as nothing at all.
+  bool? entryReached = false;
+  String? entryScreenshot;
   bool setupFailed = false;
   int taps = 0;
 
   await _guarded(appErrors, () async {
     launch();
+    // Wait for the APP, not for a quiet frame. `launch` is typed void, so an
+    // async main's Future is dropped, and flutter_test has already painted its
+    // own "Test starting..." frame — measured: with `main` awaiting one
+    // platform call before runApp, step 1 measured that placeholder as the
+    // app's entry, every guideline passing on a screen with no controls. A
+    // static splash on a timer is the same trap: quiet, and not ready.
+    final Step? first = <Step>[...setup, ...journey].firstOrNull;
+    entryReached = first == null || first.action == 'back'
+        ? null // nothing on screen to wait for
+        : await _awaitEntry(tester, first.target);
     // NOT pumpAndSettle: it waits out a 10-minute timeout on any app that
     // animates continuously. This fixture does not, but the generated walker
     // must, so the fixture exercises the same code path.
     entrySettled = await settle(tester, limit: const Duration(seconds: 12));
+    if (entryReached == false) {
+      // Nothing is walked, as with a failed setup: every step would fail on a
+      // screen that was never the app's, and N failures would bury the one
+      // fact. What it showed instead is the evidence.
+      entryScreenshot = await _capture(shot, 'entry');
+      return;
+    }
 
     // --- SETUP: excluded from measurement and scoring. ------------------------
     // A gate is not the product, so these steps get no semantics dump, no
@@ -467,6 +488,10 @@ Future<void> walkJourney(
     // A journey whose entry screen never settles is already telling you
     // something — record it rather than dropping it.
     'entrySettled': entrySettled,
+    // false: the first setup or journey target never reached the semantics
+    // tree, so nothing was walked. null: there was nothing to wait for.
+    'entryReached': entryReached,
+    'entryScreenshot': entryScreenshot,
     'appErrors': appErrors,
     'networkCalls': networkCalls,
     'taps': taps,
@@ -645,6 +670,33 @@ Future<bool> settle(
   // content never came", and conflating them voids every geometric
   // measurement on any app that animates forever.
   return lastExpected;
+}
+
+/// Wait, bounded, for [target] to exist in the semantics tree at all.
+///
+/// In the tree, NOT on screen: a first target past the fold, or an ambiguous
+/// one, is step 1's own finding, not a launch failure. Between pumps it turns
+/// the REAL event loop, because an app awaiting a platform call before runApp
+/// is waiting on real async work that fake time never completes.
+Future<bool> _awaitEntry(
+  WidgetTester tester,
+  String target, {
+  Duration limit = const Duration(seconds: 12),
+}) async {
+  const Duration tick = Duration(milliseconds: 100);
+  // Both clocks, for the reason settle() gives.
+  final int maxPumps = (limit.inMilliseconds / tick.inMilliseconds).ceil();
+  final Stopwatch sw = Stopwatch()..start();
+  for (int pumped = 0; pumped < maxPumps && sw.elapsed < limit; pumped++) {
+    await tester.runAsync(
+      () => Future<void>.delayed(const Duration(milliseconds: 10)),
+    );
+    await tester.pump(tick);
+    if (_hits(tester, target).isNotEmpty) {
+      return true;
+    }
+  }
+  return false;
 }
 
 /// Is [needle] on screen right now? Never throws — it is a poll, not an oracle.
