@@ -1,0 +1,7 @@
+# A blank issue never shows the bug form's "do not paste anything from a private
+# app" warning, so it is the easiest place for one to land in public.
+blank_issues_enabled: false
+contact_links:
+  - name: Something you can only show with a private app
+    url: https://github.com/masanggil1986/flutter-ux-journey/security/advisories/new
+    about: Report it privately here instead of in a public issue, and never attach screenshots.
