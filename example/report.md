@@ -271,8 +271,10 @@ edges:
 Walked 3 of 3 screens the probe found (100%). The gated edge is not audited by this journey: it
 starts from `lib/main_gated.dart`, which [`journey-gated.md`](journey-gated.md) walks. Its target is
 a screen this journey did walk, so it adds no unwalked screen to the count. `declared` is empty and so is `notAssessable`: the
-fixture uses plain `Navigator` with no declarative router, so there is no route table to reconcile
-against — that is a fact about the app, not a failed scan. See Not Assessable.
+fixture's `pubspec.yaml` declares no router package and its code uses plain `Navigator`, so there is
+no route table to reconcile against. An empty block alone would not say that — it only means no
+route table the probe can read — which is why the pubspec is checked before calling it a fact about
+the app. See Not Assessable.
 
 The coverage column is not the probe's: it compares the edges above against `walk.json`'s steps.
 

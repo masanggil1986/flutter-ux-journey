@@ -1445,8 +1445,8 @@ Map<String, Object?> routeState(
   final List<Element> navs = tester
       .elementList(find.byType(Navigator))
       .toList();
-  // Prefer the navigator that owns the thing this step is ABOUT. `navs.last`
-  // is last in element pre-order, not deepest and not the user's: a persistent
+  // A known limit, not a preference this code acts on: `navs.last` is last in
+  // element pre-order, not deepest and not the user's. A persistent
   // mini-player, a side panel or a Navigator in `Scaffold.bottomSheet` is a
   // sibling built after the content, and one push inside it flips canPop while
   // the user's screen is unchanged — silently suppressing a DEAD-END.
