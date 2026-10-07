@@ -136,6 +136,15 @@ void main() {
     addTearDown(tester.view.reset);
     final String fontSource = await loadFonts(tester);
 
+    // A previous run's PNGs are not this run's evidence. Writes only create
+    // or overwrite, so a shorter journey, or a setup that passed this time,
+    // left step_N.png and setup_N.png from an earlier round on disk to be
+    // globbed and compared as if this run had taken them. Measured.
+    final Directory screens = Directory('$outDir/screens');
+    if (screens.existsSync()) {
+      screens.deleteSync(recursive: true);
+    }
+
     await walkJourney(
       tester,
       launch: app.main,
