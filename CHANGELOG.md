@@ -4,6 +4,18 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Verified
+
+- **The new step lines on an Android emulator** (API 36, under `flutter drive`): `scroll until`,
+  `long-press`, `system back` — including on a screen that asks before letting go — and
+  `expect no` all walked as on the headless runs, at font scale 1.0 and 2.0, and each failed when
+  built to fail. `system back` on the app's first screen fails the step with `popHandled: false`;
+  the app stays open and the report is published. Not yet on iOS.
+- **`## Device` conditions apply headless only.** Under `flutter drive` the device's own settings
+  are measured and recorded, so the docs now say to set those on the device.
+
 ## [0.4.0] - 2026-10-07
 
 Journeys can scroll, long-press, press the system back button and expect something to be gone,

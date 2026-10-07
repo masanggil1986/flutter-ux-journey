@@ -81,7 +81,9 @@ FAILS with "cannot reach it without scrolling": that is the journey's missing st
 not a finding about the app. Add `nth: N` (1-based) to a step whose TARGET legitimately matches
 more than one node; the walker's ambiguity error lists the candidates and their sizes so one re-run
 is enough. The expectation needs no `nth`: it only has to be on screen, once or more. `scroll
-until`, `long-press`, `system back` and `expect no` are verified headless only, not yet on a device.
+until`, `long-press`, `system back` and `expect no` are verified headless and on an Android
+emulator under `flutter drive`, not yet on iOS. `## Device` condition lines apply headless only;
+under `flutter drive` the device's own settings (font scale, dark mode) are what gets measured.
 
 **Choose an expectation that is not on the screen the step starts from.** The oracle is what turns
 a dispatch into a result, but only if the action is what put the text there. A price that a list

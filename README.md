@@ -310,8 +310,10 @@ or it is printed as an observation.
 > `takeScreenshot` deadlocks on Android — no error, no timeout — when the app embeds platform views,
 > and from inside the test there is no way to tell in advance. The visual layer is captured from the
 > host instead (`adb exec-out screencap` / `xcrun simctl io`), or reported as not assessable.
-> The newer step lines — `scroll until`, `long-press`, `system back`, `expect no` — and the
-> `## Device` conditions are verified headless only, not yet on a simulator or emulator.
+> The newer step lines — `scroll until`, `long-press`, `system back`, `expect no` — are verified
+> headless and under `flutter drive` on an Android emulator (API 36), not yet on iOS. The
+> `## Device` conditions apply headless only: under `flutter drive` the device's own settings are
+> what the walk measures and records, so set those on the device instead.
 > **Real devices are not verified and are not claimed.**
 
 ## What this cannot see

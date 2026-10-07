@@ -218,9 +218,14 @@ v0.1은 데모 픽스처(iOS 시뮬)와 **실제 운영 앱(Android 에뮬레이
 - **Android 타겟 widget-test 런.** iOS 타겟 한 조건만 걸었다.
 - **`pixel-6` / `ipad-13` 프리셋.** `CLAUDE.md`에 크기·dpr·foldY는 있지만 `contentTop`이 없다.
   각 1회 캘리브레이션 런 뒤에 승격한다. 그때까지 `## Device`는 명시 수치를 받는다.
-- **새 스텝 문법과 `## Device` 조건.** `scroll until`·`long-press`·`system back`·`expect no`와
-  `- textScale`/`- dark`/`- locale`/`- boldText`는 헤드리스 테스트로만 확인했다. 시뮬·에뮬 런 없음.
+- **새 스텝 문법 — iOS 시뮬 미검증.** Android 에뮬(API 36, 411.4x731.4@2.625, `flutter drive`)에서
+  2026-10-07 실측: scroll(3 drags)·tap·system back(handled)·long-press·`expect no`·확인 다이얼로그 뒤
+  system back 8스텝 전부 OK, 폰트 스케일 2.0에서도 OK(4 drags, `textScaleFactor` 2.0 기록). 일부러 깨는
+  케이스도 전부 FAILED로 잡힘(행이 남은 `expect no`, 없는 행 `scroll until`(20 drags), long-press 액션
+  없는 타깃). 루트 화면 `system back`은 `popHandled:false`로 FAILED, 앱은 닫히지 않고 리포트도 나옴.
   `scroll until`은 세로만, 플로팅 바 아래 리스트는 중심이 바에 가린 채 끝날 수 있다.
+- **`## Device` 조건은 헤드리스 전용.** drive 엔트리는 적용하지 않는다 — 기기에선 기기 설정이 측정되고
+  `conditions`에 기록된다(폰트 스케일 2.0이 그대로 잡힘). 헤드리스 적용은 테스트로만 확인했다.
 - **`HttpOverrides` 고정(pin)의 drive 경로.** 앱이 `HttpOverrides.global`을 바꿔도 워크가 런치 시점의
   것을 유지하는 동작은 헤드리스로만 확인했다.
 
