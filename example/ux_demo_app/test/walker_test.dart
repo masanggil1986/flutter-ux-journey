@@ -235,6 +235,7 @@ void main() {
         target: 'Email',
         nth: null,
         text: 'someone@example.test',
+        absent: false,
         expected: 'Email',
       ));
       expect(out.status, 'OK', reason: out.error ?? '');
@@ -1258,6 +1259,7 @@ void main() {
           target: target,
           nth: null,
           text: null,
+          absent: false,
           expected: 'Just text',
         ));
         expect(out.status, 'FAILED', reason: target);
@@ -1427,6 +1429,7 @@ void main() {
         target: row,
         nth: null,
         text: null,
+        absent: false,
         expected: 'Orders',
       ));
       expect(out.status, 'FAILED');
@@ -1773,6 +1776,7 @@ void main() {
         target: 'Password',
         nth: null,
         text: 'x',
+        absent: false,
         expected: 'Sign in',
       ));
       expect(out.status, 'OK', reason: out.error ?? '');
@@ -1815,6 +1819,7 @@ void main() {
         target: 'Refresh',
         nth: null,
         text: null,
+        absent: false,
         expected: 'row 20',
       ));
       expect(out.status, 'FAILED');
@@ -1957,6 +1962,7 @@ void main() {
         target: 'Email',
         nth: null,
         text: 'someone@example.test',
+        absent: false,
         expected: 'Terms apply',
       ));
       expect(plain.status, 'OK', reason: plain.error ?? '');
@@ -1972,6 +1978,7 @@ void main() {
         target: 'Passcode',
         nth: null,
         text: 'not-a-real-password',
+        absent: false,
         expected: 'Terms apply',
       ));
       expect(hidden.status, 'OK', reason: hidden.error ?? '');
@@ -1994,12 +2001,14 @@ void main() {
         int? nth,
         String? text,
         String expected,
+        bool absent,
       })
       hidden = (
         action: 'type',
         target: 'Passcode',
         nth: null,
         text: 'not-a-real-password',
+        absent: false,
         expected: 'Terms apply',
       );
       final String? recorded = recordedText(hidden, true);
@@ -2021,6 +2030,7 @@ void main() {
           target: 'Sign in',
           nth: null,
           text: null,
+          absent: false,
           expected: 'Saved items',
         ), true),
         isNull,
@@ -2049,6 +2059,7 @@ void main() {
                 int? nth,
                 String? text,
                 String expected,
+                bool absent,
               })
             >[
               (
@@ -2056,6 +2067,7 @@ void main() {
                 target: 'PIN code',
                 nth: null,
                 text: 'secret-S-setup',
+                absent: false,
                 expected: 'Name',
               ),
             ],
@@ -2088,6 +2100,7 @@ void main() {
                 int? nth,
                 String? text,
                 String expected,
+                bool absent,
               })
             >[
               (
@@ -2095,6 +2108,7 @@ void main() {
                 target: 'Password',
                 nth: null,
                 text: 'secret-A-verbatim',
+                absent: false,
                 expected: 'PIN code',
               ),
               (
@@ -2102,6 +2116,7 @@ void main() {
                 target: 'Passcode',
                 nth: null,
                 text: 'secret-C-unresolved',
+                absent: false,
                 expected: 'PIN code',
               ),
               (
@@ -2109,6 +2124,7 @@ void main() {
                 target: 'PIN code',
                 nth: null,
                 text: 'secret-D-in-expected',
+                absent: false,
                 expected: 'secret-D-in-expected',
               ),
               (
@@ -2116,6 +2132,7 @@ void main() {
                 target: 'Name',
                 nth: null,
                 text: 'Visible Name',
+                absent: false,
                 expected: 'Name',
               ),
             ],
@@ -2186,6 +2203,7 @@ void main() {
         target: 'Name',
         nth: null,
         text: 'Groceries',
+        absent: false,
         expected: 'Rename',
       ));
       expect(out.status, 'OK', reason: out.error ?? '');
@@ -2225,6 +2243,7 @@ void main() {
         target: 'Email',
         nth: null,
         text: 'someone@example.test',
+        absent: false,
         expected: 'Email',
       ));
       expect(out.status, 'OK', reason: out.error ?? '');
@@ -2246,6 +2265,7 @@ void main() {
         target: 'Proceed to checkout',
         nth: null,
         text: null,
+        absent: false,
         expected: 'Saved items',
       ));
       expect(out.dispatched, isFalse);
@@ -2284,6 +2304,7 @@ void main() {
         target: 'Push notifications',
         nth: null,
         text: null,
+        absent: false,
         expected: 'Push notifications',
       ));
       expect(merged.dispatched, isTrue);
@@ -2314,6 +2335,7 @@ void main() {
                 int? nth,
                 String? text,
                 String expected,
+                bool absent,
               })
             >[
               (
@@ -2321,6 +2343,7 @@ void main() {
                 target: 'Pay',
                 nth: null,
                 text: null,
+                absent: false,
                 expected: 'Processing',
               ),
             ],
@@ -2608,6 +2631,7 @@ void main() {
                 int? nth,
                 String? text,
                 String expected,
+                bool absent,
               })
             >[
               (
@@ -2615,6 +2639,7 @@ void main() {
                 target: 'Start',
                 nth: null,
                 text: null,
+                absent: false,
                 expected: 'Started',
               ),
             ],

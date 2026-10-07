@@ -35,6 +35,7 @@ const List<Step> setup = <Step>[
     target: 'Email address',
     nth: null,
     text: 'ux-audit@example.invalid',
+    absent: false,
     expected: 'Password',
   ),
   (
@@ -42,6 +43,7 @@ const List<Step> setup = <Step>[
     target: 'Password',
     nth: null,
     text: 'not-a-real-password',
+    absent: false,
     expected: 'Sign in',
   ),
   (
@@ -49,6 +51,7 @@ const List<Step> setup = <Step>[
     target: 'Sign in',
     nth: null,
     text: null,
+    absent: false,
     expected: 'Saved items',
   ),
 ];
@@ -62,6 +65,7 @@ const List<Step> journey = <Step>[
     target: 'Walnut Side Table',
     nth: null,
     text: null,
+    absent: false,
     expected: '189,000 KRW',
   ),
   (
@@ -69,6 +73,7 @@ const List<Step> journey = <Step>[
     target: 'Remove from list',
     nth: null,
     text: null,
+    absent: false,
     expected: 'Cancel',
   ),
   (
@@ -76,6 +81,7 @@ const List<Step> journey = <Step>[
     target: 'Back',
     nth: null,
     text: null,
+    absent: false,
     expected: 'Saved items',
   ),
 ];
