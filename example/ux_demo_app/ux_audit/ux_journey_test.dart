@@ -179,12 +179,15 @@ void main() {
 /// The errors are kept, not swallowed: an app that drops a failed request is
 /// telling you something, and a report with an empty `appErrors` on an app that
 /// cannot reach its backend would be describing a different app.
+///
+/// With [http] given, [body] runs under it — see walkJourney for why.
 Future<void> _guarded(
   void Function(Object error) sink,
+  HttpOverrides? http,
   Future<void> Function() body,
 ) {
   final Completer<void> done = Completer<void>();
-  runZonedGuarded(
+  void run() => runZonedGuarded(
     () async {
       try {
         await body();
@@ -205,6 +208,11 @@ Future<void> _guarded(
       sink(error);
     },
   );
+  if (http == null) {
+    run();
+  } else {
+    HttpOverrides.runWithHttpOverrides(run, http);
+  }
   return done.future;
 }
 
@@ -241,7 +249,8 @@ Future<String?> _capture(
 /// Install `HttpOverrides.global` **before** calling this. The stub has to be
 /// in place before the app's first frame, and [launch] is what triggers it —
 /// passing `app.main` rather than calling it here is the only way a caller can
-/// get in front of it. Pass the stub's own call list as [networkCalls]: it
+/// get in front of it. Whatever is current then is pinned for the whole walk,
+/// so an app that assigns its own global cannot swap it out. Pass the stub's own call list as [networkCalls]: it
 /// defaults to empty, and an empty field silently costs the report a layer.
 ///
 /// Public so that a second journey is a second file of step lists rather than a
@@ -332,7 +341,17 @@ Future<void> walkJourney(
   bool setupFailed = false;
   int taps = 0;
 
-  await _guarded((Object error) => record(error, error.toString()), () async {
+  // The network barrier in place NOW — flutter_test's deny-all mock, or the
+  // caller's stub — is the one the walk runs under, whatever the app does.
+  // Both are installed by plain assignment to HttpOverrides.global, and so is
+  // the common `HttpOverrides.global = MyHttpOverrides()` in an app's main,
+  // which silently swaps in a REAL client. Measured: a journey's typed
+  // sign-in reached a socket while networkCalls and appErrors read empty.
+  // Pinned as a zone value, which HttpOverrides.current reads before the
+  // global. Code the app runs inside its OWN HttpOverrides.runZoned keeps its
+  // own; a walk with nothing in place at launch is left exactly as it was.
+  final HttpOverrides? pinned = HttpOverrides.current;
+  await _guarded((Object error) => record(error, error.toString()), pinned, () async {
     launch();
     keepCollecting();
     // Wait for the APP, not for a quiet frame. `launch` is typed void, so an
@@ -506,6 +525,16 @@ Future<void> walkJourney(
       }
     }
   });
+  // Read outside the pin, where the global shows through. Put back, so what
+  // runs after the walk — teardown disposing the app, a second walk in the
+  // same file — still meets the barrier.
+  final bool httpOverridesReplacedByApp = !identical(
+    HttpOverrides.current,
+    pinned,
+  );
+  if (httpOverridesReplacedByApp && pinned != null) {
+    HttpOverrides.global = pinned;
+  }
 
   // Handed back the moment the walk ends. Kept, it turns any later failure —
   // a timer the app left running, an expect in the same test — into an entry
@@ -539,6 +568,10 @@ Future<void> walkJourney(
       // When true, appErrors is still complete — the walk kept recording in
       // front of the app's handler — but the app's own reporting ran too.
       'appErrorHandlerReplaced': appErrorHandlerReplaced,
+      // The app assigned HttpOverrides.global during the walk. The walk kept
+      // the one in place at launch; anything the app ran in its own zone
+      // override did not.
+      'httpOverridesReplacedByApp': httpOverridesReplacedByApp,
       ...runContext,
     },
   };

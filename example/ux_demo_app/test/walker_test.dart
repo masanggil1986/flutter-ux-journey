@@ -2232,6 +2232,79 @@ void main() {
       });
     }
 
+    testWidgets(
+      'an app that swaps HttpOverrides.global keeps the one in place at launch',
+      (WidgetTester tester) async {
+        // flutter_test installs its deny-all mock by plain assignment, and so
+        // does the common `HttpOverrides.global = MyHttpOverrides()` in main —
+        // which then hands the app a REAL client in the default posture and
+        // discards a gate stub. Measured: a typed sign-in reached a socket.
+        // The app's override here throws if it is ever consulted, so a broken
+        // pin is a red test, never a request.
+        final HttpOverrides? atLaunch = HttpOverrides.current;
+        int? status;
+        Object? error;
+        Map<String, Object?>? report;
+        try {
+          await walkJourney(
+            tester,
+            launch: () {
+              HttpOverrides.global = _RefusingOverrides();
+              runApp(const UxDemoApp());
+              () async {
+                try {
+                  final HttpClientRequest req = await HttpClient().getUrl(
+                    Uri(scheme: 'https', host: 'api.example.invalid'),
+                  );
+                  status = (await req.close()).statusCode;
+                } catch (e) {
+                  error = e;
+                }
+              }();
+            },
+            journey: journey,
+            publish: (Map<String, Object?> r) async => report = r,
+          );
+        } finally {
+          HttpOverrides.global = atLaunch;
+        }
+        expect(error, isNull);
+        expect(status, 400, reason: "flutter_test's mock answered it");
+        expect(
+          (report!['conditions']!
+              as Map<String, Object?>)['httpOverridesReplacedByApp'],
+          isTrue,
+        );
+      },
+    );
+
+    testWidgets('with no override at launch the pin changes nothing', (
+      WidgetTester tester,
+    ) async {
+      // The drive path without a stub: nothing to pin, nothing to put back.
+      final HttpOverrides? atLaunch = HttpOverrides.current;
+      HttpOverrides.global = null;
+      Map<String, Object?>? report;
+      HttpOverrides? after;
+      try {
+        await walkJourney(
+          tester,
+          launch: () => runApp(const UxDemoApp()),
+          journey: journey,
+          publish: (Map<String, Object?> r) async => report = r,
+        );
+        after = HttpOverrides.current;
+      } finally {
+        HttpOverrides.global = atLaunch;
+      }
+      expect(after, isNull);
+      expect(
+        (report!['conditions']!
+            as Map<String, Object?>)['httpOverridesReplacedByApp'],
+        isFalse,
+      );
+    });
+
     testWidgets('an app that leaves the handler alone is not flagged', (
       WidgetTester tester,
     ) async {
@@ -2469,4 +2542,11 @@ class _SlowLoadState extends State<_SlowLoad> {
             child: const Text('Load'),
           ),
   );
+}
+
+/// An app's own override that must never be consulted during a walk.
+class _RefusingOverrides extends HttpOverrides {
+  @override
+  HttpClient createHttpClient(SecurityContext? context) =>
+      throw StateError('the app override was consulted');
 }
