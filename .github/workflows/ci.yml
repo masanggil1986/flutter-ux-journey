@@ -193,10 +193,38 @@ jobs:
         working-directory: tools/astprobe
 
       # Not `claude plugin validate`, which would need the Claude Code CLI on the
-      # runner. These two files are the whole install surface; a malformed one
-      # fails for the user and for nobody else.
+      # runner. These two files and the skill's frontmatter are the install
+      # surface; a malformed one fails for the user and for nobody else.
       - name: Plugin manifests parse
         run: |
           jq -e '.name and .version and .description and .license' .claude-plugin/plugin.json
           jq -e '.name and .owner and (.plugins | length > 0)' .claude-plugin/marketplace.json
 
+      # Claude Code, Codex and Gemini CLI repair a frontmatter that is not valid
+      # YAML, so it loads there and fails in every strict parser: the spec's own
+      # validator and the cross-agent installer skip the skill. Psych is strict,
+      # and Ruby comes with the runner image (actions/runner-images,
+      # images/ubuntu/Ubuntu2404-Readme.md and Ubuntu2604-Readme.md), so nothing
+      # is downloaded. Limits are the Agent Skills spec's, in characters.
+      - name: SKILL.md frontmatter parses strictly
+        run: |
+          ruby -ryaml - <<'RUBY'
+          path = "skills/flutter-ux-journey/SKILL.md"
+          text = File.read(path, encoding: "UTF-8")
+          fm = text[/\A---\n(.*?\n)---\n/m, 1] or abort "#{path}: no frontmatter"
+          begin
+            # The leading newline keeps Psych's line numbers the file's own.
+            data = YAML.safe_load("\n" + fm)
+          rescue Psych::SyntaxError => e
+            abort "#{path}: #{e.problem} at line #{e.line} column #{e.column}"
+          end
+          abort "#{path}: frontmatter is not a mapping" unless data.is_a?(Hash)
+          { "name" => 64, "description" => 1024, "compatibility" => 500 }.each do |key, max|
+            next if key == "compatibility" && !data.key?(key)
+            value = data[key]
+            next if value.is_a?(String) && value.length.between?(1, max)
+            has = value.is_a?(String) ? value.length : value.inspect
+            abort "#{path}: #{key} needs 1-#{max} characters, has #{has}"
+          end
+          puts "#{path}: frontmatter OK"
+          RUBY
