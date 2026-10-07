@@ -15,6 +15,7 @@ import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -427,6 +428,36 @@ void main() {
         handle.dispose();
       },
     );
+
+    testWidgets('a toggle moves the signature — its state is semantics too', (
+      WidgetTester tester,
+    ) async {
+      // The signature hashed label, tooltip and value only, so a working
+      // checkbox read "nothing changed" beside a PNG that did — and the rule
+      // for that pair then demands a false "state change assistive tech
+      // cannot see", when isChecked is exactly what assistive tech reads.
+      final SemanticsHandle handle = tester.ensureSemantics();
+      bool on = false;
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: StatefulBuilder(
+              builder: (BuildContext c, StateSetter set) => CheckboxListTile(
+                title: const Text('Gift wrap'),
+                value: on,
+                onChanged: (bool? v) => set(() => on = v ?? false),
+              ),
+            ),
+          ),
+        ),
+      );
+      final String before = screenSignature(dumpSemantics(tester));
+      await tester.tap(find.text('Gift wrap'));
+      await tester.pump(const Duration(seconds: 1));
+      expect(on, isTrue);
+      expect(screenSignature(dumpSemantics(tester)), isNot(before));
+      handle.dispose();
+    });
   });
 
   group('routeState — DEAD-END as a measurement instead of a selector miss', () {
@@ -490,6 +521,64 @@ void main() {
         expect(s['modalOpen'], isTrue);
       },
     );
+
+    // Keyed on dismissibility, every dialog that must be answered read "no
+    // modal": showCupertinoDialog's default, barrierDismissible: false, a
+    // non-dismissible sheet — the very surfaces most likely to trap a user.
+    final Map<String, void Function(BuildContext)> blocking =
+        <String, void Function(BuildContext)>{
+          'showCupertinoDialog': (BuildContext c) => showCupertinoDialog<void>(
+            context: c,
+            builder: (_) => const CupertinoAlertDialog(title: Text('Wait')),
+          ),
+          'showDialog(barrierDismissible: false)': (BuildContext c) =>
+              showDialog<void>(
+                context: c,
+                barrierDismissible: false,
+                builder: (_) => const AlertDialog(title: Text('Wait')),
+              ),
+          'showModalBottomSheet(isDismissible: false)': (BuildContext c) =>
+              showModalBottomSheet<void>(
+                context: c,
+                isDismissible: false,
+                builder: (_) => const Text('Wait'),
+              ),
+        };
+    for (final MapEntry<String, void Function(BuildContext)> open
+        in blocking.entries) {
+      testWidgets('a modal that must be answered is a modal (${open.key})', (
+        WidgetTester tester,
+      ) async {
+        await tester.pumpWidget(
+          const MaterialApp(home: Scaffold(body: Text('body'))),
+        );
+        open.value(tester.element(find.text('body')));
+        await tester.pump();
+        await tester.pump(const Duration(seconds: 1));
+        expect(routeState(tester)['modalOpen'], isTrue);
+      });
+    }
+
+    testWidgets('a pushed page is still not a modal', (
+      WidgetTester tester,
+    ) async {
+      await tester.pumpWidget(
+        const MaterialApp(home: Scaffold(body: Text('body'))),
+      );
+      final NavigatorState nav = tester.state(find.byType(Navigator));
+      for (final PageRoute<void> route in <PageRoute<void>>[
+        CupertinoPageRoute<void>(builder: (_) => const Text('page')),
+        MaterialPageRoute<void>(
+          fullscreenDialog: true,
+          builder: (_) => const Text('page'),
+        ),
+      ]) {
+        nav.push(route);
+        await tester.pump();
+        await tester.pump(const Duration(seconds: 1));
+        expect(routeState(tester)['modalOpen'], isFalse, reason: '$route');
+      }
+    });
   });
 
   group('dead-tap oracle — and the false positive it cannot see alone', () {

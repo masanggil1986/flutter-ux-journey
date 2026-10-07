@@ -482,10 +482,11 @@ Future<void> walkJourney(
           // A tap that changed no semantics at all. Filled after the loop: the
           // NEXT step's dump is this step's "after", the same frame, so a second
           // tree walk here would measure it twice. NOT sufficient for a finding
-          // on its own either — a control that only repaints (a selection chip,
-          // a tab highlight) is byte-identical to one wired to nothing, measured
-          // in test/walker_test.dart. heuristics.md requires a second layer
-          // before this becomes FAKE-AFFORDANCE.
+          // on its own either — a custom control that only repaints is
+          // byte-identical to one wired to nothing, measured in
+          // test/walker_test.dart (a Material chip, tab or checkbox is not: it
+          // sets a state flag, which the signature reads). heuristics.md
+          // requires a second layer before this becomes FAKE-AFFORDANCE.
           'semanticsUnchanged': null,
           'surface': surface,
           'semantics': semantics,
@@ -1209,6 +1210,14 @@ bool coversPoint(Offset p, Iterable<Rect> obscurers) =>
 /// quantised rects) and it was measured REFUTED, because text width IS content
 /// — "Walnut Side Table" is 376dp and "Oak Side Table" is 312dp, so two
 /// instances of one screen never collide at any quantisation.
+const List<String> _stateFlags = <String>[
+  'isChecked',
+  'isCheckStateMixed',
+  'isToggled',
+  'isSelected',
+  'isExpanded',
+];
+
 String screenSignature(Map<String, Object?> dump) {
   final List<Map<String, Object?>> nodes =
       (dump['nodes'] as List<Map<String, Object?>>?) ??
@@ -1231,6 +1240,18 @@ String screenSignature(Map<String, Object?> dump) {
     for (final Object? v in <Object?>[n['label'], n['tooltip'], n['value']]) {
       if (v is String && v.trim().isNotEmpty) {
         parts.add('$i:${_norm(v)}');
+      }
+    }
+    // A control's STATE is semantics too. Without it a working checkbox,
+    // switch or chip read "nothing changed" beside a PNG that did, and that
+    // pair is the rule for a state change assistive tech cannot see — when
+    // isChecked is exactly what assistive tech reads. Only set flags, so no
+    // committed screen without one changes its signature.
+    final List<Object?> flags =
+        n['flags'] as List<Object?>? ?? const <Object?>[];
+    for (final String f in _stateFlags) {
+      if (flags.contains(f)) {
+        parts.add('$i:#$f');
       }
     }
   }
@@ -1323,17 +1344,22 @@ Map<String, Object?> routeState(
     // A dialog, sheet, popup menu or dropdown is up. Cheap cross-check on
     // canPop, which a modal otherwise silently inverts.
     //
-    // Keyed on the barrier's DISMISSIBILITY, not its type. Two wrong versions
+    // Keyed on what the barrier IS FOR, not its type. Three wrong versions
     // were measured first: `find.byType(ModalBarrier)` reads true on every
     // ordinary screen, because every ModalRoute mounts a barrier; narrowing to
     // AnimatedModalBarrier then missed the whole PopupRoute family, since
     // _PopupMenuRoute and _DropdownRoute return a null barrierColor and build
-    // the plain one. A PageRoute's barrier is not dismissible; a transient
-    // surface's is.
+    // the plain one; and keying on dismissibility alone missed every dialog
+    // that must be answered — showCupertinoDialog's default,
+    // barrierDismissible: false, a non-dismissible sheet. Every SDK transient
+    // route names its barrier (barrierLabel); a PageRoute's has no name and
+    // cannot be dismissed. Not the colour: CupertinoPageRoute has one.
     'modalOpen':
         tester
             .widgetList<ModalBarrier>(find.byType(ModalBarrier))
-            .any((ModalBarrier b) => b.dismissible) ||
+            .any(
+              (ModalBarrier b) => b.dismissible || b.semanticsLabel != null,
+            ) ||
         // A Drawer adds a local-history entry, so canPop flips true with no
         // barrier anywhere — its scrim is a GestureDetector. Ask the Scaffold
         // whether the drawer is OPEN: `DrawerController` is mounted whenever
