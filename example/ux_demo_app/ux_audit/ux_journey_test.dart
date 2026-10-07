@@ -26,10 +26,11 @@ import 'package:ux_demo_app/main.dart' as app;
 /// — always ARBITRARY data. The walker never receives real credentials: an
 /// audit tool must not ask for them, and must not authenticate against
 /// production.
-/// [nth] disambiguates when a label legitimately appears more than once — a
-/// shortcut tile and a nav tab can carry the SAME text, and no amount of
-/// matching cleverness can guess which one a journey means. 1-based; null
-/// means "there must be exactly one".
+/// [nth] disambiguates the TARGET when a label legitimately appears more than
+/// once — a shortcut tile and a nav tab can carry the SAME text, and no amount
+/// of matching cleverness can guess which one a journey means. 1-based, over
+/// the matches as the ambiguity error numbers them; null means "there must be
+/// exactly one". The expectation needs no nth: it only has to be present.
 typedef Step = ({
   String action,
   String target,
@@ -135,6 +136,15 @@ void main() {
     addTearDown(tester.view.reset);
     final String fontSource = await loadFonts(tester);
 
+    // A previous run's PNGs are not this run's evidence. Writes only create
+    // or overwrite, so a shorter journey, or a setup that passed this time,
+    // left step_N.png and setup_N.png from an earlier round on disk to be
+    // globbed and compared as if this run had taken them. Measured.
+    final Directory screens = Directory('$outDir/screens');
+    if (screens.existsSync()) {
+      screens.deleteSync(recursive: true);
+    }
+
     await walkJourney(
       tester,
       launch: app.main,
@@ -178,9 +188,15 @@ void main() {
 /// The errors are kept, not swallowed: an app that drops a failed request is
 /// telling you something, and a report with an empty `appErrors` on an app that
 /// cannot reach its backend would be describing a different app.
-Future<void> _guarded(List<String> sink, Future<void> Function() body) {
+///
+/// With [http] given, [body] runs under it — see walkJourney for why.
+Future<void> _guarded(
+  void Function(Object error) sink,
+  HttpOverrides? http,
+  Future<void> Function() body,
+) {
   final Completer<void> done = Completer<void>();
-  runZonedGuarded(
+  void run() => runZonedGuarded(
     () async {
       try {
         await body();
@@ -198,9 +214,14 @@ Future<void> _guarded(List<String> sink, Future<void> Function() body) {
       // published zero steps and a single appError. The body's own `finally`
       // is the only thing that completes this: an unawaited rejection does not
       // break the body's await chain, and an awaited one reaches that finally.
-      sink.add(error.toString());
+      sink(error);
     },
   );
+  if (http == null) {
+    run();
+  } else {
+    HttpOverrides.runWithHttpOverrides(run, http);
+  }
   return done.future;
 }
 
@@ -237,7 +258,8 @@ Future<String?> _capture(
 /// Install `HttpOverrides.global` **before** calling this. The stub has to be
 /// in place before the app's first frame, and [launch] is what triggers it —
 /// passing `app.main` rather than calling it here is the only way a caller can
-/// get in front of it. Pass the stub's own call list as [networkCalls]: it
+/// get in front of it. Whatever is current then is pinned for the whole walk,
+/// so an app that assigns its own global cannot swap it out. Pass the stub's own call list as [networkCalls]: it
 /// defaults to empty, and an empty field silently costs the report a layer.
 ///
 /// Public so that a second journey is a second file of step lists rather than a
@@ -285,24 +307,84 @@ Future<void> walkJourney(
   // the report was published, and the run still read as a framework failure
   // nobody could act on. runZonedGuarded is what catches that half.
   final List<String> appErrors = <String>[];
+  // One entry per error, however many paths it arrives by: an app handler
+  // that chains to ours, or routes into the zone, delivers it twice.
+  final Set<Object> seen = Set<Object>.identity();
+  void record(Object error, String text) {
+    if (seen.add(error)) {
+      appErrors.add(text);
+    }
+  }
+
   final FlutterExceptionHandler? previousOnError = FlutterError.onError;
-  FlutterError.onError = (FlutterErrorDetails details) {
-    appErrors.add(details.exceptionAsString());
-  };
+  FlutterExceptionHandler collector = (FlutterErrorDetails details) =>
+      record(details.exception, details.exceptionAsString());
+  FlutterError.onError = collector;
+  // An app that installs its own handler — logging boilerplate, a crash
+  // reporter, usually first thing in main — replaces this one, and appErrors
+  // then reads [] on an app that is throwing. Measured. So at every step the
+  // walk checks, and when it has been replaced it records first and then
+  // forwards to the app's, which still hears everything it would have.
+  bool appErrorHandlerReplaced = false;
+  void keepCollecting() {
+    final FlutterExceptionHandler? app = FlutterError.onError;
+    if (identical(app, collector)) {
+      return;
+    }
+    appErrorHandlerReplaced = true;
+    collector = (FlutterErrorDetails details) {
+      record(details.exception, details.exceptionAsString());
+      app?.call(details);
+    };
+    FlutterError.onError = collector;
+  }
 
   // Declared outside the zone because the report reads them after it closes.
   // The zone can only write them, which is also what makes a walk cut short by
   // a late rejection still publish what it did measure.
   bool entrySettled = false;
+  // false until the first target shows up, so a `launch` that throws before
+  // it does reads as "never reached" rather than as nothing at all.
+  bool? entryReached = false;
+  String? entryScreenshot;
   bool setupFailed = false;
   int taps = 0;
 
-  await _guarded(appErrors, () async {
+  // The network barrier in place NOW — flutter_test's deny-all mock, or the
+  // caller's stub — is the one the walk runs under, whatever the app does.
+  // Both are installed by plain assignment to HttpOverrides.global, and so is
+  // the common `HttpOverrides.global = MyHttpOverrides()` in an app's main,
+  // which silently swaps in a REAL client. Measured: a journey's typed
+  // sign-in reached a socket while networkCalls and appErrors read empty.
+  // Pinned as a zone value, which HttpOverrides.current reads before the
+  // global. Code the app runs inside its OWN HttpOverrides.runZoned keeps its
+  // own; a walk with nothing in place at launch is left exactly as it was.
+  final HttpOverrides? pinned = HttpOverrides.current;
+  await _guarded((Object error) => record(error, error.toString()), pinned, () async {
     launch();
+    keepCollecting();
+    // Wait for the APP, not for a quiet frame. `launch` is typed void, so an
+    // async main's Future is dropped, and flutter_test has already painted its
+    // own "Test starting..." frame — measured: with `main` awaiting one
+    // platform call before runApp, step 1 measured that placeholder as the
+    // app's entry, every guideline passing on a screen with no controls. A
+    // static splash on a timer is the same trap: quiet, and not ready.
+    final Step? first = <Step>[...setup, ...journey].firstOrNull;
+    entryReached = first == null || first.action == 'back'
+        ? null // nothing on screen to wait for
+        : await _awaitEntry(tester, first.target);
+    keepCollecting();
     // NOT pumpAndSettle: it waits out a 10-minute timeout on any app that
     // animates continuously. This fixture does not, but the generated walker
     // must, so the fixture exercises the same code path.
     entrySettled = await settle(tester, limit: const Duration(seconds: 12));
+    if (entryReached == false) {
+      // Nothing is walked, as with a failed setup: every step would fail on a
+      // screen that was never the app's, and N failures would bury the one
+      // fact. What it showed instead is the evidence.
+      entryScreenshot = await _capture(shot, 'entry');
+      return;
+    }
 
     // --- SETUP: excluded from measurement and scoring. ------------------------
     // A gate is not the product, so these steps get no semantics dump, no
@@ -316,6 +398,7 @@ Future<void> walkJourney(
       final Stopwatch sw = Stopwatch()..start();
       final StepOutcome out = await performStep(tester, step);
       sw.stop();
+      keepCollecting();
       // One screenshot, and only on failure: it is the whole evidence for "the
       // gate is what blocked this", and a passing setup step has nothing to show.
       final String? shotName = out.status != 'OK'
@@ -328,9 +411,12 @@ Future<void> walkJourney(
         'target': step.target,
         'nth': step.nth,
         'text': recordedText(step, out.obscured),
-        'expected': step.expected,
+        'expected': scrubbed(step.expected, step, out.obscured),
+        'expectedBefore': out.expectedBefore,
+        'resolved': out.resolved,
+        'centreHitsHandler': out.centreHitsHandler,
         'status': out.status,
-        'error': out.error,
+        'error': scrubbed(out.error, step, out.obscured),
         'elapsedMs': sw.elapsedMilliseconds,
         'settled': out.settled,
         'dispatched': out.dispatched,
@@ -367,6 +453,7 @@ Future<void> walkJourney(
         final Stopwatch sw = Stopwatch()..start();
         final StepOutcome out = await performStep(tester, step);
         sw.stop();
+        keepCollecting();
         // Counted AFTER it lands. `_tapTarget` throws when the target cannot be
         // resolved or is off screen, and a gesture that was never dispatched is
         // not reach cost.
@@ -380,9 +467,12 @@ Future<void> walkJourney(
           'target': step.target,
           'nth': step.nth,
           'text': recordedText(step, out.obscured),
-          'expected': step.expected,
+          'expected': scrubbed(step.expected, step, out.obscured),
+          'expectedBefore': out.expectedBefore,
+          'resolved': out.resolved,
+          'centreHitsHandler': out.centreHitsHandler,
           'status': out.status,
-          'error': out.error,
+          'error': scrubbed(out.error, step, out.obscured),
           'elapsedMs': sw.elapsedMilliseconds, // EVIDENCE ONLY — never scored
           'settled': out.settled,
           'tapsSoFar': taps,
@@ -392,10 +482,11 @@ Future<void> walkJourney(
           // A tap that changed no semantics at all. Filled after the loop: the
           // NEXT step's dump is this step's "after", the same frame, so a second
           // tree walk here would measure it twice. NOT sufficient for a finding
-          // on its own either — a control that only repaints (a selection chip,
-          // a tab highlight) is byte-identical to one wired to nothing, measured
-          // in test/walker_test.dart. heuristics.md requires a second layer
-          // before this becomes FAKE-AFFORDANCE.
+          // on its own either — a custom control that only repaints is
+          // byte-identical to one wired to nothing, measured in
+          // test/walker_test.dart (a Material chip, tab or checkbox is not: it
+          // sets a state flag, which the signature reads). heuristics.md
+          // requires a second layer before this becomes FAKE-AFFORDANCE.
           'semanticsUnchanged': null,
           'surface': surface,
           'semantics': semantics,
@@ -409,6 +500,11 @@ Future<void> walkJourney(
       // captures the screen it starts from, so the final outcome — the error
       // state, the confirmation, the dead end — falls off the end. Measured:
       // without this, an audit of a failed sign-in never looks at the failure.
+      // Settled FIRST, then everything taken back to back with no pump in
+      // between, so the PNG, the dump, the surface and the guidelines are one
+      // frame. Measured the other way round: a dump of "Processing" beside a
+      // contrast failure on the "Payment failed" that replaced it.
+      final bool outcomeSettled = await settle(tester);
       final String? outcomeShot = await _capture(
         shot,
         'step_${steps.length + 1}',
@@ -423,7 +519,7 @@ Future<void> walkJourney(
         'status': 'OK',
         'error': null,
         'elapsedMs': 0,
-        'settled': await settle(tester),
+        'settled': outcomeSettled,
         'tapsSoFar': taps,
         // The outcome screen needs its own PNG, or the last real step has no
         // "after" image and the dead-tap confirmation (compare step N's PNG with
@@ -446,6 +542,16 @@ Future<void> walkJourney(
       }
     }
   });
+  // Read outside the pin, where the global shows through. Put back, so what
+  // runs after the walk — teardown disposing the app, a second walk in the
+  // same file — still meets the barrier.
+  final bool httpOverridesReplacedByApp = !identical(
+    HttpOverrides.current,
+    pinned,
+  );
+  if (httpOverridesReplacedByApp && pinned != null) {
+    HttpOverrides.global = pinned;
+  }
 
   // Handed back the moment the walk ends. Kept, it turns any later failure —
   // a timer the app left running, an expect in the same test — into an entry
@@ -462,6 +568,10 @@ Future<void> walkJourney(
     // A journey whose entry screen never settles is already telling you
     // something — record it rather than dropping it.
     'entrySettled': entrySettled,
+    // false: the first setup or journey target never reached the semantics
+    // tree, so nothing was walked. null: there was nothing to wait for.
+    'entryReached': entryReached,
+    'entryScreenshot': entryScreenshot,
     'appErrors': appErrors,
     'networkCalls': networkCalls,
     'taps': taps,
@@ -470,7 +580,17 @@ Future<void> walkJourney(
     // entry may correct something the walk could only guess — `platform`
     // reads the HOST under `flutter test` — and a silent disagreement between
     // the two is worse than either value.
-    'conditions': <String, Object?>{...conditionsOf(tester), ...runContext},
+    'conditions': <String, Object?>{
+      ...conditionsOf(tester),
+      // When true, appErrors is still complete — the walk kept recording in
+      // front of the app's handler — but the app's own reporting ran too.
+      'appErrorHandlerReplaced': appErrorHandlerReplaced,
+      // The app assigned HttpOverrides.global during the walk. The walk kept
+      // the one in place at launch; anything the app ran in its own zone
+      // override did not.
+      'httpOverridesReplacedByApp': httpOverridesReplacedByApp,
+      ...runContext,
+    },
   };
   // Never swallowed. Every measurement is already made by this point, so a
   // publish that fails quietly means a green run with no artifact — the one
@@ -484,10 +604,26 @@ Future<void> walkJourney(
 typedef StepOutcome = ({
   String status,
   String? error,
-  bool settled,
+  // Null when no settle ran: a step that never dispatched waited for nothing,
+  // and counting it as settled put a selector miss into "screen stability".
+  bool? settled,
   bool dispatched,
   bool tapped,
   bool obscured,
+  // Was `expected` already on screen BEFORE the action? Then the oracle
+  // passing proves nothing about the action — the fixture's own step 1
+  // expects a price its list row already shows. Recorded, not judged: the
+  // status is unchanged and the report decides what an unproven OK is worth.
+  bool expectedBefore,
+  // The node the target resolved to, read before acting: `target` is only the
+  // needle, and without this a mis-resolution leaves no trace in the artifact.
+  // Null when nothing was resolved — a `back` step, or a selector miss.
+  Map<String, Object?>? resolved,
+  // A tap step only: did a real hit test at the tap point cross a tap
+  // handler? false is a tap into dead space — a MergeSemantics row whose
+  // centre falls between its label and its switch — which changes nothing
+  // and reads as a dead control on both layers. Null for any other step.
+  bool? centreHitsHandler,
 });
 
 /// Perform one step and say what happened. **Never throws**: a failing step IS
@@ -496,18 +632,30 @@ typedef StepOutcome = ({
 Future<StepOutcome> performStep(WidgetTester tester, Step step) async {
   String status = 'OK';
   String? error;
-  bool settled = true;
+  bool? settled;
   // Did the gesture actually go out? A step that fails while RESOLVING its
   // target never touched the app, so "the semantics did not change" is
   // trivially true and means nothing. Without this, every selector miss
   // reads as a dead tap — measured on this fixture's step 3.
   bool dispatched = false;
   bool tapped = false;
-  bool obscured = false;
+  // Hidden until the walk sees the field show it. Keyed only on a SUCCESSFUL
+  // type, a step that failed — a label that owns no field, a target that is
+  // not there — wrote the value into the artifact verbatim.
+  bool obscured = step.action == 'type';
+  bool? centreHitsHandler;
+  final bool expectedBefore = _present(tester, step.expected);
+  Map<String, Object?>? resolved;
   try {
     switch (step.action) {
       case 'type':
-        obscured = await _typeInto(tester, step.target, step.text!, step.nth);
+        final Map<String, Object?> node = resolve(
+          tester,
+          step.target,
+          step.nth,
+        );
+        resolved = _provenance(node);
+        obscured = await _typeInto(tester, node, step.target, step.text!);
       case 'back':
         // pageBack() exercises the on-screen back AFFORDANCE. It only
         // looks for a tooltip-'Back' button or a Cupertino back button, so
@@ -516,7 +664,13 @@ Future<StepOutcome> performStep(WidgetTester tester, Step step) async {
         // CANDIDATE, never the evidence: read surface.canPop first.
         await tester.pageBack();
       case 'tap':
-        await _tapTarget(tester, step.target, step.nth);
+        final Map<String, Object?> node = resolve(
+          tester,
+          step.target,
+          step.nth,
+        );
+        resolved = _provenance(node);
+        centreHitsHandler = await _tapTarget(tester, node, step.target);
         tapped = true;
       default:
         throw StateError('unknown action "${step.action}"');
@@ -531,7 +685,7 @@ Future<StepOutcome> performStep(WidgetTester tester, Step step) async {
       tester,
       until: () => _present(tester, step.expected),
     );
-    _requireTarget(tester, step.expected); // the oracle
+    _requireOnScreen(tester, step.expected); // the oracle
   } catch (e) {
     status = 'FAILED';
     error = e.toString();
@@ -543,8 +697,14 @@ Future<StepOutcome> performStep(WidgetTester tester, Step step) async {
     dispatched: dispatched,
     tapped: tapped,
     obscured: obscured,
+    expectedBefore: expectedBefore,
+    resolved: resolved,
+    centreHitsHandler: centreHitsHandler,
   );
 }
+
+Map<String, Object?> _provenance(Map<String, Object?> node) =>
+    <String, Object?>{'label': node['label'], 'tooltip': node['tooltip']};
 
 /// What goes in the artifact for a `type` step.
 ///
@@ -561,6 +721,19 @@ Future<StepOutcome> performStep(WidgetTester tester, Step step) async {
 String? recordedText(Step step, bool obscured) => obscured && step.text != null
     ? '<redacted ${step.text!.length} chars: the field hides its own value>'
     : step.text;
+
+/// [s] with every occurrence of a redacted value cut out. The value reaches
+/// `expected` when a journey expects to see what it typed, and `error` when
+/// that expectation fails — and the redaction above is worth nothing if the
+/// next field carries the secret anyway. Even inside a word: over-redacting a
+/// short value garbles a message, under-redacting leaks one.
+String? scrubbed(String? s, Step step, bool obscured) {
+  final String? secret = step.text;
+  if (s == null || !obscured || secret == null || secret.isEmpty) {
+    return s;
+  }
+  return s.replaceAll(secret, recordedText(step, true)!);
+}
 
 /// Pump until the frame queue is quiet or [limit] elapses, then carry on.
 /// `pumpAndSettle` only gives up after a 10-minute default timeout, so a
@@ -614,15 +787,42 @@ Future<bool> settle(
   return lastExpected;
 }
 
-/// Is [needle] on screen right now? Never throws — it is a poll, not an oracle.
-bool _present(WidgetTester tester, String needle) {
-  try {
-    resolve(tester, needle);
-    return true;
-  } catch (_) {
-    return false;
+/// Wait, bounded, for [target] to exist in the semantics tree at all.
+///
+/// In the tree, NOT on screen: a first target past the fold, or an ambiguous
+/// one, is step 1's own finding, not a launch failure. Between pumps it turns
+/// the REAL event loop, because an app awaiting a platform call before runApp
+/// is waiting on real async work that fake time never completes.
+Future<bool> _awaitEntry(
+  WidgetTester tester,
+  String target, {
+  Duration limit = const Duration(seconds: 12),
+}) async {
+  const Duration tick = Duration(milliseconds: 100);
+  // Both clocks, for the reason settle() gives.
+  final int maxPumps = (limit.inMilliseconds / tick.inMilliseconds).ceil();
+  final Stopwatch sw = Stopwatch()..start();
+  for (int pumped = 0; pumped < maxPumps && sw.elapsed < limit; pumped++) {
+    await tester.runAsync(
+      () => Future<void>.delayed(const Duration(milliseconds: 10)),
+    );
+    await tester.pump(tick);
+    if (_hits(tester, target).isNotEmpty) {
+      return true;
+    }
   }
+  return false;
 }
+
+/// Is [needle] on screen right now? Never throws — it is a poll, not an oracle.
+///
+/// PRESENCE, not [resolve]: the oracle asks "did it arrive", not "which one".
+/// A title that repeats its button ("Sign in" over "Sign in") is not
+/// ambiguous here, and `nth` — which picks a TARGET — never reached it anyway.
+bool _present(WidgetTester tester, String needle) => _hits(
+  tester,
+  needle,
+).any((Map<String, Object?> n) => n['onScreen'] == true);
 
 Future<List<Map<String, Object?>>> _evaluateGuidelines(
   WidgetTester tester,
@@ -738,7 +938,11 @@ void applyDevice(WidgetTester tester, DeviceProfile d) {
 /// 153.6px. With a real font loaded: max 18.9px, median 0.0px.
 ///
 /// Returns what the report must disclose:
-/// - `'app'`          the app's own fonts, from its asset bundle. Exact.
+/// - `'app'`          the app declares fonts of its own, and they are loaded.
+///                    Text in them is exact; text that asks for the platform
+///                    default still gets the SDK stand-in below, which is
+///                    close, not exact. Declaring a font is not proof the
+///                    theme uses it — an icon font, a brand face on one title.
 /// - `'sdk-fallback'` the SDK's Roboto standing in for the platform default.
 ///                    Close, not exact — the placement caveat applies.
 /// - `'none'`         neither was available; fold and placement are NOT
@@ -751,6 +955,7 @@ Future<String> loadFonts(WidgetTester tester) async {
   // whose SECOND font asset is misdeclared keeps whatever it counted before the
   // throw and still claims 'app'.
   bool manifestComplete = false;
+  final Set<String> declaredFamilies = <String>{};
   await tester.runAsync(() async {
     try {
       final Object? manifest = await rootBundle.loadStructuredData<Object?>(
@@ -760,12 +965,14 @@ Future<String> loadFonts(WidgetTester tester) async {
       for (final Map<String, Object?> font
           in (manifest! as List<Object?>).cast<Map<String, Object?>>()) {
         // A font that arrived through a DEPENDENCY is declared as
-        // `packages/<pkg>/<family>`; the app's own is bare. Load both — the
-        // prefix is not the name a TextStyle asks for — but only the bare ones
-        // count as the app declaring a typeface.
+        // `packages/<pkg>/<family>`; the app's own is bare. Registered under
+        // the FULL name, because that is what TextStyle(package:) asks for —
+        // stripped, a design-system package's text never found its font and
+        // fell back to the test font. Only the bare ones count as the app
+        // declaring a typeface.
         final String declared = font['family']! as String;
-        final String family = declared.split('/').last;
-        final FontLoader loader = FontLoader(family);
+        declaredFamilies.add(declared);
+        final FontLoader loader = FontLoader(declared);
         for (final Map<String, Object?> asset
             in (font['fonts']! as List<Object?>).cast<Map<String, Object?>>()) {
           loader.addFont(rootBundle.load(asset['asset']! as String));
@@ -779,7 +986,7 @@ Future<String> loadFonts(WidgetTester tester) async {
         // measured at the test font's em-square while the report says it came
         // from the app's own. Measured on the stock template: 153.6px of drift,
         // reported as exact.
-        if (family != 'MaterialIcons' && !declared.startsWith('packages/')) {
+        if (declared != 'MaterialIcons' && !declared.startsWith('packages/')) {
           appFamilies++;
         }
       }
@@ -789,10 +996,15 @@ Future<String> loadFonts(WidgetTester tester) async {
       // metrics is a missing evidence layer, not a reason to abandon the walk.
     }
   });
-  if (manifestComplete && appFamilies > 0) {
-    return 'app';
-  }
+  final String found = manifestComplete && appFamilies > 0
+      ? 'app'
+      : 'sdk-fallback';
 
+  // ALWAYS, not only when the app declares nothing. Returning early on 'app'
+  // left every Text that asks for the platform default in the test font —
+  // measured, an icon-font-only app: title 242.0 instead of 112.3, labelled
+  // exact. A family the app itself declares is not overwritten.
+  //
   // A null fontFamily resolves to the test font no matter what is loaded —
   // measured: after loading, the default width was still 242.0 and only a
   // NAMED style dropped to 119.7. So register over the families the themes
@@ -800,14 +1012,11 @@ Future<String> loadFonts(WidgetTester tester) async {
   // and Roboto on Android; the older `.SF UI *` spelling is never asked for
   // and registering against it fails silently.
   final String? root = Platform.environment['FLUTTER_ROOT'];
-  if (root == null) {
-    return 'none';
-  }
-  final File regular = File(
-    '$root/bin/cache/artifacts/material_fonts/Roboto-Regular.ttf',
-  );
-  if (!regular.existsSync()) {
-    return 'none';
+  final File? regular = root == null
+      ? null
+      : File('$root/bin/cache/artifacts/material_fonts/Roboto-Regular.ttf');
+  if (regular == null || !regular.existsSync()) {
+    return found == 'app' ? 'app' : 'none';
   }
   final Uint8List bytes = regular.readAsBytesSync();
   await tester.runAsync(() async {
@@ -815,13 +1024,13 @@ Future<String> loadFonts(WidgetTester tester) async {
       'Roboto',
       'CupertinoSystemDisplay',
       'CupertinoSystemText',
-    ]) {
+    ].where((String f) => !declaredFamilies.contains(f))) {
       final FontLoader loader = FontLoader(family)
         ..addFont(Future<ByteData>.value(ByteData.sublistView(bytes)));
       await loader.load();
     }
   });
-  return 'sdk-fallback';
+  return found;
 }
 
 /// The usable surface, in logical px.
@@ -843,19 +1052,33 @@ Map<String, Object?> viewportOf(WidgetTester tester) {
   final double h = view.physicalSize.height / dpr;
   final double contentTop = view.padding.top / dpr;
   final double padBottom = view.padding.bottom / dpr;
-  final double insetBottom = view.viewInsets.bottom / dpr;
+  // Under `flutter test` a type step "shows" a keyboard that has no height:
+  // nothing sets viewInsets, so a 0.0 here is not a measurement, and neither
+  // is a fold at the bottom of a screen a real keyboard would half cover.
+  // Null, so every fold-dependent field reads not assessable. On a device the
+  // test text input is not registered and the real inset is read.
+  final bool keyboardFaked =
+      tester.testTextInput.isRegistered && tester.testTextInput.isVisible;
+  final double? insetBottom = keyboardFaked
+      ? null
+      : view.viewInsets.bottom / dpr;
   final bool isTestDefault = w == 800.0 && h == 600.0 && dpr == 3.0;
+  // Asked of the APP. The platform locale is en_US under `flutter test`
+  // whatever the app forces, so a right-to-left app read ltr. Read without
+  // registering a dependency: this must not rebuild what it measures.
+  final Iterable<Element> navs = find.byType(Navigator).evaluate();
+  final TextDirection direction =
+      (navs.isEmpty
+          ? null
+          : navs.last
+                .getInheritedWidgetOfExactType<Directionality>()
+                ?.textDirection) ??
+      TextDirection.ltr;
   return <String, Object?>{
     // "Reading order" is top, then LEADING edge — left in ltr, right in rtl.
     // Without this the placement table comes out exactly reversed on an rtl
     // app and nothing in the artifact says which order produced it.
-    'textDirection':
-        (tester.platformDispatcher.locale.languageCode == 'ar' ||
-            tester.platformDispatcher.locale.languageCode == 'he' ||
-            tester.platformDispatcher.locale.languageCode == 'fa' ||
-            tester.platformDispatcher.locale.languageCode == 'ur')
-        ? 'rtl'
-        : 'ltr',
+    'textDirection': direction.name,
     'width': w,
     'height': h,
     'devicePixelRatio': dpr,
@@ -864,7 +1087,7 @@ Map<String, Object?> viewportOf(WidgetTester tester) {
     'keyboardInset': insetBottom,
     // A keyboard hides far more than a home indicator, and a control under it
     // is not on screen at all.
-    'foldY': isTestDefault
+    'foldY': isTestDefault || insetBottom == null
         ? null
         : h - (insetBottom > padBottom ? insetBottom : padBottom),
     'isTestDefault': isTestDefault,
@@ -961,7 +1184,7 @@ List<Rect> subtractRects(Rect target, Iterable<Rect> obscurers) {
       final Rect i = f.intersect(o);
       // Rect.intersect returns a NEGATIVE-size rect when the two are disjoint.
       // Adding that area back reports more than 100% free.
-      if (i.width <= 0 || i.height <= 0) {
+      if (_isSliver(i)) {
         next.add(f);
         continue;
       }
@@ -983,6 +1206,13 @@ List<Rect> subtractRects(Rect target, Iterable<Rect> obscurers) {
   return free;
 }
 
+/// An intersection too thin to be an overlap. Adjacent rows on a fractional
+/// extent meet at a float, not an edge — measured, a row read
+/// 0.9999999999999987 free and "obscured by" its neighbour. 0.001 lpx is the
+/// SDK's own tolerance (`_kMinimumGapToBoundary` in flutter_test's
+/// accessibility guidelines).
+bool _isSliver(Rect i) => i.width <= 0.001 || i.height <= 0.001;
+
 double areaOf(Iterable<Rect> rects) =>
     rects.fold<double>(0, (double a, Rect r) => a + r.width * r.height);
 
@@ -1003,6 +1233,14 @@ bool coversPoint(Offset p, Iterable<Rect> obscurers) =>
 /// quantised rects) and it was measured REFUTED, because text width IS content
 /// — "Walnut Side Table" is 376dp and "Oak Side Table" is 312dp, so two
 /// instances of one screen never collide at any quantisation.
+const List<String> _stateFlags = <String>[
+  'isChecked',
+  'isCheckStateMixed',
+  'isToggled',
+  'isSelected',
+  'isExpanded',
+];
+
 String screenSignature(Map<String, Object?> dump) {
   final List<Map<String, Object?>> nodes =
       (dump['nodes'] as List<Map<String, Object?>>?) ??
@@ -1025,6 +1263,18 @@ String screenSignature(Map<String, Object?> dump) {
     for (final Object? v in <Object?>[n['label'], n['tooltip'], n['value']]) {
       if (v is String && v.trim().isNotEmpty) {
         parts.add('$i:${_norm(v)}');
+      }
+    }
+    // A control's STATE is semantics too. Without it a working checkbox,
+    // switch or chip read "nothing changed" beside a PNG that did, and that
+    // pair is the rule for a state change assistive tech cannot see — when
+    // isChecked is exactly what assistive tech reads. Only set flags, so no
+    // committed screen without one changes its signature.
+    final List<Object?> flags =
+        n['flags'] as List<Object?>? ?? const <Object?>[];
+    for (final String f in _stateFlags) {
+      if (flags.contains(f)) {
+        parts.add('$i:#$f');
       }
     }
   }
@@ -1117,17 +1367,22 @@ Map<String, Object?> routeState(
     // A dialog, sheet, popup menu or dropdown is up. Cheap cross-check on
     // canPop, which a modal otherwise silently inverts.
     //
-    // Keyed on the barrier's DISMISSIBILITY, not its type. Two wrong versions
+    // Keyed on what the barrier IS FOR, not its type. Three wrong versions
     // were measured first: `find.byType(ModalBarrier)` reads true on every
     // ordinary screen, because every ModalRoute mounts a barrier; narrowing to
     // AnimatedModalBarrier then missed the whole PopupRoute family, since
     // _PopupMenuRoute and _DropdownRoute return a null barrierColor and build
-    // the plain one. A PageRoute's barrier is not dismissible; a transient
-    // surface's is.
+    // the plain one; and keying on dismissibility alone missed every dialog
+    // that must be answered — showCupertinoDialog's default,
+    // barrierDismissible: false, a non-dismissible sheet. Every SDK transient
+    // route names its barrier (barrierLabel); a PageRoute's has no name and
+    // cannot be dismissed. Not the colour: CupertinoPageRoute has one.
     'modalOpen':
         tester
             .widgetList<ModalBarrier>(find.byType(ModalBarrier))
-            .any((ModalBarrier b) => b.dismissible) ||
+            .any(
+              (ModalBarrier b) => b.dismissible || b.semanticsLabel != null,
+            ) ||
         // A Drawer adds a local-history entry, so canPop flips true with no
         // barrier anywhere — its scrim is a GestureDetector. Ask the Scaffold
         // whether the drawer is OPEN: `DrawerController` is mounted whenever
@@ -1188,6 +1443,14 @@ Map<String, Object?> dumpSemantics(WidgetTester tester) {
     );
     parentOf[node.id] = parentId;
     rects.add(lg);
+    // isHidden first: a node clipped to nothing — a row behind a bottom bar,
+    // one scrolled out of the top of its list — keeps its FULL rect, so the
+    // rect alone puts it on screen. Measured: the walk tapped such a row and
+    // the bar under it took the tap.
+    final bool onScreen =
+        !data.flagsCollection.isHidden &&
+        !lg.isEmpty &&
+        lg.overlaps(surfaceRect);
     nodes.add(<String, Object?>{
       'id': node.id,
       'label': data.attributedLabel.string,
@@ -1203,19 +1466,23 @@ Map<String, Object?> dumpSemantics(WidgetTester tester) {
       // Is any of it on the surface at all? A scrollable's cache extent puts
       // rows well above and below the viewport into the dump, with rects to
       // match; without this the walker taps coordinates off the screen.
-      'onScreen': !lg.isEmpty && lg.overlaps(surfaceRect),
+      'onScreen': onScreen,
       // Can the user SEE it without scrolling? It must START in the visible
       // band. `top < foldY` alone counts a row scrolled to y=-250 as above the
       // fold; requiring the whole rect to fit was the over-correction — it
       // fails every bottom-pinned CTA and every hero taller than the fold,
       // which is most apps on any device with a home indicator. Null when the
-      // viewport is the test default: there is no fold then.
-      'aboveFold': foldY == null ? null : lg.top >= 0 && lg.top < foldY,
+      // viewport is the test default: there is no fold then. And on screen at
+      // all, or a carousel card past the right edge reads visible.
+      'aboveFold': foldY == null
+          ? null
+          : onScreen && lg.top >= 0 && lg.top < foldY,
       // Fully inside the visible band, for anything that needs the stricter
       // question. Kept separate because conflating the two is what broke.
       'fullyVisible': foldY == null
           ? null
-          : lg.top >= 0 &&
+          : onScreen &&
+                lg.top >= 0 &&
                 lg.bottom <= foldY &&
                 lg.left >= 0 &&
                 lg.right <= vpWidth,
@@ -1235,7 +1502,12 @@ Map<String, Object?> dumpSemantics(WidgetTester tester) {
           lg.width * lg.height > 0.5 * surfaceRect.width * surfaceRect.height,
     });
     node.visitChildren((SemanticsNode child) {
-      walk(child, t, node.id);
+      // A merged child — a SwitchListTile's Switch — is already part of this
+      // node's data. Walking it too counts one control twice and shifts every
+      // reading-order ordinal after it; the SDK's guidelines skip it as well.
+      if (!child.isMergedIntoParent) {
+        walk(child, t, node.id);
+      }
       return true;
     });
   }
@@ -1298,17 +1570,27 @@ void _annotateEffectiveArea(
     final List<String> by = <String>[];
     for (int j = i + 1; j < nodes.length; j++) {
       final int other = nodes[j]['id']! as int;
-      if (isDescendantOf(other, id)) {
+      // A node nobody can see covers nothing: a row scrolled out of the top
+      // of its list keeps its full rect over whatever sits above the list.
+      if (isDescendantOf(other, id) || nodes[j]['onScreen'] != true) {
         continue;
       }
       final Rect o = rects[j];
-      final Rect hit = target.intersect(o);
-      if (hit.width <= 0 || hit.height <= 0) {
+      if (_isSliver(target.intersect(o))) {
         continue;
       }
       obscurers.add(o);
-      final Object? label = nodes[j]['label'] ?? nodes[j]['tooltip'];
-      by.add(label is String && label.isNotEmpty ? label : 'node $other');
+      // label is '' when absent, never null, so `label ?? tooltip` never
+      // reached an icon button's tooltip.
+      final String label = nodes[j]['label']! as String;
+      final String tip = nodes[j]['tooltip']! as String;
+      by.add(
+        label.isNotEmpty
+            ? label
+            : tip.isNotEmpty
+            ? tip
+            : 'node $other',
+      );
     }
     final List<Rect> free = subtractRects(target, obscurers);
     nodes[i]['effectivePct'] = areaOf(free) / (target.width * target.height);
@@ -1328,22 +1610,53 @@ void _annotateEffectiveArea(
 String _norm(String s) =>
     s.replaceAll(RegExp(r'\s+'), ' ').trim().toLowerCase();
 
-/// Matches over label ∪ tooltip ∪ value (Trap 2), normalised substring, and
-/// ERRORS on ambiguity instead of silently auditing a different widget.
-Map<String, Object?> resolve(WidgetTester tester, String needle, [int? nth]) {
-  final Map<String, Object?> dump = dumpSemantics(tester);
+String _hay(Map<String, Object?> node) =>
+    _norm(<Object?>[node['label'], node['tooltip'], node['value']].join(' '));
+
+/// Every node whose label ∪ tooltip ∪ value (Trap 2) contains [needle],
+/// normalised, in paint order.
+List<Map<String, Object?>> _hits(WidgetTester tester, String needle) {
   final String n = _norm(needle);
-  final List<Map<String, Object?>> hits =
-      (dump['nodes']! as List<Map<String, Object?>>).where((
-        Map<String, Object?> node,
-      ) {
-        final String hay = _norm(
-          <Object?>[node['label'], node['tooltip'], node['value']].join(' '),
-        );
-        return hay.contains(n);
-      }).toList();
+  return (dumpSemantics(tester)['nodes']! as List<Map<String, Object?>>)
+      .where((Map<String, Object?> node) => _hay(node).contains(n))
+      .toList();
+}
+
+/// The one node a step's TARGET means. Matches like [_hits], and ERRORS on
+/// ambiguity instead of silently auditing a different widget.
+Map<String, Object?> resolve(WidgetTester tester, String needle, [int? nth]) {
+  final String n = _norm(needle);
+  final List<Map<String, Object?>> hits = _hits(tester, needle);
   if (hits.isEmpty) {
     throw StateError('no semantics node matches "$needle"');
+  }
+  // A lone hit that holds the needle only INSIDE a word is not the control
+  // the journey named: "back" is in "Send feedback". It bites when the meant
+  // control is missing — exactly when the audit has something to report — and
+  // the step then reads OK on a tap nobody asked for. Merged card labels still
+  // match: a line of one is a run of whole words. Word characters are ASCII
+  // letters and digits only, on purpose: Korean glues particles to the noun
+  // ("상품" in "상품을"), so Hangul and CJK keep substring matching.
+  if (hits.length == 1) {
+    final String hay = _hay(hits.single);
+    if (!RegExp('(?<![a-z0-9])${RegExp.escape(n)}(?![a-z0-9])').hasMatch(hay)) {
+      throw StateError(
+        'no semantics node matches "$needle" — only "$hay" contains it, '
+        'inside a word',
+      );
+    }
+  }
+  // Checked whatever the hit count. Checked only on two or more, `nth: 2` on a
+  // label that dropped to one match at run time silently took that one.
+  // Numbered over ALL hits, as the ambiguity message below numbers them, so
+  // it overrides the exact-match rule.
+  if (nth != null) {
+    if (nth < 1 || nth > hits.length) {
+      throw StateError(
+        'nth: $nth is out of range — "$needle" matches ${hits.length}',
+      );
+    }
+    return hits[nth - 1];
   }
   if (hits.length > 1) {
     // A substring selector legitimately matches a label and a longer label
@@ -1360,14 +1673,6 @@ Map<String, Object?> resolve(WidgetTester tester, String needle, [int? nth]) {
         node['value'],
       ].any((Object? v) => v is String && _norm(v) == n);
     }).toList();
-    if (nth != null) {
-      if (nth < 1 || nth > hits.length) {
-        throw StateError(
-          'nth: $nth is out of range — "$needle" matches ${hits.length}',
-        );
-      }
-      return hits[nth - 1];
-    }
     if (exact.length == 1) {
       return exact.single;
     }
@@ -1399,23 +1704,31 @@ Map<String, Object?> resolve(WidgetTester tester, String needle, [int? nth]) {
 /// semantics node is mapped to its EditableText by geometry.
 Future<bool> _typeInto(
   WidgetTester tester,
+  Map<String, Object?> node,
   String needle,
-  String text, [
-  int? nth,
-]) async {
-  final Map<String, Object?> node = resolve(tester, needle, nth);
+  String text,
+) async {
   final List<double> r = node['rect']! as List<double>;
   final Rect target = Rect.fromLTWH(r[0], r[1], r[2], r[3]);
 
-  // Largest OVERLAP, not "is the centre inside". A field whose semantics node
-  // spans its label, helper text and a multi-line error is much taller than
-  // its editable, so its centre can fall outside the box it belongs to — the
-  // same geometric failure that was removed from the tap path.
+  // Only a field the resolved node OWNS — its own editable, or one merged or
+  // nested under it. A page under a dialog is still onstage, and on overlap
+  // alone a tall page editor outscored the dialog's own field, took the text
+  // and decided the redaction. Measured. Not "the box sits inside the node":
+  // a field half hidden by its scroll view has its node clipped to the visible
+  // band and its box not, and that rule refuses it.
+  //
+  // Then the largest OVERLAP, not "is the centre inside". A field whose
+  // semantics node spans its label, helper text and a multi-line error is
+  // much taller than its editable, so its centre can fall outside the box it
+  // belongs to — the same geometric failure that was removed from the tap
+  // path.
+  final int id = node['id']! as int;
   Element? hit;
-  double best = 0;
+  double best = -1;
   for (final Element e in find.byType(EditableText).evaluate()) {
     final RenderBox? box = e.renderObject as RenderBox?;
-    if (box == null || !box.hasSize) {
+    if (box == null || !box.hasSize || !_owns(tester, id, e)) {
       continue;
     }
     final Rect b = box.localToGlobal(Offset.zero) & box.size;
@@ -1444,8 +1757,30 @@ Future<bool> _typeInto(
   return (field.widget as EditableText).obscureText;
 }
 
-Future<void> _tapTarget(WidgetTester tester, String needle, [int? nth]) async {
-  final Map<String, Object?> node = resolve(tester, needle, nth);
+/// Is [field]'s semantics node the node [id], or inside it?
+bool _owns(WidgetTester tester, int id, Element field) {
+  SemanticsNode? n;
+  try {
+    // Walks up to the node a merged editable is merged into.
+    n = tester.getSemantics(find.byElementPredicate((Element e) => e == field));
+  } catch (_) {
+    return false; // no semantics at all — behind a barrier, say
+  }
+  for (; n != null; n = n.parent) {
+    if (n.id == id) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/// Tap [node]'s centre. Returns whether a real hit test at that point crosses
+/// a tap handler — see `StepOutcome.centreHitsHandler`.
+Future<bool> _tapTarget(
+  WidgetTester tester,
+  Map<String, Object?> node,
+  String needle,
+) async {
   if (node['tappable'] != true) {
     throw StateError('"$needle" carries no tap action');
   }
@@ -1489,8 +1824,32 @@ Future<void> _tapTarget(WidgetTester tester, String needle, [int? nth]) async {
   // Refusing there would fail a whole audit on an overlay that blocks nothing.
   // The measurement stays in the dump; heuristics.md gates the finding on
   // VISUAL confirmation.
+  //
+  // What IS recorded is whether the point reaches a tap handler at all: a
+  // GestureDetector's (which InkWell and every Material button build) or a
+  // Semantics(onTap). A bare Listener does not count — the Navigator's and
+  // every scrollable's are on every path. Known ceiling: a custom render
+  // object that handles taps itself reads false, which errs safe once a
+  // dead-tap finding requires true.
+  final bool hitsHandler = tester.hitTestOnBinding(centre).path.any((
+    HitTestEntry entry,
+  ) {
+    final Object t = entry.target;
+    return (t is RenderSemanticsGestureHandler && t.onTap != null) ||
+        (t is SemanticsAnnotationsMixin && t.properties.onTap != null);
+  });
   await tester.tapAt(centre); // logical px
+  return hitsHandler;
 }
 
-void _requireTarget(WidgetTester tester, String needle) =>
-    resolve(tester, needle);
+/// The oracle: [needle] must be ON SCREEN, as the [Step] contract says. A
+/// cache-extent row is in the tree and nowhere the user can see it.
+void _requireOnScreen(WidgetTester tester, String needle) {
+  final List<Map<String, Object?>> hits = _hits(tester, needle);
+  if (hits.isEmpty) {
+    throw StateError('no semantics node matches "$needle"');
+  }
+  if (!hits.any((Map<String, Object?> n) => n['onScreen'] == true)) {
+    throw StateError('"$needle" is in the semantics tree but not on screen');
+  }
+}

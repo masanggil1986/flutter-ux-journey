@@ -9,11 +9,13 @@
 // writes into someone else's app must stay ONE file, so the alternative to a
 // public helper is an untested one.
 
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -206,6 +208,59 @@ void main() {
       // max(padding.bottom, viewInsets.bottom) — a keyboard hides far more
       // than the home indicator, and a CTA under it is not on screen at all.
       expect(viewportOf(tester)['foldY'], 667.0 - 300.0);
+    });
+
+    testWidgets('a keyboard flutter_test only pretends to show has no height', (
+      WidgetTester tester,
+    ) async {
+      // Typing "shows" the test text input, and nothing sets viewInsets, so
+      // the walk measured a 0.0 keyboard and a fold at the bottom of the
+      // screen while a real one would cover half of it. Not a measurement:
+      // the fold is not assessable until the keyboard is down again.
+      applyDevice(tester, kIphoneSe);
+      addTearDown(tester.view.reset);
+      final SemanticsHandle handle = tester.ensureSemantics();
+      await tester.pumpWidget(
+        const MaterialApp(
+          home: Scaffold(
+            body: TextField(decoration: InputDecoration(labelText: 'Email')),
+          ),
+        ),
+      );
+      expect(viewportOf(tester)['keyboardInset'], 0.0);
+      expect(viewportOf(tester)['foldY'], 667.0);
+
+      final StepOutcome out = await performStep(tester, (
+        action: 'type',
+        target: 'Email',
+        nth: null,
+        text: 'someone@example.test',
+        expected: 'Email',
+      ));
+      expect(out.status, 'OK', reason: out.error ?? '');
+      expect(tester.testTextInput.isVisible, isTrue);
+      expect(viewportOf(tester)['keyboardInset'], isNull);
+      expect(viewportOf(tester)['foldY'], isNull);
+      handle.dispose();
+    });
+
+    testWidgets('reading order follows the app, not the host locale', (
+      WidgetTester tester,
+    ) async {
+      // The direction came from the platform locale, which is en_US under
+      // `flutter test` whatever the app does, so a right-to-left app was
+      // recorded as ltr and its placement table read reversed.
+      await tester.pumpWidget(
+        MaterialApp(
+          builder: (BuildContext c, Widget? child) =>
+              Directionality(textDirection: TextDirection.rtl, child: child!),
+          home: const Scaffold(body: Text('مرحبا')),
+        ),
+      );
+      expect(viewportOf(tester)['textDirection'], 'rtl');
+
+      await tester.pumpWidget(const UxDemoApp());
+      expect(viewportOf(tester)['textDirection'], 'ltr');
     });
   });
 
@@ -426,6 +481,36 @@ void main() {
         handle.dispose();
       },
     );
+
+    testWidgets('a toggle moves the signature — its state is semantics too', (
+      WidgetTester tester,
+    ) async {
+      // The signature hashed label, tooltip and value only, so a working
+      // checkbox read "nothing changed" beside a PNG that did — and the rule
+      // for that pair then demands a false "state change assistive tech
+      // cannot see", when isChecked is exactly what assistive tech reads.
+      final SemanticsHandle handle = tester.ensureSemantics();
+      bool on = false;
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: StatefulBuilder(
+              builder: (BuildContext c, StateSetter set) => CheckboxListTile(
+                title: const Text('Gift wrap'),
+                value: on,
+                onChanged: (bool? v) => set(() => on = v ?? false),
+              ),
+            ),
+          ),
+        ),
+      );
+      final String before = screenSignature(dumpSemantics(tester));
+      await tester.tap(find.text('Gift wrap'));
+      await tester.pump(const Duration(seconds: 1));
+      expect(on, isTrue);
+      expect(screenSignature(dumpSemantics(tester)), isNot(before));
+      handle.dispose();
+    });
   });
 
   group('routeState — DEAD-END as a measurement instead of a selector miss', () {
@@ -489,6 +574,64 @@ void main() {
         expect(s['modalOpen'], isTrue);
       },
     );
+
+    // Keyed on dismissibility, every dialog that must be answered read "no
+    // modal": showCupertinoDialog's default, barrierDismissible: false, a
+    // non-dismissible sheet — the very surfaces most likely to trap a user.
+    final Map<String, void Function(BuildContext)> blocking =
+        <String, void Function(BuildContext)>{
+          'showCupertinoDialog': (BuildContext c) => showCupertinoDialog<void>(
+            context: c,
+            builder: (_) => const CupertinoAlertDialog(title: Text('Wait')),
+          ),
+          'showDialog(barrierDismissible: false)': (BuildContext c) =>
+              showDialog<void>(
+                context: c,
+                barrierDismissible: false,
+                builder: (_) => const AlertDialog(title: Text('Wait')),
+              ),
+          'showModalBottomSheet(isDismissible: false)': (BuildContext c) =>
+              showModalBottomSheet<void>(
+                context: c,
+                isDismissible: false,
+                builder: (_) => const Text('Wait'),
+              ),
+        };
+    for (final MapEntry<String, void Function(BuildContext)> open
+        in blocking.entries) {
+      testWidgets('a modal that must be answered is a modal (${open.key})', (
+        WidgetTester tester,
+      ) async {
+        await tester.pumpWidget(
+          const MaterialApp(home: Scaffold(body: Text('body'))),
+        );
+        open.value(tester.element(find.text('body')));
+        await tester.pump();
+        await tester.pump(const Duration(seconds: 1));
+        expect(routeState(tester)['modalOpen'], isTrue);
+      });
+    }
+
+    testWidgets('a pushed page is still not a modal', (
+      WidgetTester tester,
+    ) async {
+      await tester.pumpWidget(
+        const MaterialApp(home: Scaffold(body: Text('body'))),
+      );
+      final NavigatorState nav = tester.state(find.byType(Navigator));
+      for (final PageRoute<void> route in <PageRoute<void>>[
+        CupertinoPageRoute<void>(builder: (_) => const Text('page')),
+        MaterialPageRoute<void>(
+          fullscreenDialog: true,
+          builder: (_) => const Text('page'),
+        ),
+      ]) {
+        nav.push(route);
+        await tester.pump();
+        await tester.pump(const Duration(seconds: 1));
+        expect(routeState(tester)['modalOpen'], isFalse, reason: '$route');
+      }
+    });
   });
 
   group('dead-tap oracle — and the false positive it cannot see alone', () {
@@ -553,6 +696,82 @@ void main() {
               '"${n['label']}" reads as fully obscured on a screen with no overlay',
         );
       }
+      handle.dispose();
+    });
+
+    testWidgets('a row is not obscured by the button inside it', (
+      WidgetTester tester,
+    ) async {
+      // The fixture above has no tap target with a tappable child, so it
+      // could not see the descendant rule go. A ListTile with a trailing
+      // IconButton is the commonest shape that has one.
+      final SemanticsHandle handle = tester.ensureSemantics();
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: ListTile(
+              title: const Text('Order #1'),
+              onTap: () {},
+              trailing: IconButton(
+                tooltip: 'Delete',
+                onPressed: () {},
+                icon: const Icon(Icons.delete),
+              ),
+            ),
+          ),
+        ),
+      );
+      final Map<String, Object?> row =
+          (dumpSemantics(tester)['nodes']! as List<Map<String, Object?>>)
+              .firstWhere(
+                (Map<String, Object?> n) =>
+                    (n['label'] as String?) == 'Order #1',
+              );
+      expect(row['effectivePct'], 1.0);
+      handle.dispose();
+    });
+
+    testWidgets('two overlapping obscurers are not counted twice', (
+      WidgetTester tester,
+    ) async {
+      // Both banners cover the same lower half. 1 minus the summed overlaps
+      // would read 0.0; the free area really is half.
+      final SemanticsHandle handle = tester.ensureSemantics();
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: Stack(
+              children: <Widget>[
+                SizedBox(
+                  width: 100,
+                  height: 100,
+                  child: ElevatedButton(
+                    onPressed: () {},
+                    child: const Text('Target'),
+                  ),
+                ),
+                for (final String banner in <String>['Banner A', 'Banner B'])
+                  Positioned(
+                    left: 0,
+                    top: 50,
+                    child: Semantics(
+                      container: true,
+                      label: banner,
+                      child: const SizedBox(width: 100, height: 50),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        ),
+      );
+      final Map<String, Object?> target =
+          (dumpSemantics(tester)['nodes']! as List<Map<String, Object?>>)
+              .firstWhere(
+                (Map<String, Object?> n) => (n['label'] as String?) == 'Target',
+              );
+      expect(target['effectivePct'], 0.5);
+      expect(target['obscuredBy'], <String>['Banner A', 'Banner B']);
       handle.dispose();
     });
 
@@ -928,6 +1147,123 @@ void main() {
         ),
         isFalse,
       );
+      // And the surface counts exclude it: the TextField and the button are
+      // the controls, the dismiss layer is a cover node.
+      final Map<String, Object?> surface = routeState(tester);
+      expect(surface['tappableCount'], 2);
+      expect(surface['coverNodes'], 1);
+      handle.dispose();
+    });
+
+    testWidgets('a NAMED full-screen tappable is a control, not a cover', (
+      WidgetTester tester,
+    ) async {
+      // "Continue" above is far too small to test the name clause; a labelled
+      // "tap anywhere" layer is the shape it exists to spare.
+      final SemanticsHandle handle = tester.ensureSemantics();
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Semantics(
+            label: 'Tap anywhere to continue',
+            child: GestureDetector(
+              onTap: () {},
+              child: const SizedBox.expand(),
+            ),
+          ),
+        ),
+      );
+      final Map<String, Object?> layer =
+          (dumpSemantics(tester)['nodes']! as List<Map<String, Object?>>)
+              .firstWhere(
+                (Map<String, Object?> n) =>
+                    (n['label'] as String?) == 'Tap anywhere to continue',
+              );
+      expect(layer['tappable'], isTrue);
+      expect(layer['coversSurface'], isFalse);
+      handle.dispose();
+    });
+
+    testWidgets('surface counts read on-screen controls and the fold', (
+      WidgetTester tester,
+    ) async {
+      // 52-lpx rows on a 667-lpx screen with a 34-lpx home indicator: 13 rows
+      // on screen, 12 starting above the fold at 633, the rest in the cache
+      // extent. Counting the cache rows, or counting every row as above the
+      // fold, is the number the placement table would then reason from.
+      tester.view.physicalSize = const Size(750, 1334);
+      tester.view.devicePixelRatio = 2.0;
+      tester.view.padding = const FakeViewPadding(top: 40, bottom: 68);
+      addTearDown(tester.view.reset);
+      final SemanticsHandle handle = tester.ensureSemantics();
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: ListView(
+              children: <Widget>[
+                for (int i = 0; i < 40; i++)
+                  SizedBox(
+                    height: 52,
+                    child: InkWell(onTap: () {}, child: Text('row $i')),
+                  ),
+              ],
+            ),
+          ),
+        ),
+      );
+      final Map<String, Object?> surface = routeState(tester);
+      expect(surface['tappableCount'], 13);
+      expect(surface['tappableAboveFold'], 12);
+      handle.dispose();
+    });
+
+    testWidgets('a tap the walk refuses is never dispatched', (
+      WidgetTester tester,
+    ) async {
+      // Each refusal stops a tap that would land on nothing — or on the wrong
+      // thing — from becoming a dead-control finding on a working control.
+      tester.view.physicalSize = const Size(750, 1334);
+      tester.view.devicePixelRatio = 2.0;
+      tester.view.padding = const FakeViewPadding(bottom: 68); // fold at 633
+      addTearDown(tester.view.reset);
+      final SemanticsHandle handle = tester.ensureSemantics();
+      Widget button(String label, double w) => SizedBox(
+        width: w,
+        height: 40,
+        child: TextButton(onPressed: () {}, child: Text(label)),
+      );
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: Stack(
+              clipBehavior: Clip.none,
+              children: <Widget>[
+                Positioned(top: 0, left: 0, child: button('Delete', 100)),
+                Positioned(top: 60, left: 0, child: button('Delete', 100)),
+                const Positioned(top: 120, left: 0, child: Text('Just text')),
+                Positioned(top: 630, left: 0, child: button('Below', 100)),
+                Positioned(top: 300, left: 330, child: button('Edge', 140)),
+              ],
+            ),
+          ),
+        ),
+      );
+      for (final (String target, String why) in <(String, String)>[
+        ('Delete', 'ambiguous: 2 nodes match "Delete"'),
+        ('Just text', '"Just text" carries no tap action'),
+        ('Below', 'has its centre below the fold'),
+        ('Edge', '"Edge" is not reachable'),
+      ]) {
+        final StepOutcome out = await performStep(tester, (
+          action: 'tap',
+          target: target,
+          nth: null,
+          text: null,
+          expected: 'Just text',
+        ));
+        expect(out.status, 'FAILED', reason: target);
+        expect(out.dispatched, isFalse, reason: target);
+        expect(out.error, contains(why), reason: target);
+      }
       handle.dispose();
     });
 
@@ -1011,9 +1347,11 @@ void main() {
     ) async {
       await tester.pumpWidget(MaterialApp(home: Scaffold(body: _SlowLoad())));
       await tester.tap(find.text('Load'));
+      // Just under the 2 s load: a bound that overran by 6x at 300 ms still
+      // gave up in time and passed. Measured.
       final bool ok = await settle(
         tester,
-        limit: const Duration(milliseconds: 300),
+        limit: const Duration(milliseconds: 1900),
         until: () => find.text('Loaded').evaluate().isNotEmpty,
       );
       expect(
@@ -1024,6 +1362,244 @@ void main() {
       await tester.pumpAndSettle(
         const Duration(seconds: 3),
       ); // drain the future
+    });
+  });
+
+  group('dumpSemantics — what is really on screen', () {
+    List<Map<String, Object?>> nodesOf(WidgetTester tester) =>
+        dumpSemantics(tester)['nodes']! as List<Map<String, Object?>>;
+    Map<String, Object?> labelled(WidgetTester tester, String label) => nodesOf(
+      tester,
+    ).firstWhere((Map<String, Object?> n) => (n['label'] as String?) == label);
+
+    testWidgets('a row clipped behind a bottom bar is not on screen', (
+      WidgetTester tester,
+    ) async {
+      // The commonest app shape: a list over a NavigationBar. A row in the
+      // list's cache extent sits BEHIND the bar, clipped to nothing — the SDK
+      // keeps its full rect and sets isHidden — so a rect-only test reads it
+      // on screen, above the fold, and tappable, and the walk's tap lands on
+      // the bar instead. Measured: a tab switch recorded as tapping a row.
+      applyDevice(tester, kIphoneSe);
+      addTearDown(tester.view.reset);
+      final SemanticsHandle handle = tester.ensureSemantics();
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            appBar: AppBar(title: const Text('Orders')),
+            body: ListView(
+              children: <Widget>[
+                for (int i = 0; i < 30; i++)
+                  ListTile(title: Text('Order #$i'), onTap: () {}),
+              ],
+            ),
+            bottomNavigationBar: NavigationBar(
+              destinations: const <Widget>[
+                NavigationDestination(icon: Icon(Icons.list), label: 'All'),
+                NavigationDestination(icon: Icon(Icons.star), label: 'Starred'),
+                NavigationDestination(
+                  icon: Icon(Icons.settings),
+                  label: 'Settings',
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+
+      final List<Map<String, Object?>> hidden = nodesOf(tester)
+          .where(
+            (Map<String, Object?> n) =>
+                (n['flags']! as List<String>).contains('isHidden'),
+          )
+          .toList();
+      expect(hidden, isNotEmpty, reason: 'the cache extent reaches the bar');
+      for (final Map<String, Object?> n in hidden) {
+        expect(n['onScreen'], isFalse, reason: '${n['label']} is clipped');
+        expect(n['aboveFold'], isFalse, reason: '${n['label']} is clipped');
+        expect(n['fullyVisible'], isFalse, reason: '${n['label']} is clipped');
+      }
+      final String row = hidden
+          .map((Map<String, Object?> n) => n['label']! as String)
+          .firstWhere((String l) => l.startsWith('Order #'));
+      final StepOutcome out = await performStep(tester, (
+        action: 'tap',
+        target: row,
+        nth: null,
+        text: null,
+        expected: 'Orders',
+      ));
+      expect(out.status, 'FAILED');
+      expect(out.dispatched, isFalse, reason: 'a hidden row is never tapped');
+      handle.dispose();
+    });
+
+    testWidgets('a hidden row is not an obscurer either', (
+      WidgetTester tester,
+    ) async {
+      // A row scrolled out of the top of its list keeps its full rect, which
+      // overlaps whatever is painted above the list — measured: a button
+      // reported 64% free, "obscured by" a row nobody can see.
+      applyDevice(tester, kIphoneSe);
+      addTearDown(tester.view.reset);
+      final SemanticsHandle handle = tester.ensureSemantics();
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: Column(
+              children: <Widget>[
+                SizedBox(
+                  height: 56,
+                  width: double.infinity,
+                  child: ElevatedButton(
+                    onPressed: () {},
+                    child: const Text('Filter'),
+                  ),
+                ),
+                Expanded(
+                  child: ListView(
+                    children: <Widget>[
+                      for (int i = 0; i < 40; i++)
+                        SizedBox(height: 56, child: Text('Row $i')),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+      await tester.drag(find.byType(ListView), const Offset(0, -560));
+      await tester.pump(const Duration(seconds: 1));
+
+      expect(labelled(tester, 'Filter')['effectivePct'], 1.0);
+      expect(labelled(tester, 'Filter')['obscuredBy'], isNull);
+      handle.dispose();
+    });
+
+    testWidgets('a card past the right edge is not above the fold', (
+      WidgetTester tester,
+    ) async {
+      // aboveFold asked only about y, so a horizontal carousel's off-screen
+      // cards read "visible without scrolling".
+      applyDevice(tester, kIphoneSe);
+      addTearDown(tester.view.reset);
+      final SemanticsHandle handle = tester.ensureSemantics();
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: SizedBox(
+              height: 120,
+              child: ListView(
+                scrollDirection: Axis.horizontal,
+                children: <Widget>[
+                  for (int i = 0; i < 8; i++)
+                    SizedBox(width: 150, child: Text('Card $i')),
+                ],
+              ),
+            ),
+          ),
+        ),
+      );
+      final Map<String, Object?> card = labelled(tester, 'Card 4');
+      expect((card['rect']! as List<double>)[0], greaterThan(375.0));
+      expect(card['aboveFold'], isFalse);
+      handle.dispose();
+    });
+
+    testWidgets('rows on a fractional extent do not obscure each other', (
+      WidgetTester tester,
+    ) async {
+      // Adjacent rows on a 47.3 lpx extent meet at a float, not an edge:
+      // measured, a row read 0.9999999999999987 free and "obscured by" its
+      // neighbour. The SDK's own guideline ignores gaps under 0.001 lpx.
+      tester.view.physicalSize = const Size(822.8, 1462.8);
+      tester.view.devicePixelRatio = 2.0;
+      addTearDown(tester.view.reset);
+      final SemanticsHandle handle = tester.ensureSemantics();
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: ListView.builder(
+              itemExtent: 47.3,
+              itemCount: 30,
+              itemBuilder: (BuildContext c, int i) =>
+                  InkWell(onTap: () {}, child: Text('r$i')),
+            ),
+          ),
+        ),
+      );
+      for (final Map<String, Object?> n in nodesOf(tester)) {
+        if (n['tappable'] == true && n['onScreen'] == true) {
+          expect(n['effectivePct'], 1.0, reason: '${n['label']}');
+          expect(n['obscuredBy'], isNull, reason: '${n['label']}');
+        }
+      }
+      handle.dispose();
+    });
+
+    testWidgets('an obscurer named only by its tooltip is named by it', (
+      WidgetTester tester,
+    ) async {
+      // label is '' when absent, never null, so `label ?? tooltip` never
+      // reached the tooltip and an icon button read as "node 5".
+      final SemanticsHandle handle = tester.ensureSemantics();
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: Stack(
+              children: <Widget>[
+                SizedBox(
+                  width: 300,
+                  height: 60,
+                  child: ElevatedButton(
+                    onPressed: () {},
+                    child: const Text('Pay'),
+                  ),
+                ),
+                Positioned(
+                  left: 120,
+                  top: 0,
+                  child: IconButton(
+                    tooltip: 'Close',
+                    onPressed: () {},
+                    icon: const Icon(Icons.close),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+      expect(labelled(tester, 'Pay')['obscuredBy'], <String>['Close']);
+      handle.dispose();
+    });
+
+    testWidgets('a merged child is not a second control', (
+      WidgetTester tester,
+    ) async {
+      // A SwitchListTile's Switch keeps its own node, marked merged into the
+      // tile. Counting it doubles tappableCount and shifts every reading-order
+      // ordinal; the SDK's own guidelines skip it.
+      final SemanticsHandle handle = tester.ensureSemantics();
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: ListView(
+              children: <Widget>[
+                for (int i = 0; i < 5; i++)
+                  SwitchListTile(
+                    title: Text('Option $i'),
+                    value: false,
+                    onChanged: (_) {},
+                  ),
+              ],
+            ),
+          ),
+        ),
+      );
+      expect(routeState(tester)['tappableCount'], 5);
+      handle.dispose();
     });
   });
 
@@ -1169,6 +1745,184 @@ void main() {
     });
   });
 
+  group('the oracle and the target — two different questions', () {
+    testWidgets('an expectation on screen twice is present, not ambiguous', (
+      WidgetTester tester,
+    ) async {
+      // A title that repeats its button — "Sign in" over a "Sign in" — is the
+      // commonest form screen there is. The oracle asks "did it arrive", not
+      // "which one", and the error's own remedy (nth) never reached it.
+      final SemanticsHandle handle = tester.ensureSemantics();
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            appBar: AppBar(title: const Text('Sign in')),
+            body: Column(
+              children: <Widget>[
+                const TextField(
+                  decoration: InputDecoration(labelText: 'Password'),
+                ),
+                FilledButton(onPressed: () {}, child: const Text('Sign in')),
+              ],
+            ),
+          ),
+        ),
+      );
+      final StepOutcome out = await performStep(tester, (
+        action: 'type',
+        target: 'Password',
+        nth: null,
+        text: 'x',
+        expected: 'Sign in',
+      ));
+      expect(out.status, 'OK', reason: out.error ?? '');
+      expect(out.settled, isTrue, reason: 'the poll saw it arrive, too');
+      handle.dispose();
+    });
+
+    testWidgets('an expectation only past the edge of the screen is absent', (
+      WidgetTester tester,
+    ) async {
+      // A cache-extent row is in the tree and not on screen. The Step contract
+      // says the expectation must be ON SCREEN.
+      tester.view.physicalSize = const Size(750, 1334);
+      tester.view.devicePixelRatio = 2.0;
+      addTearDown(tester.view.reset);
+      final SemanticsHandle handle = tester.ensureSemantics();
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            appBar: AppBar(
+              actions: <Widget>[
+                IconButton(
+                  tooltip: 'Refresh',
+                  onPressed: () {},
+                  icon: const Icon(Icons.refresh),
+                ),
+              ],
+            ),
+            body: ListView(
+              children: <Widget>[
+                for (int i = 0; i < 40; i++)
+                  SizedBox(height: 40, child: Text('row $i')),
+              ],
+            ),
+          ),
+        ),
+      );
+      final StepOutcome out = await performStep(tester, (
+        action: 'tap',
+        target: 'Refresh',
+        nth: null,
+        text: null,
+        expected: 'row 20',
+      ));
+      expect(out.status, 'FAILED');
+      expect(out.error, contains('in the semantics tree but not on screen'));
+      handle.dispose();
+    });
+
+    testWidgets('nth is checked against a single match too', (
+      WidgetTester tester,
+    ) async {
+      // Checked only when there were two or more hits, so `nth: 2` on a label
+      // that dropped to one match at run time silently tapped that one.
+      await tester.pumpWidget(const UxDemoApp());
+      final SemanticsHandle handle = tester.ensureSemantics();
+      expect(
+        () => resolve(tester, 'Sort', 2),
+        throwsA(
+          isA<StateError>().having(
+            (StateError e) => e.message,
+            'message',
+            contains('out of range — "Sort" matches 1'),
+          ),
+        ),
+      );
+      expect(resolve(tester, 'Sort', 1)['tooltip'], 'Sort');
+      handle.dispose();
+    });
+
+    testWidgets('a lone match inside a word is not a match', (
+      WidgetTester tester,
+    ) async {
+      // "back" is inside "Send feedback": when the control the journey meant
+      // is missing — exactly when the audit has something to report — a bare
+      // substring taps a different one and the step reads OK.
+      final SemanticsHandle handle = tester.ensureSemantics();
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: Column(
+              children: <Widget>[
+                TextButton(
+                  onPressed: () {},
+                  child: const Text('Send feedback'),
+                ),
+                // Korean glues particles to the noun, so Hangul keeps
+                // substring matching: "상품" is meant to find "상품을".
+                const Text('상품을 담았습니다'),
+              ],
+            ),
+          ),
+        ),
+      );
+      expect(
+        () => resolve(tester, 'Back'),
+        throwsA(
+          isA<StateError>().having(
+            (StateError e) => e.message,
+            'message',
+            contains('inside a word'),
+          ),
+        ),
+      );
+      expect(resolve(tester, 'feedback')['label'], 'Send feedback');
+      expect(resolve(tester, '상품')['label'], '상품을 담았습니다');
+      handle.dispose();
+    });
+
+    testWidgets('a merged card label still matches one of its lines', (
+      WidgetTester tester,
+    ) async {
+      await tester.pumpWidget(const UxDemoApp());
+      final SemanticsHandle handle = tester.ensureSemantics();
+      expect(
+        resolve(tester, '189,000 KRW')['label'],
+        startsWith('Walnut Side Table'),
+      );
+      handle.dispose();
+    });
+
+    testWidgets('a step says which node it acted on, and what was there', (
+      WidgetTester tester,
+    ) async {
+      // `target` is the needle; the node it resolved to was nowhere in the
+      // artifact, so a mis-resolution could not be seen. And an expectation
+      // already on screen before the action proves nothing about the action:
+      // the fixture's own step 1 expects a price its list row already shows.
+      await tester.pumpWidget(const UxDemoApp());
+      final SemanticsHandle handle = tester.ensureSemantics();
+      final StepOutcome first = await performStep(tester, journey[0]);
+      expect(first.status, 'OK', reason: first.error ?? '');
+      expect(first.expectedBefore, isTrue);
+      expect(
+        first.resolved?['label'],
+        startsWith('Walnut Side Table'),
+        reason: 'the card, not just the needle',
+      );
+
+      final StepOutcome second = await performStep(tester, journey[1]);
+      expect(second.expectedBefore, isFalse, reason: 'no "Cancel" before it');
+      expect(second.resolved?['label'], 'Remove from list');
+
+      final StepOutcome miss = await performStep(tester, journey[2]);
+      expect(miss.dispatched, isFalse);
+      expect(miss.resolved, isNull, reason: 'nothing was resolved');
+      handle.dispose();
+    });
+  });
+
   group('performStep on a `type` step — what reaches the artifact', () {
     Widget form() => const MaterialApp(
       home: Scaffold(
@@ -1272,7 +2026,318 @@ void main() {
         isNull,
       );
     });
+
+    testWidgets('a typed value stays out of the artifact on every path', (
+      WidgetTester tester,
+    ) async {
+      // Redaction keyed on a SUCCESSFUL type into an obscured field, so a
+      // step that failed recorded the value verbatim, and `expected` and
+      // `error` carried it whatever happened. Hidden until the walk sees the
+      // field show it.
+      final TextEditingController name = TextEditingController();
+      addTearDown(name.dispose);
+      Map<String, Object?>? report;
+      await walkJourney(
+        tester,
+        // The setup record site is a second copy of the journey's: both have
+        // to redact.
+        setup:
+            const <
+              ({
+                String action,
+                String target,
+                int? nth,
+                String? text,
+                String expected,
+              })
+            >[
+              (
+                action: 'type',
+                target: 'PIN code',
+                nth: null,
+                text: 'secret-S-setup',
+                expected: 'Name',
+              ),
+            ],
+        launch: () => runApp(
+          MaterialApp(
+            home: Scaffold(
+              body: Column(
+                children: <Widget>[
+                  // A label drawn as separate text: it owns no field.
+                  const Text('Password'),
+                  const TextField(obscureText: true),
+                  const TextField(
+                    obscureText: true,
+                    decoration: InputDecoration(labelText: 'PIN code'),
+                  ),
+                  TextField(
+                    controller: name,
+                    decoration: const InputDecoration(labelText: 'Name'),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+        journey:
+            const <
+              ({
+                String action,
+                String target,
+                int? nth,
+                String? text,
+                String expected,
+              })
+            >[
+              (
+                action: 'type',
+                target: 'Password',
+                nth: null,
+                text: 'secret-A-verbatim',
+                expected: 'PIN code',
+              ),
+              (
+                action: 'type',
+                target: 'Passcode',
+                nth: null,
+                text: 'secret-C-unresolved',
+                expected: 'PIN code',
+              ),
+              (
+                action: 'type',
+                target: 'PIN code',
+                nth: null,
+                text: 'secret-D-in-expected',
+                expected: 'secret-D-in-expected',
+              ),
+              (
+                action: 'type',
+                target: 'Name',
+                nth: null,
+                text: 'Visible Name',
+                expected: 'Name',
+              ),
+            ],
+        publish: (Map<String, Object?> r) async => report = r,
+      );
+      final String json = jsonEncode(report);
+      final Map<String, Object?> gate =
+          (report!['setupSteps']! as List<Object?>).single!
+              as Map<String, Object?>;
+      expect(gate['status'], 'OK', reason: '${gate['error']}');
+      expect(gate['text'], startsWith('<redacted 14 chars'));
+      for (final String secret in <String>[
+        'secret-S-setup',
+        'secret-A-verbatim',
+        'secret-C-unresolved',
+        'secret-D-in-expected',
+      ]) {
+        expect(json, isNot(contains(secret)));
+      }
+      final List<Object?> steps = report!['steps']! as List<Object?>;
+      expect(
+        steps
+            .take(3)
+            .map((Object? s) => (s! as Map<String, Object?>)['status']),
+        <String>['FAILED', 'FAILED', 'FAILED'],
+      );
+      expect(
+        (steps[3]! as Map<String, Object?>)['text'],
+        'Visible Name',
+        reason: 'a field that shows its own value is recorded as typed',
+      );
+      expect(name.text, 'Visible Name');
+    });
+
+    testWidgets('a type step fills the dialog field, not the one behind it', (
+      WidgetTester tester,
+    ) async {
+      // Every onstage EditableText competed on overlap with the node rect,
+      // and a page under a dialog is still onstage: a tall page editor
+      // outscored the dialog's own field, took the text, and decided the
+      // redaction. Measured.
+      applyDevice(tester, kIphoneSe);
+      addTearDown(tester.view.reset);
+      final TextEditingController page = TextEditingController();
+      final TextEditingController dialog = TextEditingController();
+      addTearDown(page.dispose);
+      addTearDown(dialog.dispose);
+      final SemanticsHandle handle = tester.ensureSemantics();
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(body: TextField(controller: page, maxLines: 20)),
+        ),
+      );
+      showDialog<void>(
+        context: tester.element(find.byType(Scaffold)),
+        builder: (_) => AlertDialog(
+          title: const Text('Rename'),
+          content: TextField(
+            controller: dialog,
+            decoration: const InputDecoration(labelText: 'Name'),
+          ),
+        ),
+      );
+      await tester.pump();
+      await tester.pump(const Duration(seconds: 1));
+      final StepOutcome out = await performStep(tester, (
+        action: 'type',
+        target: 'Name',
+        nth: null,
+        text: 'Groceries',
+        expected: 'Rename',
+      ));
+      expect(out.status, 'OK', reason: out.error ?? '');
+      expect(dialog.text, 'Groceries');
+      expect(page.text, isEmpty);
+      handle.dispose();
+    });
+
+    testWidgets('and still types into a field its scroll view half hides', (
+      WidgetTester tester,
+    ) async {
+      // The semantics rect is clipped to the visible band and the editable box
+      // is not, so "the box sits inside the node" — the obvious fix for the
+      // case above — refuses this field. Ownership does not.
+      applyDevice(tester, kIphoneSe);
+      addTearDown(tester.view.reset);
+      final TextEditingController email = TextEditingController();
+      addTearDown(email.dispose);
+      final SemanticsHandle handle = tester.ensureSemantics();
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: ListView(
+              children: <Widget>[
+                const SizedBox(height: 610),
+                TextField(
+                  controller: email,
+                  decoration: const InputDecoration(labelText: 'Email'),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+      final StepOutcome out = await performStep(tester, (
+        action: 'type',
+        target: 'Email',
+        nth: null,
+        text: 'someone@example.test',
+        expected: 'Email',
+      ));
+      expect(out.status, 'OK', reason: out.error ?? '');
+      expect(email.text, 'someone@example.test');
+      handle.dispose();
+    });
   });
+
+  group('performStep — what one step records', () {
+    testWidgets('a step that never dispatched has no settle to report', (
+      WidgetTester tester,
+    ) async {
+      // It defaulted to true, so a selector miss counted toward "screen
+      // stability" on a screen nobody waited for.
+      await tester.pumpWidget(const UxDemoApp());
+      final SemanticsHandle handle = tester.ensureSemantics();
+      final StepOutcome out = await performStep(tester, (
+        action: 'tap',
+        target: 'Proceed to checkout',
+        nth: null,
+        text: null,
+        expected: 'Saved items',
+      ));
+      expect(out.dispatched, isFalse);
+      expect(out.settled, isNull);
+      handle.dispose();
+    });
+
+    testWidgets('a tap records whether its point reaches a tap handler', (
+      WidgetTester tester,
+    ) async {
+      // A MergeSemantics row is one tappable node, and its centre can fall in
+      // the gap between the label and the switch: the tap lands on nothing,
+      // the semantics and the pixels stay the same, and a working switch
+      // reads as a dead control on both layers. Measured.
+      final SemanticsHandle handle = tester.ensureSemantics();
+      bool on = false;
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: StatefulBuilder(
+              builder: (BuildContext c, StateSetter set) => MergeSemantics(
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: <Widget>[
+                    const Text('Push notifications'),
+                    Switch(value: on, onChanged: (bool v) => set(() => on = v)),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+      final StepOutcome merged = await performStep(tester, (
+        action: 'tap',
+        target: 'Push notifications',
+        nth: null,
+        text: null,
+        expected: 'Push notifications',
+      ));
+      expect(merged.dispatched, isTrue);
+      expect(merged.centreHitsHandler, isFalse);
+      expect(on, isFalse, reason: 'the ground truth: nothing took the tap');
+
+      await tester.pumpWidget(const UxDemoApp());
+      final StepOutcome card = await performStep(tester, journey[0]);
+      expect(card.centreHitsHandler, isTrue);
+      handle.dispose();
+    });
+
+    testWidgets('the outcome entry settles before it captures', (
+      WidgetTester tester,
+    ) async {
+      // The outcome's PNG and dump were taken BEFORE its settle, while its
+      // guidelines came after: one entry describing two screens. Measured: a
+      // dump of "Processing" beside a contrast failure on "Payment failed".
+      Map<String, Object?>? report;
+      await walkJourney(
+        tester,
+        launch: () => runApp(MaterialApp(home: _Payment())),
+        journey:
+            const <
+              ({
+                String action,
+                String target,
+                int? nth,
+                String? text,
+                String expected,
+              })
+            >[
+              (
+                action: 'tap',
+                target: 'Pay',
+                nth: null,
+                text: null,
+                expected: 'Processing',
+              ),
+            ],
+        publish: (Map<String, Object?> r) async => report = r,
+      );
+      final Map<String, Object?> outcome =
+          (report!['steps']! as List<Object?>).last! as Map<String, Object?>;
+      final List<Object?> labels =
+          ((outcome['semantics']! as Map<String, Object?>)['nodes']!
+                  as List<Object?>)
+              .map((Object? n) => (n! as Map<String, Object?>)['label'])
+              .toList();
+      expect(labels, contains('Payment failed'));
+      expect(labels, isNot(contains('Processing')));
+    });
+  });
+
   group('applyDevice — the viewport the device used to supply', () {
     testWidgets('iphone-se reproduces the committed simulator viewport', (
       WidgetTester tester,
@@ -1494,6 +2559,100 @@ void main() {
     });
   });
 
+  group('walkJourney — the entry is the app, not the test harness', () {
+    testWidgets('an app that awaits the platform before runApp is waited for', (
+      WidgetTester tester,
+    ) async {
+      // The production norm: `main` awaits a plugin or a platform call before
+      // runApp. The walk used to drop that Future, settle on flutter_test's
+      // own "Test starting..." frame and measure it as the app's entry —
+      // every guideline passing on a screen with no controls.
+      Map<String, Object?>? report;
+      await walkJourney(
+        tester,
+        launch: () async {
+          await SystemChrome.setPreferredOrientations(<DeviceOrientation>[
+            DeviceOrientation.portraitUp,
+          ]);
+          runApp(const UxDemoApp());
+        },
+        journey: journey,
+        publish: (Map<String, Object?> r) async => report = r,
+      );
+      expect(report!['entryReached'], isTrue);
+      final Map<String, Object?> first =
+          (report!['steps']! as List<Object?>).first! as Map<String, Object?>;
+      expect(first['status'], 'OK', reason: '${first['error']}');
+      expect(
+        (first['surface']! as Map<String, Object?>)['tappableCount'],
+        greaterThan(0),
+        reason: 'step 1 measured the app, not the placeholder',
+      );
+    });
+
+    testWidgets('a splash that hands over on a timer is waited out', (
+      WidgetTester tester,
+    ) async {
+      // A quiet frame is not a ready screen: a static splash schedules no
+      // frames while its timer runs, so the entry settled on the splash and
+      // step 1 failed on a target that was 800 ms away.
+      Map<String, Object?>? report;
+      await walkJourney(
+        tester,
+        launch: () => runApp(MaterialApp(home: _Splash())),
+        journey:
+            const <
+              ({
+                String action,
+                String target,
+                int? nth,
+                String? text,
+                String expected,
+              })
+            >[
+              (
+                action: 'tap',
+                target: 'Start',
+                nth: null,
+                text: null,
+                expected: 'Started',
+              ),
+            ],
+        publish: (Map<String, Object?> r) async => report = r,
+      );
+      expect(report!['entryReached'], isTrue);
+      final Map<String, Object?> first =
+          (report!['steps']! as List<Object?>).first! as Map<String, Object?>;
+      expect(first['status'], 'OK', reason: '${first['error']}');
+    });
+
+    testWidgets('an app that never reaches runApp is not walked', (
+      WidgetTester tester,
+    ) async {
+      // Reported as one fact — the app never showed its first target — not as
+      // N journey failures on a screen that was never the app's.
+      final List<String> shots = <String>[];
+      Map<String, Object?>? report;
+      await walkJourney(
+        tester,
+        launch: () async {
+          await Future<void>.value();
+          throw StateError('plugin init failed');
+        },
+        journey: journey,
+        shot: (String name) async => shots.add(name),
+        publish: (Map<String, Object?> r) async => report = r,
+      );
+      expect(report!['entryReached'], isFalse);
+      expect(report!['steps'], isEmpty);
+      expect(report!['setupSteps'], isEmpty);
+      expect(report!['taps'], 0);
+      expect(report!['appErrors'], contains(contains('plugin init failed')));
+      expect(shots, <String>['entry'], reason: 'what it showed instead');
+      expect(report!['entryScreenshot'], 'entry.png');
+    });
+  });
+
   group('walkJourney — the two injection points', () {
     testWidgets('a shot that throws costs that step its image, not the walk', (
       WidgetTester tester,
@@ -1636,9 +2795,11 @@ void main() {
         journey: journey,
         publish: (Map<String, Object?> r) async => report = r,
       );
-      // If FlutterError.onError is still the first walk's, this test's own
-      // failures land in a dead list and the run hangs instead of reporting.
-      expect(report!['steps'], isNotNull);
+      // Not a check on FlutterError.onError: the binding installs a fresh one
+      // per test, so a leak from walk 1 cannot reach here — 'the walk hands
+      // FlutterError.onError back' is that check. This one is that nothing
+      // else a walk leaves behind stops the next one from walking.
+      expect(report!['steps'], hasLength(journey.length + 1));
     });
 
     testWidgets('an app error during the walk is evidence, not a failure', (
@@ -1661,6 +2822,154 @@ void main() {
         publish: (Map<String, Object?> r) async => report = r,
       );
       expect(report!['appErrors'], contains(contains('late voucher fetch')));
+    });
+
+    // An app that installs its own FlutterError.onError in main — logging
+    // boilerplate, a crash reporter — replaced the walk's collector, and
+    // appErrors read [] on an app that was throwing. Three shapes: a handler
+    // that drops the error, one that chains to the previous handler, and one
+    // that routes it into the zone. Each must be heard exactly once.
+    for (final String shape in <String>[
+      'drops it',
+      'chains it',
+      'routes it into the zone',
+    ]) {
+      testWidgets('an app with its own FlutterError.onError is still heard '
+          '(a handler that $shape)', (WidgetTester tester) async {
+        final List<String> appSink = <String>[];
+        Map<String, Object?>? report;
+        await walkJourney(
+          tester,
+          launch: () {
+            final FlutterExceptionHandler? previous = FlutterError.onError;
+            FlutterError.onError = switch (shape) {
+              'drops it' => (FlutterErrorDetails d) => appSink.add('$d'),
+              'chains it' => (FlutterErrorDetails d) {
+                appSink.add('$d');
+                previous?.call(d);
+              },
+              _ => (FlutterErrorDetails d) => Zone.current.handleUncaughtError(
+                d.exception,
+                d.stack ?? StackTrace.current,
+              ),
+            };
+            runApp(const UxDemoApp());
+            Future<void>.delayed(
+              const Duration(milliseconds: 300),
+              () => FlutterError.reportError(
+                FlutterErrorDetails(exception: StateError('detail screen bug')),
+              ),
+            );
+          },
+          journey: journey,
+          publish: (Map<String, Object?> r) async => report = r,
+        );
+        expect(
+          (report!['appErrors']! as List<Object?>).where(
+            (Object? e) => '$e'.contains('detail screen bug'),
+          ),
+          hasLength(1),
+          reason: '${report!['appErrors']}',
+        );
+        expect(
+          (report!['conditions']!
+              as Map<String, Object?>)['appErrorHandlerReplaced'],
+          isTrue,
+        );
+        if (shape != 'routes it into the zone') {
+          expect(appSink, isNotEmpty, reason: 'the app still hears it too');
+        }
+      });
+    }
+
+    testWidgets(
+      'an app that swaps HttpOverrides.global keeps the one in place at launch',
+      (WidgetTester tester) async {
+        // flutter_test installs its deny-all mock by plain assignment, and so
+        // does the common `HttpOverrides.global = MyHttpOverrides()` in main —
+        // which then hands the app a REAL client in the default posture and
+        // discards a gate stub. Measured: a typed sign-in reached a socket.
+        // The app's override here throws if it is ever consulted, so a broken
+        // pin is a red test, never a request.
+        final HttpOverrides? atLaunch = HttpOverrides.current;
+        int? status;
+        Object? error;
+        Map<String, Object?>? report;
+        try {
+          await walkJourney(
+            tester,
+            launch: () {
+              HttpOverrides.global = _RefusingOverrides();
+              runApp(const UxDemoApp());
+              () async {
+                try {
+                  final HttpClientRequest req = await HttpClient().getUrl(
+                    Uri(scheme: 'https', host: 'api.example.invalid'),
+                  );
+                  status = (await req.close()).statusCode;
+                } catch (e) {
+                  error = e;
+                }
+              }();
+            },
+            journey: journey,
+            publish: (Map<String, Object?> r) async => report = r,
+          );
+        } finally {
+          HttpOverrides.global = atLaunch;
+        }
+        expect(error, isNull);
+        expect(status, 400, reason: "flutter_test's mock answered it");
+        expect(
+          (report!['conditions']!
+              as Map<String, Object?>)['httpOverridesReplacedByApp'],
+          isTrue,
+        );
+      },
+    );
+
+    testWidgets('with no override at launch the pin changes nothing', (
+      WidgetTester tester,
+    ) async {
+      // The drive path without a stub: nothing to pin, nothing to put back.
+      final HttpOverrides? atLaunch = HttpOverrides.current;
+      HttpOverrides.global = null;
+      Map<String, Object?>? report;
+      HttpOverrides? after;
+      try {
+        await walkJourney(
+          tester,
+          launch: () => runApp(const UxDemoApp()),
+          journey: journey,
+          publish: (Map<String, Object?> r) async => report = r,
+        );
+        after = HttpOverrides.current;
+      } finally {
+        HttpOverrides.global = atLaunch;
+      }
+      expect(after, isNull);
+      expect(
+        (report!['conditions']!
+            as Map<String, Object?>)['httpOverridesReplacedByApp'],
+        isFalse,
+      );
+    });
+
+    testWidgets('an app that leaves the handler alone is not flagged', (
+      WidgetTester tester,
+    ) async {
+      Map<String, Object?>? report;
+      await walkJourney(
+        tester,
+        launch: () => runApp(const UxDemoApp()),
+        journey: journey,
+        publish: (Map<String, Object?> r) async => report = r,
+      );
+      expect(
+        (report!['conditions']!
+            as Map<String, Object?>)['appErrorHandlerReplaced'],
+        isFalse,
+      );
     });
 
     testWidgets('an unawaited failure the app drops is evidence too', (
@@ -1824,6 +3133,41 @@ class _TabShell extends StatelessWidget {
   );
 }
 
+/// A static splash that hands over on a timer: no frames while it waits.
+class _Splash extends StatefulWidget {
+  @override
+  State<_Splash> createState() => _SplashState();
+}
+
+class _SplashState extends State<_Splash> {
+  bool _ready = false;
+  bool _started = false;
+
+  @override
+  void initState() {
+    super.initState();
+    Future<void>.delayed(const Duration(milliseconds: 800), () {
+      if (mounted) {
+        setState(() => _ready = true);
+      }
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+    body: Center(
+      child: !_ready
+          ? const Text('ACME')
+          : _started
+          ? const Text('Started')
+          : TextButton(
+              onPressed: () => setState(() => _started = true),
+              child: const Text('Start'),
+            ),
+    ),
+  );
+}
+
 /// A tap that starts an awaiting Future schedules no frames, so the frame
 /// queue goes quiet while the screen is still empty.
 class _SlowLoad extends StatefulWidget {
@@ -1848,4 +3192,46 @@ class _SlowLoadState extends State<_SlowLoad> {
             child: const Text('Load'),
           ),
   );
+}
+
+/// Pay shows a spinner, and the failure lands 8 s later — after the last
+/// step's own settle gave up.
+class _Payment extends StatefulWidget {
+  @override
+  State<_Payment> createState() => _PaymentState();
+}
+
+class _PaymentState extends State<_Payment> {
+  String _state = 'idle';
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+    body: Center(
+      child: switch (_state) {
+        'idle' => TextButton(
+          onPressed: () {
+            setState(() => _state = 'processing');
+            Future<void>.delayed(const Duration(seconds: 8), () {
+              if (mounted) {
+                setState(() => _state = 'failed');
+              }
+            });
+          },
+          child: const Text('Pay'),
+        ),
+        'processing' => const Column(
+          mainAxisSize: MainAxisSize.min,
+          children: <Widget>[Text('Processing'), CircularProgressIndicator()],
+        ),
+        _ => const Text('Payment failed'),
+      },
+    ),
+  );
+}
+
+/// An app's own override that must never be consulted during a walk.
+class _RefusingOverrides extends HttpOverrides {
+  @override
+  HttpClient createHttpClient(SecurityContext? context) =>
+      throw StateError('the app override was consulted');
 }

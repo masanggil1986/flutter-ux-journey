@@ -3,8 +3,8 @@
 // example/walk.json was measured on an iPhone SE (3rd gen) simulator. This
 // reproduces its conditions under `flutter test` and asserts the things that
 // must not move: what each step did, which screen it was on, and what the four
-// guidelines decided. Rects are deliberately NOT compared — the fallback font
-// is Roboto where the simulator had SF — and neither is the contrast RATIO,
+// guidelines decided. Rects are compared only within a bound — the fallback
+// font is Roboto where the simulator had SF — and the contrast RATIO not at all,
 // because the headless rasterizer reports 1.36 where the device reported 1.03
 // on the same node. Both conditions are recorded in the artifact instead.
 
@@ -77,6 +77,19 @@ void main() {
       // font substitution — and if it did not, every state-loss and dead-tap
       // check would be reading a different screen.
       expect(y['screenSig'], x['screenSig'], reason: '$at: screenSig');
+      // The chain a dead-tap finding stands on. Each link was measured wrong
+      // once, and none of them moved a status or a signature when it broke.
+      // NOT `settled`: a step that never dispatched now records null where
+      // the simulator run recorded true.
+      for (final String field in <String>[
+        'error',
+        'dispatched',
+        'semanticsUnchanged',
+        'tapsSoFar',
+        'surface',
+      ]) {
+        expect(y[field], x[field], reason: '$at: $field');
+      }
 
       final List<Object?> gx = x['guidelines']! as List<Object?>;
       final List<Object?> gy = y['guidelines']! as List<Object?>;
@@ -97,6 +110,25 @@ void main() {
       final List<Object?> ny =
           (y['semantics']! as Map<String, Object?>)['nodes']! as List<Object?>;
       expect(ny, hasLength(nx.length), reason: '$at: semantics node count');
+
+      // Rects within a bound, not equal: the stand-in font moves text a little
+      // (max 18.9 lpx, median 0.0 measured), while text left in the test
+      // font's em squares moves it a lot (153.6) — and fontSource cannot tell
+      // the two apart, because it reports what was registered, not what the
+      // theme ended up asking for.
+      for (int n = 0; n < nx.length; n++) {
+        final List<Object?> rx =
+            (nx[n]! as Map<String, Object?>)['rect']! as List<Object?>;
+        final List<Object?> ry =
+            (ny[n]! as Map<String, Object?>)['rect']! as List<Object?>;
+        for (int k = 0; k < 4; k++) {
+          expect(
+            ((ry[k]! as num) - (rx[k]! as num)).abs(),
+            lessThan(25.0),
+            reason: '$at: node $n rect $ry against the simulator\'s $rx',
+          );
+        }
+      }
     }
 
     expect(here!['taps'], sim['taps']);
