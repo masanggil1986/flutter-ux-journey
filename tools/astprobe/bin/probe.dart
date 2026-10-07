@@ -19,6 +19,7 @@ import 'dart:io';
 
 import 'package:analyzer/dart/analysis/utilities.dart';
 import 'package:analyzer/dart/ast/ast.dart';
+import 'package:analyzer/dart/ast/token.dart';
 import 'package:analyzer/dart/ast/visitor.dart';
 import 'package:analyzer/source/line_info.dart';
 
@@ -29,24 +30,55 @@ const _watchedWidgets = {
   'Icon',
   'Image',
   'TextField',
+  'TextFormField',
 };
-// Ancestors that already supply (or deliberately suppress) an accessible name.
+// Ancestors that supply (or deliberately suppress) an accessible name. A bare
+// `Semantics` is NOT one of them: container:, explicitChildNodes: and
+// identifier: name nothing, and the runtime reports the control under them as
+// unlabelled. It counts only with the fields [_Probe._suppliesName] checks.
 const _labelWrappers = {
   'Semantics',
   'MergeSemantics',
   'ExcludeSemantics',
   'Tooltip',
 };
-const _iconOwners = {'IconButton', ..._labelWrappers};
+// Arguments through which a control names itself, so an Icon in one of its
+// other slots (`leading:`, `icon:`, `prefixIcon:`) is decoration — the label
+// sits on the control's node, and the Icon adds no node of its own.
+const _ownerLabels = {'label', 'labelText', 'hintText', 'title', 'text'};
 
 /// Dotted callee source of a widget-shaped call: `IconButton`, `Image.network`,
-/// `material.Icon`. Null for anything that is not a call.
-String? _calleeOf(AstNode node) => switch (node) {
-  InstanceCreationExpression() => node.constructorName.type.toSource(),
+/// `material.Icon`. Null for anything that is not a call. Type arguments are
+/// dropped — `const MaterialPageRoute<void>(...)` is a MaterialPageRoute.
+String? _calleeOf(AstNode? node) => switch (node) {
+  InstanceCreationExpression(:final constructorName) => [
+    constructorName.type.importPrefix?.name.lexeme,
+    constructorName.type.name.lexeme,
+    constructorName.name?.name,
+  ].nonNulls.join('.'),
   MethodInvocation() =>
     '${node.target?.toSource() ?? ''}.${node.methodName.name}',
   _ => null,
 };
+
+ArgumentList? _argsOf(AstNode? node) => switch (node) {
+  InstanceCreationExpression() => node.argumentList,
+  MethodInvocation() => node.argumentList,
+  _ => null,
+};
+
+Expression? _named(ArgumentList? args, String name) {
+  for (final a
+      in args?.arguments.whereType<NamedArgument>() ??
+          const <NamedArgument>[]) {
+    if (a.name.lexeme == name) {
+      return a.argumentExpression;
+    }
+  }
+  return null;
+}
+
+bool _isTrue(Expression? e) => e is BooleanLiteral && e.value;
 
 /// Unresolved, `new Image.network(...)` parses with the WHOLE `Image.network`
 /// as the type — the parser cannot tell a named constructor from a library
@@ -71,14 +103,16 @@ List<Map<String, Object?>> scan(String source, {String path = '<memory>'}) {
 /// Three kinds, and the third is the point:
 ///   `go-route`       a declared GoRoute — path, name, the screen its builder
 ///                    makes
-///   `inline-push`    a Navigator push carrying a MaterialPageRoute or a
-///                    CupertinoPageRoute — the shape an app with no declarative
-///                    router uses, and the one the public fixture exercises
+///   `inline-push`    a Navigator push carrying a MaterialPageRoute, a
+///                    CupertinoPageRoute or a PageRouteBuilder — the shape an
+///                    app with no declarative router uses, and the one the
+///                    public fixture exercises
 ///   `not-assessable` navigation that exists but cannot be read from source
 ///
 /// Nothing here is inferred. A target that is not a string literal, a builder
-/// that is not a closure over a constructor, an `onGenerateRoute` that
-/// switches on a runtime string — each of those is recorded as
+/// that is not a closure returning one constructor call, an `onGenerateRoute`
+/// that switches on a runtime string, a router this probe does not read
+/// (GetX, auto_route, go_router_builder) — each of those is recorded as
 /// `not-assessable` rather than guessed at, because a route graph that invents
 /// one edge is worse than one that admits a hole.
 List<Map<String, Object?>> scanRoutes(
@@ -92,8 +126,9 @@ List<Map<String, Object?>> scanRoutes(
   return probe.routes;
 }
 
-/// String constants this source declares, keyed as `Owner.field` for a class
-/// member and by its bare name for a top-level one.
+/// Top-level and static `const`/`final` string literals this source declares,
+/// keyed as `Owner.field` for a static of a class, enum, mixin or extension
+/// and by its bare name for a top-level one.
 ///
 /// This is pass one of two, and it exists because the shape SKILL.md calls the
 /// usual GoRouter app — a file of route constants plus the GoRoute tree — is
@@ -104,7 +139,10 @@ List<Map<String, Object?>> scanRoutes(
 /// Only literals are collected. A concatenation or an interpolation has a part
 /// this cannot see, and a name declared twice with DIFFERENT values is dropped
 /// rather than resolved to whichever came first — either would put a path in
-/// the graph that the app does not answer to.
+/// the graph that the app does not answer to. Locals, instance fields and
+/// anything reassignable are not constants another file can name: collecting
+/// them resolved a helper's `String target` parameter to some other function's
+/// local `target`.
 Map<String, String> collectRouteConstants(String source) {
   final result = parseString(content: source, throwIfDiagnostics: false);
   final collector = _Constants();
@@ -118,41 +156,145 @@ Map<String, String> collectRouteConstants(String source) {
 class _Constants extends RecursiveAstVisitor<void> {
   final Map<String, String> found = {};
   final Set<String> ambiguous = {};
-  String? _owner;
 
   @override
-  void visitClassDeclaration(ClassDeclaration node) {
-    _owner = node.namePart.typeName.lexeme;
-    super.visitClassDeclaration(node);
-    _owner = null;
+  void visitTopLevelVariableDeclaration(TopLevelVariableDeclaration node) =>
+      _collect(node.variables, null);
+
+  @override
+  void visitFieldDeclaration(FieldDeclaration node) {
+    final owner = _typeName(_enclosingType(node));
+    // An unnamed extension's statics cannot be named from anywhere else.
+    if (node.isStatic && owner != null) {
+      _collect(node.fields, owner);
+    }
   }
+
+  void _collect(VariableDeclarationList list, String? owner) {
+    if (!list.isConst && !list.isFinal) {
+      return;
+    }
+    for (final v in list.variables) {
+      final init = v.initializer;
+      if (init is! SimpleStringLiteral) {
+        continue;
+      }
+      final key = owner == null ? v.name.lexeme : '$owner.${v.name.lexeme}';
+      final existing = found[key];
+      if (existing != null && existing != init.value) {
+        ambiguous.add(key);
+        continue;
+      }
+      found[key] = init.value;
+    }
+  }
+}
+
+/// The innermost class, enum, mixin, extension or extension type around
+/// [node] — the declarations whose statics Dart lets a body name bare.
+AstNode? _enclosingType(AstNode node) {
+  for (AstNode? p = node.parent; p != null; p = p.parent) {
+    if (p is ClassDeclaration ||
+        p is EnumDeclaration ||
+        p is MixinDeclaration ||
+        p is ExtensionDeclaration ||
+        p is ExtensionTypeDeclaration) {
+      return p;
+    }
+  }
+  return null;
+}
+
+String? _typeName(AstNode? type) => switch (type) {
+  ClassDeclaration(:final namePart) => namePart.typeName.lexeme,
+  EnumDeclaration(:final namePart) => namePart.typeName.lexeme,
+  ExtensionTypeDeclaration(:final namePart) => namePart.typeName.lexeme,
+  MixinDeclaration(:final name) => name.lexeme,
+  ExtensionDeclaration(:final name) => name?.lexeme,
+  _ => null,
+};
+
+/// Whether [scope] declares [name] as anything but a collected constant: a
+/// parameter, a local, a field, a method.
+bool _declares(AstNode scope, String name) {
+  final finder = _Declares(name);
+  scope.accept(finder);
+  return finder.found;
+}
+
+class _Declares extends GeneralizingAstVisitor<void> {
+  _Declares(this._name);
+
+  final String _name;
+  bool found = false;
+
+  void _see(Token? name) => found = found || name?.lexeme == _name;
 
   @override
   void visitVariableDeclaration(VariableDeclaration node) {
-    final init = node.initializer;
-    if (init is! SimpleStringLiteral) {
-      return;
-    }
-    final key = _owner == null
-        ? node.name.lexeme
-        : '$_owner.${node.name.lexeme}';
-    final existing = found[key];
-    if (existing != null && existing != init.value) {
-      ambiguous.add(key);
-      return;
-    }
-    found[key] = init.value;
+    _see(node.name);
+    super.visitVariableDeclaration(node);
   }
+
+  @override
+  void visitFormalParameter(FormalParameter node) {
+    _see(node.name);
+    super.visitFormalParameter(node);
+  }
+
+  @override
+  void visitDeclaredIdentifier(DeclaredIdentifier node) {
+    _see(node.name);
+    super.visitDeclaredIdentifier(node);
+  }
+
+  @override
+  void visitCatchClauseParameter(CatchClauseParameter node) {
+    _see(node.name);
+    super.visitCatchClauseParameter(node);
+  }
+
+  @override
+  void visitDeclaredVariablePattern(DeclaredVariablePattern node) {
+    _see(node.name);
+    super.visitDeclaredVariablePattern(node);
+  }
+
+  @override
+  void visitMethodDeclaration(MethodDeclaration node) {
+    _see(node.name);
+    super.visitMethodDeclaration(node);
+  }
+
+  @override
+  void visitFunctionDeclaration(FunctionDeclaration node) {
+    _see(node.name);
+    super.visitFunctionDeclaration(node);
+  }
+}
+
+/// `return` statements of one function body, not of the closures inside it.
+class _Returns extends RecursiveAstVisitor<void> {
+  final List<ReturnStatement> found = [];
+
+  @override
+  void visitReturnStatement(ReturnStatement node) => found.add(node);
+
+  @override
+  void visitFunctionExpression(FunctionExpression node) {}
 }
 
 /// `push`, `pushReplacement`, `pushAndRemoveUntil` and friends — every method
 /// the fixture and the gated fixture actually use. A matcher that knows only
-/// `push` misses the fixture's dead end and the gate it replaces.
+/// `push` misses the fixture's dead end and the gate it replaces. `replace` is
+/// here because Navigator's carries a page route (`newRoute:`); GoRouter's
+/// `context.replace('/x')` still falls through to the string reading.
 const _pushMethods = {
   'push',
   'pushReplacement',
   'pushAndRemoveUntil',
   'pushRoute',
+  'replace',
 };
 const _pageRoutes = {
   'MaterialPageRoute',
@@ -166,12 +308,39 @@ const _goMethods = {
   'goNamed',
   'pushNamed',
   'pushReplacementNamed',
-  'replace',
   'replaceNamed',
   // Navigator's own named verbs. Leaving them out is a hole in the map with
   // nothing saying so — quieter than a wrong edge, and harder to notice.
   'popAndPushNamed',
   'pushNamedAndRemoveUntil',
+  // Their state-restoring twins. The named ones read like the above; the
+  // others take a static builder function, which is reported, not read.
+  'restorablePush',
+  'restorablePushNamed',
+  'restorablePushReplacement',
+  'restorablePushReplacementNamed',
+  'restorablePushAndRemoveUntil',
+  'restorablePushNamedAndRemoveUntil',
+  'restorablePopAndPushNamed',
+  'restorableReplace',
+};
+
+/// Routers this probe does not read. Their tables live in a GetPage list or
+/// in generated code (`*.g.dart`, which is not scanned), so a GetX or
+/// auto_route app would otherwise come out with every route block empty —
+/// which reads as "no declarative router", a false statement about the app.
+const _getxApps = {'GetMaterialApp', 'GetCupertinoApp'};
+const _generatedRouters = {
+  'AutoRouterConfig',
+  // auto_route 5 and older
+  'MaterialAutoRouter',
+  'CupertinoAutoRouter',
+  'AdaptiveAutoRouter',
+  'CustomAutoRouter',
+  // go_router_builder
+  'TypedGoRoute',
+  'TypedShellRoute',
+  'TypedStatefulShellRoute',
 };
 
 class _Routes extends RecursiveAstVisitor<void> {
@@ -192,20 +361,49 @@ class _Routes extends RecursiveAstVisitor<void> {
   // routes while looking healthy.
   @override
   void visitInstanceCreationExpression(InstanceCreationExpression node) {
-    _check(node, node.argumentList, node.constructorName.type.toSource());
+    _check(node, node.argumentList);
     super.visitInstanceCreationExpression(node);
   }
 
   @override
   void visitMethodInvocation(MethodInvocation node) {
-    _check(node, node.argumentList, node.methodName.name);
+    _check(node, node.argumentList);
     super.visitMethodInvocation(node);
   }
 
-  void _check(AstNode node, ArgumentList args, String callee) {
+  @override
+  void visitAnnotation(Annotation node) {
+    final router = _match(node.name.name, _generatedRouters);
+    if (router != null) {
+      _add(node, 'not-assessable', {
+        'reason':
+            'a generated route table (@$router) is declared here and this '
+            'probe does not read it; enumerate its screens by hand',
+      });
+    }
+    super.visitAnnotation(node);
+  }
+
+  void _check(AstNode node, ArgumentList args) {
+    final callee = _calleeOf(node)!;
     final name = callee.split('.').last;
-    if (name == 'GoRoute') {
+    final getx = _match(callee, _getxApps);
+    if (getx != null) {
+      _add(node, 'not-assessable', {
+        'reason':
+            'a GetX app ($getx): its GetPage table and Get.to/Get.toNamed '
+            'navigation are not read by this probe; enumerate its screens by '
+            'hand',
+      });
+    } else if (name == 'GoRoute') {
       _goRoute(node, args);
+    } else if (name == 'goBranch') {
+      _add(node, 'not-assessable', {
+        'reason':
+            'goBranch switches a StatefulShellRoute branch by index; which '
+            'branch it reaches cannot be read from source (the branch routes '
+            'themselves are declared)',
+      });
     } else if (_pushMethods.contains(name) && _inlinePush(node, args, name)) {
       // handled as a Navigator push
     } else if (_goMethods.contains(name) || _pushMethods.contains(name)) {
@@ -260,16 +458,30 @@ class _Routes extends RecursiveAstVisitor<void> {
       });
       return;
     }
+    // A child route's `path` is a SEGMENT: a GoRoute at `b` under `/a`
+    // answers to `/a/b`, and printing `b` alone puts a path in the table
+    // that nobody can type.
+    final absolute = path == null ? null : _absolutePath(node, path);
+    if (path != null && absolute == null) {
+      _add(node, 'not-assessable', {
+        'reason':
+            'a GoRoute at `$path` under a parent route whose path cannot be '
+            'read here (not a string literal, or declared outside this tree) '
+            '— the path it answers to cannot be read from source',
+      });
+      return;
+    }
+    final pageBuilder = _named(args, 'pageBuilder');
     _add(node, 'go-route', {
-      // A child route's `path` is a SEGMENT: a GoRoute at `b` under `/a`
-      // answers to `/a/b`, and printing `b` alone puts a path in the table
-      // that nobody can type.
-      'path': path == null ? null : _absolutePath(node, path),
+      'path': absolute,
       'name': name,
       'via': via,
-      'screen': _builtWidget(
-        _named(args, 'builder') ?? _named(args, 'pageBuilder'),
-      ),
+      // A pageBuilder returns a Page by type, so its outermost call is always
+      // a transition wrapper (NoTransitionPage, CustomTransitionPage). The
+      // screen is the Page's `child:`.
+      'screen': pageBuilder == null
+          ? _widgetName(_returned(_named(args, 'builder')))
+          : _widgetName(_named(_argsOf(_returned(pageBuilder)), 'child')),
     });
   }
 
@@ -278,23 +490,23 @@ class _Routes extends RecursiveAstVisitor<void> {
   bool _inlinePush(AstNode node, ArgumentList args, String method) {
     for (final arg in args.arguments) {
       final route = arg.argumentExpression;
-      final callee = _calleeOf(route);
-      if (_match(callee, _pageRoutes) == null) {
+      final kind = _match(_calleeOf(route), _pageRoutes);
+      if (kind == null) {
         continue;
       }
-      final builder = _named(
-        route is InstanceCreationExpression
-            ? route.argumentList
-            : (route as MethodInvocation).argumentList,
-        'builder',
+      // PageRouteBuilder has no `builder:`; its screen is in `pageBuilder:`.
+      final routeArgs = _argsOf(route);
+      final screen = _widgetName(
+        _returned(
+          _named(routeArgs, 'builder') ?? _named(routeArgs, 'pageBuilder'),
+        ),
       );
-      final screen = _builtWidget(builder);
       if (screen == null) {
         _add(node, 'not-assessable', {
           'reason':
-              "a $method carries a ${_match(callee, _pageRoutes)} whose builder "
-              'is not a closure over a constructor; the screen it reaches '
-              'cannot be read from source',
+              'a $method carries a $kind whose builder is not a closure '
+              'returning one constructor call; the screen it reaches cannot '
+              'be read from source',
         });
         return true;
       }
@@ -314,13 +526,10 @@ class _Routes extends RecursiveAstVisitor<void> {
     // `context.pushNamed('/x')` puts it first; `Navigator.pushNamed(context,
     // '/x')` puts it second. Reading position 0 blindly reports `context` as
     // an unreadable target — a wrong reason attached to a missed edge.
-    String? target;
     final positional = args.arguments
         .where((a) => a is! NamedArgument)
         .toList();
-    if (positional.isEmpty) {
-      return;
-    }
+    String? target;
     for (final a in positional) {
       target = _stringOf(a.argumentExpression);
       if (target != null) {
@@ -328,10 +537,19 @@ class _Routes extends RecursiveAstVisitor<void> {
       }
     }
     if (target == null) {
+      if (positional.isEmpty &&
+          _named(args, 'newRoute') == null &&
+          _named(args, 'newRouteBuilder') == null) {
+        // `uri.replace(path: …)` shares a verb's name and is not navigation.
+        // Navigator's `replace(oldRoute:, newRoute: route)` with the route
+        // built elsewhere is, and falls through to be reported.
+        return;
+      }
+      final shown = positional.isEmpty ? args.arguments : positional;
       _add(node, 'not-assessable', {
         'reason':
             'a $method call whose route is not a string literal '
-            '(${positional.map((a) => a.toSource()).join(", ")}) — the route '
+            '(${shown.map((a) => a.toSource()).join(", ")}) — the route '
             'it reaches cannot be read from source',
       });
       return;
@@ -344,42 +562,45 @@ class _Routes extends RecursiveAstVisitor<void> {
     });
   }
 
-  /// The widget a `builder:` closure constructs, or null when the builder is
-  /// anything else — a torn-off function, a variable, a conditional.
-  String? _builtWidget(Expression? builder) {
+  /// The one expression a builder closure returns, or null when the builder
+  /// is anything else — a torn-off function, a variable — or can return more
+  /// than one thing. Reading the first of two `return`s names one screen and
+  /// drops the other.
+  Expression? _returned(Expression? builder) {
     if (builder is! FunctionExpression) {
       return null;
     }
     final body = builder.body;
-    Expression? returned;
     if (body is ExpressionFunctionBody) {
-      returned = body.expression;
-    } else if (body is BlockFunctionBody) {
-      for (final s in body.block.statements) {
-        if (s is ReturnStatement) {
-          returned = s.expression;
-          break;
-        }
-      }
+      return body.expression;
     }
-    // Read the two node shapes separately rather than through _calleeOf. The
-    // two disagree about which dotted segment is the widget: `DetailScreen(p)`
-    // parses as a MethodInvocation with no target, so its callee is
-    // `.DetailScreen` and the NAME is last; while `new Image.network(...)`
-    // parses with the whole `Image.network` as the type, where the widget is
-    // FIRST. One split cannot serve both, and guessing picks the empty string.
-    return switch (returned) {
-      InstanceCreationExpression(:final constructorName) =>
-        constructorName.type.toSource().split('.').first,
-      MethodInvocation(:final methodName) => methodName.name,
-      _ => null,
-    };
+    final returns = _Returns();
+    body.accept(returns);
+    return returns.found.length == 1 ? returns.found.single.expression : null;
   }
+
+  /// The widget [e] constructs, as its whole dotted name without type
+  /// arguments: `DetailScreen`, `EditScreen.create`, `screens.DetailScreen`,
+  /// `BlocProvider.value`. Unresolved, `Image.network(...)` and
+  /// `screens.DetailScreen(...)` parse alike, so naming one segment is a guess
+  /// that came out as `create`, `value` or `screens`; the whole name is what
+  /// the code says. Null for a conditional, a chained call, or no call.
+  String? _widgetName(Expression? e) => switch (e) {
+    InstanceCreationExpression() => _calleeOf(e),
+    MethodInvocation(target: null, :final methodName) => methodName.name,
+    MethodInvocation(target: Identifier()) => _calleeOf(e),
+    _ => null,
+  };
 
   /// [path] with every enclosing GoRoute's path prepended. An absolute child
   /// path (one starting with `/`) is already whole and is left alone, which is
   /// what GoRouter itself does.
-  String _absolutePath(AstNode node, String path) {
+  ///
+  /// Null when an enclosing GoRoute's path cannot be read, or when a relative
+  /// path has no enclosing GoRoute here (its list is declared apart from its
+  /// parent). Skipping the unreadable parent printed a well-formed path the
+  /// app does not answer to.
+  String? _absolutePath(AstNode node, String path) {
     if (path.startsWith('/')) {
       return path;
     }
@@ -389,18 +610,14 @@ class _Routes extends RecursiveAstVisitor<void> {
       if (callee == null || callee.split('.').last != 'GoRoute') {
         continue;
       }
-      final args = switch (p) {
-        InstanceCreationExpression() => p.argumentList,
-        MethodInvocation() => p.argumentList,
-        _ => null,
-      };
-      final parent = args == null ? null : _stringOf(_named(args, 'path'));
-      if (parent != null) {
-        parents.insert(0, parent);
+      final parent = _stringOf(_named(_argsOf(p), 'path'));
+      if (parent == null) {
+        return null;
       }
+      parents.insert(0, parent);
     }
     if (parents.isEmpty) {
-      return path;
+      return null;
     }
     final joined = <String>[...parents, path]
         .map((s) => s.replaceAll(RegExp(r'^/+|/+$'), ''))
@@ -409,27 +626,11 @@ class _Routes extends RecursiveAstVisitor<void> {
     return '/$joined';
   }
 
-  /// The innermost class the node sits in, RAW. `_ListScreenState` stays
-  /// `_ListScreenState`: stripping the underscore and the `State` suffix to
-  /// make it read nicely is a guess about naming convention, and a graph that
-  /// guesses its own node labels is not evidence.
-  String? _enclosing(AstNode node) {
-    for (AstNode? p = node.parent; p != null; p = p.parent) {
-      if (p is ClassDeclaration) {
-        return p.namePart.typeName.lexeme;
-      }
-    }
-    return null;
-  }
-
-  Expression? _named(ArgumentList args, String name) {
-    for (final a in args.arguments.whereType<NamedArgument>()) {
-      if (a.name.lexeme == name) {
-        return a.argumentExpression;
-      }
-    }
-    return null;
-  }
+  /// The innermost class (or enum, mixin, extension) the node sits in, RAW.
+  /// `_ListScreenState` stays `_ListScreenState`: stripping the underscore and
+  /// the `State` suffix to make it read nicely is a guess about naming
+  /// convention, and a graph that guesses its own node labels is not evidence.
+  String? _enclosing(AstNode node) => _typeName(_enclosingType(node));
 
   /// The value of an UNINTERPOLATED string literal, or of a constant declared
   /// as one somewhere in the package. An interpolated literal has a runtime
@@ -442,15 +643,49 @@ class _Routes extends RecursiveAstVisitor<void> {
     if (e is SimpleStringLiteral) {
       return e.value;
     }
-    if (e is PrefixedIdentifier || e is SimpleIdentifier) {
-      final key = e!.toSource();
-      final value = _constants[key];
-      if (value != null) {
-        _via = key;
-      }
-      return value;
+    final key = switch (e) {
+      PrefixedIdentifier() => e.toSource(),
+      SimpleIdentifier() => _bareKey(e),
+      _ => null,
+    };
+    final value = _constants[key];
+    if (value != null) {
+      _via = key;
     }
-    return null;
+    return value;
+  }
+
+  /// The constant a bare name refers to, in Dart's own lookup order: a
+  /// parameter or local first, then the enclosing type's members (a class
+  /// names its own statics bare), then the top level. Null when something
+  /// nearer than a collected constant has the name.
+  ///
+  /// ponytail: coarse scopes — a same-named declaration anywhere in the
+  /// enclosing member, or anywhere in the enclosing type, shadows. The worst
+  /// case is a not-assessable line, never an edge to a constant the code does
+  /// not use; real block scoping if those lines ever crowd out real ones.
+  String? _bareKey(SimpleIdentifier e) {
+    final name = e.name;
+    AstNode? member = e.parent;
+    while (member != null &&
+        member is! ClassMember &&
+        member is! CompilationUnitMember) {
+      member = member.parent;
+    }
+    if (member != null && _declares(member, name)) {
+      return null;
+    }
+    final type = _enclosingType(e);
+    if (type != null) {
+      final owned = '${_typeName(type)}.$name';
+      if (_constants.containsKey(owned)) {
+        return owned;
+      }
+      if (_declares(type, name)) {
+        return null;
+      }
+    }
+    return name;
   }
 
   void _add(AstNode node, String kind, Map<String, Object?> fields) {
@@ -491,6 +726,14 @@ class _Probe extends RecursiveAstVisitor<void> {
   }
 
   void _check(AstNode node, ArgumentList args) {
+    // A call chained on another expression — `Image.asset(...).animate()` —
+    // is an extension method, not a widget, and `IconButton.styleFrom` is a
+    // ButtonStyle. Matching their dotted segments reported the labelled
+    // widget underneath again, at its own position.
+    if (node is MethodInvocation &&
+        (node.target is! Identifier? || node.methodName.name == 'styleFrom')) {
+      return;
+    }
     final widget = _match(_calleeOf(node), _watchedWidgets);
     if (widget == null) return;
     // analyzer 14 renamed NamedExpression -> NamedArgument; `name` is a Token now.
@@ -499,8 +742,7 @@ class _Probe extends RecursiveAstVisitor<void> {
     };
     switch (widget) {
       case 'GestureDetector' || 'InkWell':
-        if (named.contains('onTap') &&
-            !_hasAncestorCall(node, _labelWrappers)) {
+        if (named.contains('onTap') && !_ancestors(node).any(_suppliesName)) {
           _add(
             node,
             'tap-without-label',
@@ -511,11 +753,12 @@ class _Probe extends RecursiveAstVisitor<void> {
           );
         }
       case 'IconButton' || 'Icon':
-        // An Icon inside an IconButton is decorative: the button is the control
-        // that needs the name, and it is judged on its own. Reporting both
-        // double-counts one control, which is how a rule set turns into noise.
-        if (widget == 'Icon' && _hasAncestorCall(node, _iconOwners)) break;
-        if (!named.contains('tooltip') && !named.contains('semanticLabel')) {
+        if (widget == 'Icon' && _isDecorative(node)) break;
+        final icon = _named(args, 'icon');
+        if (!named.contains('tooltip') &&
+            !named.contains('semanticLabel') &&
+            _named(icon == null ? null : _argsOf(icon), 'semanticLabel') ==
+                null) {
           _add(
             node,
             'icon-without-label',
@@ -525,7 +768,15 @@ class _Probe extends RecursiveAstVisitor<void> {
           );
         }
       case 'Image':
-        if (!named.contains('semanticLabel')) {
+        // Both are the SDK's own way to say "decorative": neither leaves an
+        // image node in the tree at all. A labelled Semantics around the
+        // Image does not count — measured, the Image's own unlabelled node
+        // stays beside it.
+        if (!named.contains('semanticLabel') &&
+            !_isTrue(_named(args, 'excludeFromSemantics')) &&
+            !_ancestors(
+              node,
+            ).any((a) => _match(_calleeOf(a), {'ExcludeSemantics'}) != null)) {
           _add(
             node,
             'image-without-label',
@@ -534,12 +785,8 @@ class _Probe extends RecursiveAstVisitor<void> {
             'medium',
           );
         }
-      case 'TextField':
-        final decoration = args.arguments
-            .whereType<NamedArgument>()
-            .where((a) => a.name.lexeme == 'decoration')
-            .map((a) => a.argumentExpression.toSource())
-            .join();
+      case 'TextField' || 'TextFormField':
+        final decoration = _named(args, 'decoration')?.toSource() ?? '';
         if (!decoration.contains('labelText') &&
             !decoration.contains('label:')) {
           _add(
@@ -554,11 +801,68 @@ class _Probe extends RecursiveAstVisitor<void> {
     }
   }
 
-  bool _hasAncestorCall(AstNode node, Set<String> names) {
-    for (AstNode? p = node.parent; p != null; p = p.parent) {
-      if (_match(_calleeOf(p), names) != null) return true;
+  /// An Icon that is not the control needing the name. One control, one
+  /// finding: reporting the Icon as well double-counts it, which is how a rule
+  /// set turns into noise.
+  bool _isDecorative(AstNode icon) {
+    if (_ancestors(icon).any(
+      (a) => _suppliesName(a) || _match(_calleeOf(a), {'IconButton'}) != null,
+    )) {
+      return true;
     }
-    return false;
+    // The NEAREST tap owner only. A keyboard-dismiss GestureDetector around a
+    // whole Scaffold does not own the FAB inside it, and the FAB's Icon is the
+    // true positive there.
+    for (final a in _ancestors(icon)) {
+      final args = _argsOf(a);
+      if (_named(args, 'onTap') != null || _named(args, 'onPressed') != null) {
+        // The tap rule reports these owners (or a name wrapper silenced it).
+        if (_match(_calleeOf(a), {'GestureDetector', 'InkWell'}) != null) {
+          return true;
+        }
+        break;
+      }
+    }
+    // The Icon is the direct value of a slot of a control that names itself.
+    // `child:` is the control's content rather than a slot beside its name,
+    // so only a tooltip covers it.
+    final slot = icon.parent;
+    final owner = slot?.parent?.parent;
+    if (slot is! NamedArgument || owner == null) {
+      return false;
+    }
+    final ownerArgs = _argsOf(owner);
+    return _named(ownerArgs, 'tooltip') != null ||
+        (slot.name.lexeme != 'child' &&
+            _ownerLabels.any((l) => _named(ownerArgs, l) != null));
+  }
+
+  /// Calls enclosing [node], innermost first, up to the first `on*` callback:
+  /// whatever is built inside `onPressed:` is shown elsewhere — a dialog, a
+  /// pushed route — and the wrappers around the button do not reach it.
+  Iterable<AstNode> _ancestors(AstNode node) sync* {
+    for (AstNode? p = node.parent; p != null; p = p.parent) {
+      final slot = p.parent;
+      if (p is FunctionExpression &&
+          slot is NamedArgument &&
+          slot.name.lexeme.startsWith('on')) {
+        return;
+      }
+      if (p is InstanceCreationExpression || p is MethodInvocation) yield p;
+    }
+  }
+
+  /// A Semantics counts only when it carries what labeledTapTargetGuideline
+  /// reads (label:, tooltip:) or drops the subtree altogether.
+  bool _suppliesName(AstNode call) {
+    final wrapper = _match(_calleeOf(call), _labelWrappers);
+    if (wrapper != 'Semantics') {
+      return wrapper != null;
+    }
+    final args = _argsOf(call);
+    return _named(args, 'label') != null ||
+        _named(args, 'tooltip') != null ||
+        _isTrue(_named(args, 'excludeSemantics'));
   }
 
   void _add(
@@ -605,14 +909,22 @@ void main(List<String> args) {
     final path = file.absolute.path;
     if (!path.endsWith('.dart') ||
         path.endsWith('.g.dart') ||
-        path.endsWith('.freezed.dart')) {
+        path.endsWith('.freezed.dart') ||
+        // macOS AppleDouble metadata (`._main.dart`) on a copied tree: named
+        // like Dart, but binary.
+        file.uri.pathSegments.last.startsWith('._')) {
       continue;
     }
     filesScanned++;
     final relative = path.startsWith(rootPath)
         ? path.substring(rootPath.length).replaceFirst(RegExp(r'^[/\\]'), '')
         : path;
-    sources[relative] = file.readAsStringSync();
+    // Lenient, as the Dart toolchain is: one Latin-1 byte in a comment
+    // compiles fine, and must not abort the whole scan.
+    sources[relative] = utf8.decode(
+      file.readAsBytesSync(),
+      allowMalformed: true,
+    );
   }
 
   // Pass one, over the whole package: a route path declared as
