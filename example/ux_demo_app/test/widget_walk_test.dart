@@ -77,6 +77,19 @@ void main() {
       // font substitution — and if it did not, every state-loss and dead-tap
       // check would be reading a different screen.
       expect(y['screenSig'], x['screenSig'], reason: '$at: screenSig');
+      // The chain a dead-tap finding stands on. Each link was measured wrong
+      // once, and none of them moved a status or a signature when it broke.
+      // NOT `settled`: a step that never dispatched now records null where
+      // the simulator run recorded true.
+      for (final String field in <String>[
+        'error',
+        'dispatched',
+        'semanticsUnchanged',
+        'tapsSoFar',
+        'surface',
+      ]) {
+        expect(y[field], x[field], reason: '$at: $field');
+      }
 
       final List<Object?> gx = x['guidelines']! as List<Object?>;
       final List<Object?> gy = y['guidelines']! as List<Object?>;
