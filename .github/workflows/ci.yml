@@ -18,55 +18,24 @@ jobs:
     # No simulator and no emulator. Nothing below needs a device, which is the
     # only reason these checks can run on every push.
     runs-on: ubuntu-latest
+    # A normal run takes about two minutes. A walk that loses its error handler
+    # can surface as a hang, and the default cap is six hours.
+    timeout-minutes: 30
     steps:
       # Both actions are pinned by commit, not by tag. A tag is mutable, so
       # `@v2` lets its owner change what runs here after anyone reviewed it.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      # The Flutter version is pinned as well, for a different reason: the
-      # numbers committed under example/ were measured on Flutter 3.47.2 /
-      # Dart 3.13.2, so a red build here means this repo changed and not that
-      # stable moved. Bump it deliberately, and expect the golden to move with
-      # it. (Stable was already 3.47.5 when this was written.)
-      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2.23.0
         with:
-          channel: stable
-          flutter-version: 3.47.2
+          # Nothing in this job talks to the remote, so the token need not
+          # outlive the checkout.
+          persist-credentials: false
 
-      # The next two steps are the commands the README's Tests section prints,
-      # one per package. Keep them in step with the README: a command that rots
-      # there goes red here. They also leave a package_config.json in both
-      # packages, which the format gate below depends on.
-      - name: Fixture suite, as the README prints it
-        run: cd example/ux_demo_app && flutter pub get && flutter test
-
-      - name: Probe suite, as the README prints it
-        run: cd tools/astprobe && dart pub get && dart test
-
-      # Without .dart_tool/package_config.json the formatter cannot read a
-      # package's language version and formats in a different style, so this has
-      # to follow the `pub get`s above.
-      - name: dart format
-        run: dart format --output=none --set-exit-if-changed example/ux_demo_app tools/astprobe
-
-      - name: flutter analyze
-        run: flutter analyze
-        working-directory: example/ux_demo_app
-
-      - name: dart analyze
-        run: dart analyze
-        working-directory: tools/astprobe
-
-      # Not `claude plugin validate`, which would need the Claude Code CLI on the
-      # runner. These two files are the whole install surface; a malformed one
-      # fails for the user and for nobody else.
-      - name: Plugin manifests parse
-        run: |
-          jq -e '.name and .version and .description and .license' .claude-plugin/plugin.json
-          jq -e '.name and .owner and (.plugins | length > 0)' .claude-plugin/marketplace.json
-
-      # This repository's first rule, mechanised. CONTRIBUTING.md asks a human to
-      # run two greps over the staged diff before every commit; this is the same
-      # rule with nobody left to forget it.
+      # This repository's first rule, mechanised. It runs first because it needs
+      # no toolchain: a red test must not skip it. It is a backstop, not a gate.
+      # CI runs after the push, so whatever it flags is already public, and it
+      # reads only the tip's tree, so a leak added and removed within one push
+      # stays in history. The pre-commit greps CONTRIBUTING.md asks for are the
+      # only prevention; this catches what they missed.
       - name: Leak guard
         run: |
           set +e -uo pipefail
@@ -158,3 +127,46 @@ jobs:
           if [ -n "$creds" ]; then echo "$creds"; rc=1; else echo none; fi
 
           exit $rc
+
+      # The Flutter version is pinned as well, for a different reason: the
+      # numbers committed under example/ were measured on Flutter 3.47.2 /
+      # Dart 3.13.2, so a red build here means this repo changed and not that
+      # stable moved. Bump it deliberately, and expect the golden to move with
+      # it. (Stable was already 3.47.5 when this was written.)
+      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2.23.0
+        with:
+          channel: stable
+          flutter-version: 3.47.2
+
+      # The next two steps are the commands the README's Tests section prints,
+      # one per package. Keep them in step with the README: a command that rots
+      # there goes red here. They also leave a package_config.json in both
+      # packages, which the format gate below depends on.
+      - name: Fixture suite, as the README prints it
+        run: cd example/ux_demo_app && flutter pub get && flutter test
+
+      - name: Probe suite, as the README prints it
+        run: cd tools/astprobe && dart pub get && dart test
+
+      # Without .dart_tool/package_config.json the formatter cannot read a
+      # package's language version and formats in a different style, so this has
+      # to follow the `pub get`s above.
+      - name: dart format
+        run: dart format --output=none --set-exit-if-changed example/ux_demo_app tools/astprobe
+
+      - name: flutter analyze
+        run: flutter analyze
+        working-directory: example/ux_demo_app
+
+      - name: dart analyze
+        run: dart analyze
+        working-directory: tools/astprobe
+
+      # Not `claude plugin validate`, which would need the Claude Code CLI on the
+      # runner. These two files are the whole install surface; a malformed one
+      # fails for the user and for nobody else.
+      - name: Plugin manifests parse
+        run: |
+          jq -e '.name and .version and .description and .license' .claude-plugin/plugin.json
+          jq -e '.name and .owner and (.plugins | length > 0)' .claude-plugin/marketplace.json
+
