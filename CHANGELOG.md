@@ -34,8 +34,9 @@ none) and update the `.gitignore` line.
   finding now requires it.
 - **The walk waits for the app.** Launch is followed by a bounded wait (12 s) for the first target
   to reach the semantics tree, so an async `main` or a splash on a timer is no longer measured as
-  the entry screen. `entryReached: false` means nothing was walked, and `entry.png` shows what the
-  app showed instead.
+  the entry screen. `entryReached: false` with no steps means no app came up (no `Navigator`), and
+  `entry.png` shows what was there instead. With steps, the app was up but the first target never
+  appeared — often a control with no accessible label — and step 1 reports it.
 - **`conditions.appErrorHandlerReplaced` and `conditions.httpOverridesReplacedByApp`** say the app
   installed its own error handler or HTTP override during the walk. The walk keeps hearing errors
   and keeps its network barrier either way.

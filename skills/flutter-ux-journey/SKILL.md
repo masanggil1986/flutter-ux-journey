@@ -443,7 +443,7 @@ Per step the walk records, besides the semantics dump and the four guidelines:
 | `conditions` (top level, once per run) | the brightness, text scale, locale and accessibility flags the numbers above were measured under — the ones `## Device` declared, or the test defaults — plus `mode` (`widget-test` or `drive`), `deviceProfile` (or `<name> (default, not declared)`), `fontSource`, `renderer` and `targetPlatform`. `fontSource` is `app` (the app's own fonts are loaded; text in a family the app does not declare still uses the SDK stand-in, so close, not exact), `sdk-fallback` (the SDK's Roboto standing in — close, not exact) or `none` (fold and placement **not assessable**). `appErrorHandlerReplaced` and `httpOverridesReplacedByApp` say the app installed its own error handler or HTTP override during the walk; `appErrors` is complete either way, and the walk kept its network barrier. The scope clause quotes all of it. `platform` is the HOST under `flutter test`, which is why `targetPlatform` is separate |
 | `setupSteps` (top level) | the `## Setup` phase, recorded beside `steps` and never merged into it: no semantics dump, no guidelines, no reach cost. A setup step carries a `screenshot` only when it failed (`setup_N.png`) |
 | `setupFailed` (top level) | true: the walk never reached the journey's starting line, and `steps` is empty by construction |
-| `entryReached`, `entryScreenshot` (top level) | `false`: the first setup or journey target never reached the semantics tree within 12 s of launch, so nothing was walked and `entry.png` shows what the app showed instead. `null`: there was nothing to wait for |
+| `entryReached`, `entryScreenshot` (top level) | `false`: the first setup or journey target never reached the semantics tree within 12 s of launch. With `steps` empty, no app came up at all (no `Navigator`) and `entry.png` shows what was there instead. With steps, the app was up and the walk went on: the target is unlabelled or not there, which step 1 reports. `null`: there was nothing to wait for |
 
 `networkCalls` means something different per posture, and the report says which:
 
@@ -470,9 +470,11 @@ the default mode there is no such hazard — the walk writes each PNG straight t
 deleting the previous run's — but a step whose `screenshot` is null still means its capture failed,
 and the VISUAL layer for that step is `not assessable`.
 
-**If `entryReached` is false, stop.** The app never showed the first target within 12 s, so no step
-was walked; `entryScreenshot` is what it showed instead — a splash, a loading screen, a gate the
-journey did not declare. Report that, not an empty journey.
+**If `entryReached` is false and `steps` is empty, stop.** No app came up within 12 s, so no step was
+walked; `entryScreenshot` is what showed instead — a splash, a loading screen, a gate the journey
+did not declare. Report that, not an empty journey. If `entryReached` is false but steps were
+walked, the app was up and the first target never appeared: an icon-only control with no label is
+the usual cause, and step 1's failure plus `labeledTapTargetGuideline` are the finding.
 
 **If the run dies during `## Setup`, stop.** The walk says so itself: `setupFailed: true`, the last
 entry in `setupSteps` carries the error and its `setup_N.png`, and `steps` is empty. Report a setup

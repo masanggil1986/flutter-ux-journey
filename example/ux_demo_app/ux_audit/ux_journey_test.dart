@@ -442,10 +442,16 @@ Future<void> walkJourney(
     // animates continuously. This fixture does not, but the generated walker
     // must, so the fixture exercises the same code path.
     entrySettled = await settle(tester, limit: const Duration(seconds: 12));
-    if (entryReached == false) {
-      // Nothing is walked, as with a failed setup: every step would fail on a
-      // screen that was never the app's, and N failures would bury the one
-      // fact. What it showed instead is the evidence.
+    // Nothing is walked only when no app is up at all — no Navigator means
+    // flutter_test's own placeholder, or a splash with no router yet. Then
+    // every step would fail on a screen that was never the app's, and N
+    // failures would bury the one fact. An app that IS up but never showed the
+    // first target is walked anyway: an icon-only button with no label never
+    // appears to a semantics wait, and that is step 1's finding — measured,
+    // refusing to walk turned it into a launch failure and threw away the
+    // very guideline that names it.
+    if (entryReached == false && find.byType(Navigator).evaluate().isEmpty) {
+      // What it showed instead is the evidence.
       entryScreenshot = await _capture(shot, 'entry');
       return;
     }
@@ -728,7 +734,15 @@ Future<StepOutcome> performStep(WidgetTester tester, Step step) async {
   final bool scroll = step.action == 'scroll';
   int drags = 0;
   bool? popHandled;
-  bool oracleHolds() => _present(tester, step.expected) != step.absent;
+  // Absence needs more than the semantics tree. A dialog blocks the semantics
+  // of everything under it, so a row a failed removal left behind vanished
+  // from the tree and `expect no` called the removal proven — measured. Text
+  // still built on an onstage route is still there; a page covered by a
+  // full-screen route is offstage and finders skip it.
+  bool oracleHolds() => step.absent
+      ? !_present(tester, step.expected) &&
+            find.textContaining(step.expected).evaluate().isEmpty
+      : _present(tester, step.expected);
   final bool expectedBefore = oracleHolds();
   Map<String, Object?>? resolved;
   try {
@@ -755,8 +769,29 @@ Future<StepOutcome> performStep(WidgetTester tester, Step step) async {
         dispatched = true;
         // This file IS a test — it runs under `flutter test` — but it lives
         // outside test/ (see walking.md), which is all the analyzer sees.
+        //
+        // Started, never awaited: a screen that asks before letting go
+        // (WillPopScope, go_router's onExit) holds the pop's Future open on a
+        // dialog that only a pump builds. Awaited, the walk hung for good and
+        // never published — measured, and no timeout fires on a fake clock.
+        // Still pending after the bound means the app took the pop and is
+        // asking the user, which is handled, not an exit.
+        bool? handled;
+        Object? popError;
         // ignore: invalid_use_of_protected_member, invalid_use_of_visible_for_testing_member
-        popHandled = await tester.binding.handlePopRoute();
+        tester.binding.handlePopRoute().then<void>(
+          (bool v) => handled = v,
+          onError: (Object e) {
+            popError = e;
+          },
+        );
+        for (int i = 0; i < 50 && handled == null && popError == null; i++) {
+          await tester.pump(const Duration(milliseconds: 100));
+        }
+        if (popError != null) {
+          throw popError!;
+        }
+        popHandled = handled ?? true;
         if (!popHandled) {
           // Failed, not left to the oracle: the screen it would read is the
           // one the user just left, in an app that is no longer open.
@@ -795,7 +830,7 @@ Future<StepOutcome> performStep(WidgetTester tester, Step step) async {
     // the oracle
     if (!step.absent) {
       _requireOnScreen(tester, step.expected);
-    } else if (_present(tester, step.expected)) {
+    } else if (!oracleHolds()) {
       throw StateError('"${step.expected}" is still on screen');
     }
   } catch (e) {

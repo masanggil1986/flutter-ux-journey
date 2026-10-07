@@ -253,7 +253,14 @@ and the oracle then requires Y to be GONE from the screen. `test/recipe_sync_tes
 - **`system back`** calls `tester.binding.handlePopRoute()` — what Android's back button sends —
   and records `popHandled`. An unhandled pop FAILS the step: on Android it closes the app, and the
   oracle would read a screen the user has already left. `back` is unchanged and stays the
-  on-screen-affordance probe DEAD-END relies on.
+  on-screen-affordance probe DEAD-END relies on. The pop is started and pumped, never awaited: a
+  screen that asks first (WillPopScope, go_router's `onExit`) holds its Future open on a dialog
+  only a pump builds, and awaiting it hung the walk for good. Still pending after 5 s means the app
+  took the pop and is asking — handled.
+- **`expect no "Y"`** needs Y gone from the semantics tree AND from every onstage `Text`. A dialog
+  blocks the semantics of the page under it, so a row a failed removal left behind vanished from
+  the tree and the removal read as proven — measured. A page covered by a full-screen route is
+  offstage and does not count.
 
 ### The walk is entered through `walkJourney`, which does not launch the app
 
@@ -731,7 +738,7 @@ Plus, for the flow and placement half of the report:
 | `panesPossiblyBlocked` | per dump | **true** means `nodes` is only the LAST-PAINTED pane: two SIBLING `Navigator`s (a tablet master-detail `Row`) let the later pane's `BlockSemantics` delete the earlier one before the dump can reach it — nested navigators, i.e. a tab shell, do not, which is why this asks about ancestry and not about a count. **False is not a promise the dump is whole**: measured, a `Row` of `[Scaffold, Navigator]` dumps only the `Navigator` pane while this reads false, because one `ModalRoute` is enough to delete an earlier sibling. It is a declared *suspicion*, never a clean bill |
 | `setupSteps`, `setupFailed` | per run | did the walk reach the journey's starting line, and if not which gate step stopped it. Never merged into `steps`: setup is recorded, not scored |
 | `taps`, `drags`, `networkCalls`, `appErrors`, `entrySettled` | per run | totals and the app's own complaints. `networkCalls` is the stub's answers or `NetworkCut`'s refusals, and always `[]` under `flutter test` with no stub |
-| `entryReached`, `entryScreenshot` | per run | `false`: the first target never reached the tree within 12 s and nothing was walked; `entry.png` shows what the app showed. `null`: nothing to wait for |
+| `entryReached`, `entryScreenshot` | per run | `false`: the first target never reached the tree within 12 s. Nothing was walked only when no `Navigator` was up either (`entry.png` shows what was there); otherwise the walk went on and step 1 reports the target. `null`: nothing to wait for |
 | `conditions` | per run | `mode`, `deviceProfile`, `fontSource`, `renderer`, `targetPlatform`, plus `platformBrightness`, `textScaleFactor`, locale and the accessibility flags — the ones `## Device` declared, else the test defaults — and `appErrorHandlerReplaced`, `httpOverridesReplacedByApp`. `platform` is the HOST under `flutter test` (`macos`), which is correct and is why `targetPlatform` is a separate field. The report's scope clause quotes these; measured, the same build at `accessibility-extra-extra-extra-large` produces a byte-identical `viewport` while a product row leaves the tree, so nothing else in the artifact distinguishes the two runs |
 
 **`screenSig` is not portable across platforms.** It is built from the screen's labels, and

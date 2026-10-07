@@ -386,9 +386,11 @@ the same wording — and the value is cut out of that step's `expected` and `err
 that a secret was typed, never the secret. The key is present and empty on a journey with no gate,
 so a reader can tell "no gate" from "the gate was never walked".
 
-**A launch failure is the result too.** When `entryReached` is false the first target never
-appeared within 12 s: `setupSteps` and `steps` are both empty, and `entryScreenshot` (`entry.png`)
-shows what the app showed instead. Report that, naming the target that never came.
+**A launch failure is the result too.** When `entryReached` is false and `setupSteps` and `steps`
+are both empty, no app came up within 12 s, and `entryScreenshot` (`entry.png`) shows what was there
+instead. Report that, naming the target that never came. When `entryReached` is false but steps were
+walked, the app was up and the first target never appeared — report step 1's failure as the
+finding (often an unlabelled control), not as a launch failure.
 
 **A setup failure is the result.** When `setupFailed` is true the walk stops at the failing setup
 step: `steps` is empty and `taps` is 0. Report it as a setup failure, naming the step, its `error`
