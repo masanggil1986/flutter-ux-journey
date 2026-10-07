@@ -961,7 +961,7 @@ List<Rect> subtractRects(Rect target, Iterable<Rect> obscurers) {
       final Rect i = f.intersect(o);
       // Rect.intersect returns a NEGATIVE-size rect when the two are disjoint.
       // Adding that area back reports more than 100% free.
-      if (i.width <= 0 || i.height <= 0) {
+      if (_isSliver(i)) {
         next.add(f);
         continue;
       }
@@ -982,6 +982,13 @@ List<Rect> subtractRects(Rect target, Iterable<Rect> obscurers) {
   }
   return free;
 }
+
+/// An intersection too thin to be an overlap. Adjacent rows on a fractional
+/// extent meet at a float, not an edge — measured, a row read
+/// 0.9999999999999987 free and "obscured by" its neighbour. 0.001 lpx is the
+/// SDK's own tolerance (`_kMinimumGapToBoundary` in flutter_test's
+/// accessibility guidelines).
+bool _isSliver(Rect i) => i.width <= 0.001 || i.height <= 0.001;
 
 double areaOf(Iterable<Rect> rects) =>
     rects.fold<double>(0, (double a, Rect r) => a + r.width * r.height);
@@ -1188,6 +1195,14 @@ Map<String, Object?> dumpSemantics(WidgetTester tester) {
     );
     parentOf[node.id] = parentId;
     rects.add(lg);
+    // isHidden first: a node clipped to nothing — a row behind a bottom bar,
+    // one scrolled out of the top of its list — keeps its FULL rect, so the
+    // rect alone puts it on screen. Measured: the walk tapped such a row and
+    // the bar under it took the tap.
+    final bool onScreen =
+        !data.flagsCollection.isHidden &&
+        !lg.isEmpty &&
+        lg.overlaps(surfaceRect);
     nodes.add(<String, Object?>{
       'id': node.id,
       'label': data.attributedLabel.string,
@@ -1203,19 +1218,23 @@ Map<String, Object?> dumpSemantics(WidgetTester tester) {
       // Is any of it on the surface at all? A scrollable's cache extent puts
       // rows well above and below the viewport into the dump, with rects to
       // match; without this the walker taps coordinates off the screen.
-      'onScreen': !lg.isEmpty && lg.overlaps(surfaceRect),
+      'onScreen': onScreen,
       // Can the user SEE it without scrolling? It must START in the visible
       // band. `top < foldY` alone counts a row scrolled to y=-250 as above the
       // fold; requiring the whole rect to fit was the over-correction — it
       // fails every bottom-pinned CTA and every hero taller than the fold,
       // which is most apps on any device with a home indicator. Null when the
-      // viewport is the test default: there is no fold then.
-      'aboveFold': foldY == null ? null : lg.top >= 0 && lg.top < foldY,
+      // viewport is the test default: there is no fold then. And on screen at
+      // all, or a carousel card past the right edge reads visible.
+      'aboveFold': foldY == null
+          ? null
+          : onScreen && lg.top >= 0 && lg.top < foldY,
       // Fully inside the visible band, for anything that needs the stricter
       // question. Kept separate because conflating the two is what broke.
       'fullyVisible': foldY == null
           ? null
-          : lg.top >= 0 &&
+          : onScreen &&
+                lg.top >= 0 &&
                 lg.bottom <= foldY &&
                 lg.left >= 0 &&
                 lg.right <= vpWidth,
@@ -1235,7 +1254,12 @@ Map<String, Object?> dumpSemantics(WidgetTester tester) {
           lg.width * lg.height > 0.5 * surfaceRect.width * surfaceRect.height,
     });
     node.visitChildren((SemanticsNode child) {
-      walk(child, t, node.id);
+      // A merged child — a SwitchListTile's Switch — is already part of this
+      // node's data. Walking it too counts one control twice and shifts every
+      // reading-order ordinal after it; the SDK's guidelines skip it as well.
+      if (!child.isMergedIntoParent) {
+        walk(child, t, node.id);
+      }
       return true;
     });
   }
@@ -1298,17 +1322,27 @@ void _annotateEffectiveArea(
     final List<String> by = <String>[];
     for (int j = i + 1; j < nodes.length; j++) {
       final int other = nodes[j]['id']! as int;
-      if (isDescendantOf(other, id)) {
+      // A node nobody can see covers nothing: a row scrolled out of the top
+      // of its list keeps its full rect over whatever sits above the list.
+      if (isDescendantOf(other, id) || nodes[j]['onScreen'] != true) {
         continue;
       }
       final Rect o = rects[j];
-      final Rect hit = target.intersect(o);
-      if (hit.width <= 0 || hit.height <= 0) {
+      if (_isSliver(target.intersect(o))) {
         continue;
       }
       obscurers.add(o);
-      final Object? label = nodes[j]['label'] ?? nodes[j]['tooltip'];
-      by.add(label is String && label.isNotEmpty ? label : 'node $other');
+      // label is '' when absent, never null, so `label ?? tooltip` never
+      // reached an icon button's tooltip.
+      final String label = nodes[j]['label']! as String;
+      final String tip = nodes[j]['tooltip']! as String;
+      by.add(
+        label.isNotEmpty
+            ? label
+            : tip.isNotEmpty
+            ? tip
+            : 'node $other',
+      );
     }
     final List<Rect> free = subtractRects(target, obscurers);
     nodes[i]['effectivePct'] = areaOf(free) / (target.width * target.height);

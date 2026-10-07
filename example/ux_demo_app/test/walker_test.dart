@@ -1027,6 +1027,244 @@ void main() {
     });
   });
 
+  group('dumpSemantics — what is really on screen', () {
+    List<Map<String, Object?>> nodesOf(WidgetTester tester) =>
+        dumpSemantics(tester)['nodes']! as List<Map<String, Object?>>;
+    Map<String, Object?> labelled(WidgetTester tester, String label) => nodesOf(
+      tester,
+    ).firstWhere((Map<String, Object?> n) => (n['label'] as String?) == label);
+
+    testWidgets('a row clipped behind a bottom bar is not on screen', (
+      WidgetTester tester,
+    ) async {
+      // The commonest app shape: a list over a NavigationBar. A row in the
+      // list's cache extent sits BEHIND the bar, clipped to nothing — the SDK
+      // keeps its full rect and sets isHidden — so a rect-only test reads it
+      // on screen, above the fold, and tappable, and the walk's tap lands on
+      // the bar instead. Measured: a tab switch recorded as tapping a row.
+      applyDevice(tester, kIphoneSe);
+      addTearDown(tester.view.reset);
+      final SemanticsHandle handle = tester.ensureSemantics();
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            appBar: AppBar(title: const Text('Orders')),
+            body: ListView(
+              children: <Widget>[
+                for (int i = 0; i < 30; i++)
+                  ListTile(title: Text('Order #$i'), onTap: () {}),
+              ],
+            ),
+            bottomNavigationBar: NavigationBar(
+              destinations: const <Widget>[
+                NavigationDestination(icon: Icon(Icons.list), label: 'All'),
+                NavigationDestination(icon: Icon(Icons.star), label: 'Starred'),
+                NavigationDestination(
+                  icon: Icon(Icons.settings),
+                  label: 'Settings',
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+
+      final List<Map<String, Object?>> hidden = nodesOf(tester)
+          .where(
+            (Map<String, Object?> n) =>
+                (n['flags']! as List<String>).contains('isHidden'),
+          )
+          .toList();
+      expect(hidden, isNotEmpty, reason: 'the cache extent reaches the bar');
+      for (final Map<String, Object?> n in hidden) {
+        expect(n['onScreen'], isFalse, reason: '${n['label']} is clipped');
+        expect(n['aboveFold'], isFalse, reason: '${n['label']} is clipped');
+        expect(n['fullyVisible'], isFalse, reason: '${n['label']} is clipped');
+      }
+      final String row = hidden
+          .map((Map<String, Object?> n) => n['label']! as String)
+          .firstWhere((String l) => l.startsWith('Order #'));
+      final StepOutcome out = await performStep(tester, (
+        action: 'tap',
+        target: row,
+        nth: null,
+        text: null,
+        expected: 'Orders',
+      ));
+      expect(out.status, 'FAILED');
+      expect(out.dispatched, isFalse, reason: 'a hidden row is never tapped');
+      handle.dispose();
+    });
+
+    testWidgets('a hidden row is not an obscurer either', (
+      WidgetTester tester,
+    ) async {
+      // A row scrolled out of the top of its list keeps its full rect, which
+      // overlaps whatever is painted above the list — measured: a button
+      // reported 64% free, "obscured by" a row nobody can see.
+      applyDevice(tester, kIphoneSe);
+      addTearDown(tester.view.reset);
+      final SemanticsHandle handle = tester.ensureSemantics();
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: Column(
+              children: <Widget>[
+                SizedBox(
+                  height: 56,
+                  width: double.infinity,
+                  child: ElevatedButton(
+                    onPressed: () {},
+                    child: const Text('Filter'),
+                  ),
+                ),
+                Expanded(
+                  child: ListView(
+                    children: <Widget>[
+                      for (int i = 0; i < 40; i++)
+                        SizedBox(height: 56, child: Text('Row $i')),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+      await tester.drag(find.byType(ListView), const Offset(0, -560));
+      await tester.pump(const Duration(seconds: 1));
+
+      expect(labelled(tester, 'Filter')['effectivePct'], 1.0);
+      expect(labelled(tester, 'Filter')['obscuredBy'], isNull);
+      handle.dispose();
+    });
+
+    testWidgets('a card past the right edge is not above the fold', (
+      WidgetTester tester,
+    ) async {
+      // aboveFold asked only about y, so a horizontal carousel's off-screen
+      // cards read "visible without scrolling".
+      applyDevice(tester, kIphoneSe);
+      addTearDown(tester.view.reset);
+      final SemanticsHandle handle = tester.ensureSemantics();
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: SizedBox(
+              height: 120,
+              child: ListView(
+                scrollDirection: Axis.horizontal,
+                children: <Widget>[
+                  for (int i = 0; i < 8; i++)
+                    SizedBox(width: 150, child: Text('Card $i')),
+                ],
+              ),
+            ),
+          ),
+        ),
+      );
+      final Map<String, Object?> card = labelled(tester, 'Card 4');
+      expect((card['rect']! as List<double>)[0], greaterThan(375.0));
+      expect(card['aboveFold'], isFalse);
+      handle.dispose();
+    });
+
+    testWidgets('rows on a fractional extent do not obscure each other', (
+      WidgetTester tester,
+    ) async {
+      // Adjacent rows on a 47.3 lpx extent meet at a float, not an edge:
+      // measured, a row read 0.9999999999999987 free and "obscured by" its
+      // neighbour. The SDK's own guideline ignores gaps under 0.001 lpx.
+      tester.view.physicalSize = const Size(822.8, 1462.8);
+      tester.view.devicePixelRatio = 2.0;
+      addTearDown(tester.view.reset);
+      final SemanticsHandle handle = tester.ensureSemantics();
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: ListView.builder(
+              itemExtent: 47.3,
+              itemCount: 30,
+              itemBuilder: (BuildContext c, int i) =>
+                  InkWell(onTap: () {}, child: Text('r$i')),
+            ),
+          ),
+        ),
+      );
+      for (final Map<String, Object?> n in nodesOf(tester)) {
+        if (n['tappable'] == true && n['onScreen'] == true) {
+          expect(n['effectivePct'], 1.0, reason: '${n['label']}');
+          expect(n['obscuredBy'], isNull, reason: '${n['label']}');
+        }
+      }
+      handle.dispose();
+    });
+
+    testWidgets('an obscurer named only by its tooltip is named by it', (
+      WidgetTester tester,
+    ) async {
+      // label is '' when absent, never null, so `label ?? tooltip` never
+      // reached the tooltip and an icon button read as "node 5".
+      final SemanticsHandle handle = tester.ensureSemantics();
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: Stack(
+              children: <Widget>[
+                SizedBox(
+                  width: 300,
+                  height: 60,
+                  child: ElevatedButton(
+                    onPressed: () {},
+                    child: const Text('Pay'),
+                  ),
+                ),
+                Positioned(
+                  left: 120,
+                  top: 0,
+                  child: IconButton(
+                    tooltip: 'Close',
+                    onPressed: () {},
+                    icon: const Icon(Icons.close),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+      expect(labelled(tester, 'Pay')['obscuredBy'], <String>['Close']);
+      handle.dispose();
+    });
+
+    testWidgets('a merged child is not a second control', (
+      WidgetTester tester,
+    ) async {
+      // A SwitchListTile's Switch keeps its own node, marked merged into the
+      // tile. Counting it doubles tappableCount and shifts every reading-order
+      // ordinal; the SDK's own guidelines skip it.
+      final SemanticsHandle handle = tester.ensureSemantics();
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: ListView(
+              children: <Widget>[
+                for (int i = 0; i < 5; i++)
+                  SwitchListTile(
+                    title: Text('Option $i'),
+                    value: false,
+                    onChanged: (_) {},
+                  ),
+              ],
+            ),
+          ),
+        ),
+      );
+      expect(routeState(tester)['tappableCount'], 5);
+      handle.dispose();
+    });
+  });
+
   group('resolve — which widget the audit actually measures', () {
     testWidgets('a tooltip-only control resolves at all', (
       WidgetTester tester,
