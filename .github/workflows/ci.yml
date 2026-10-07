@@ -1,9 +1,12 @@
 name: CI
 
 # Every measurement this project makes rides on undocumented framework
-# behaviour, and every dependency range is a `^`. The weekly run resolves those
-# ranges again on a tree nobody has touched, so an analyzer or lint release that
-# breaks the probe shows up here instead of inside somebody's audit.
+# behaviour, and every dependency range is a `^`. Pushes and pull requests
+# check this repo as committed: the lockfiles and the pinned Flutter below. The
+# weekly run first upgrades both packages to the newest versions their ranges
+# allow, so an analyzer or lint release that breaks the probe shows up here
+# instead of inside somebody's audit. `pub get` alone would not: it keeps the
+# committed lockfile. No trigger runs a newer Flutter stable.
 on:
   push:
   pull_request:
@@ -137,6 +140,12 @@ jobs:
         with:
           channel: stable
           flutter-version: 3.47.2
+
+      - name: Newest versions the ranges allow (weekly run only)
+        if: github.event_name == 'schedule'
+        run: |
+          (cd example/ux_demo_app && flutter pub upgrade)
+          (cd tools/astprobe && dart pub upgrade)
 
       # The next two steps are the commands the README's Tests section prints,
       # one per package. Keep them in step with the README: a command that rots
