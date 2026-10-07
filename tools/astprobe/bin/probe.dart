@@ -696,14 +696,22 @@ void main(List<String> args) {
     final path = file.absolute.path;
     if (!path.endsWith('.dart') ||
         path.endsWith('.g.dart') ||
-        path.endsWith('.freezed.dart')) {
+        path.endsWith('.freezed.dart') ||
+        // macOS AppleDouble metadata (`._main.dart`) on a copied tree: named
+        // like Dart, but binary.
+        file.uri.pathSegments.last.startsWith('._')) {
       continue;
     }
     filesScanned++;
     final relative = path.startsWith(rootPath)
         ? path.substring(rootPath.length).replaceFirst(RegExp(r'^[/\\]'), '')
         : path;
-    sources[relative] = file.readAsStringSync();
+    // Lenient, as the Dart toolchain is: one Latin-1 byte in a comment
+    // compiles fine, and must not abort the whole scan.
+    sources[relative] = utf8.decode(
+      file.readAsBytesSync(),
+      allowMalformed: true,
+    );
   }
 
   // Pass one, over the whole package: a route path declared as
