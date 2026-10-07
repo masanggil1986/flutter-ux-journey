@@ -938,7 +938,11 @@ void applyDevice(WidgetTester tester, DeviceProfile d) {
 /// 153.6px. With a real font loaded: max 18.9px, median 0.0px.
 ///
 /// Returns what the report must disclose:
-/// - `'app'`          the app's own fonts, from its asset bundle. Exact.
+/// - `'app'`          the app declares fonts of its own, and they are loaded.
+///                    Text in them is exact; text that asks for the platform
+///                    default still gets the SDK stand-in below, which is
+///                    close, not exact. Declaring a font is not proof the
+///                    theme uses it — an icon font, a brand face on one title.
 /// - `'sdk-fallback'` the SDK's Roboto standing in for the platform default.
 ///                    Close, not exact — the placement caveat applies.
 /// - `'none'`         neither was available; fold and placement are NOT
@@ -951,6 +955,7 @@ Future<String> loadFonts(WidgetTester tester) async {
   // whose SECOND font asset is misdeclared keeps whatever it counted before the
   // throw and still claims 'app'.
   bool manifestComplete = false;
+  final Set<String> declaredFamilies = <String>{};
   await tester.runAsync(() async {
     try {
       final Object? manifest = await rootBundle.loadStructuredData<Object?>(
@@ -960,12 +965,14 @@ Future<String> loadFonts(WidgetTester tester) async {
       for (final Map<String, Object?> font
           in (manifest! as List<Object?>).cast<Map<String, Object?>>()) {
         // A font that arrived through a DEPENDENCY is declared as
-        // `packages/<pkg>/<family>`; the app's own is bare. Load both — the
-        // prefix is not the name a TextStyle asks for — but only the bare ones
-        // count as the app declaring a typeface.
+        // `packages/<pkg>/<family>`; the app's own is bare. Registered under
+        // the FULL name, because that is what TextStyle(package:) asks for —
+        // stripped, a design-system package's text never found its font and
+        // fell back to the test font. Only the bare ones count as the app
+        // declaring a typeface.
         final String declared = font['family']! as String;
-        final String family = declared.split('/').last;
-        final FontLoader loader = FontLoader(family);
+        declaredFamilies.add(declared);
+        final FontLoader loader = FontLoader(declared);
         for (final Map<String, Object?> asset
             in (font['fonts']! as List<Object?>).cast<Map<String, Object?>>()) {
           loader.addFont(rootBundle.load(asset['asset']! as String));
@@ -979,7 +986,7 @@ Future<String> loadFonts(WidgetTester tester) async {
         // measured at the test font's em-square while the report says it came
         // from the app's own. Measured on the stock template: 153.6px of drift,
         // reported as exact.
-        if (family != 'MaterialIcons' && !declared.startsWith('packages/')) {
+        if (declared != 'MaterialIcons' && !declared.startsWith('packages/')) {
           appFamilies++;
         }
       }
@@ -989,10 +996,15 @@ Future<String> loadFonts(WidgetTester tester) async {
       // metrics is a missing evidence layer, not a reason to abandon the walk.
     }
   });
-  if (manifestComplete && appFamilies > 0) {
-    return 'app';
-  }
+  final String found = manifestComplete && appFamilies > 0
+      ? 'app'
+      : 'sdk-fallback';
 
+  // ALWAYS, not only when the app declares nothing. Returning early on 'app'
+  // left every Text that asks for the platform default in the test font —
+  // measured, an icon-font-only app: title 242.0 instead of 112.3, labelled
+  // exact. A family the app itself declares is not overwritten.
+  //
   // A null fontFamily resolves to the test font no matter what is loaded —
   // measured: after loading, the default width was still 242.0 and only a
   // NAMED style dropped to 119.7. So register over the families the themes
@@ -1000,14 +1012,11 @@ Future<String> loadFonts(WidgetTester tester) async {
   // and Roboto on Android; the older `.SF UI *` spelling is never asked for
   // and registering against it fails silently.
   final String? root = Platform.environment['FLUTTER_ROOT'];
-  if (root == null) {
-    return 'none';
-  }
-  final File regular = File(
-    '$root/bin/cache/artifacts/material_fonts/Roboto-Regular.ttf',
-  );
-  if (!regular.existsSync()) {
-    return 'none';
+  final File? regular = root == null
+      ? null
+      : File('$root/bin/cache/artifacts/material_fonts/Roboto-Regular.ttf');
+  if (regular == null || !regular.existsSync()) {
+    return found == 'app' ? 'app' : 'none';
   }
   final Uint8List bytes = regular.readAsBytesSync();
   await tester.runAsync(() async {
@@ -1015,13 +1024,13 @@ Future<String> loadFonts(WidgetTester tester) async {
       'Roboto',
       'CupertinoSystemDisplay',
       'CupertinoSystemText',
-    ]) {
+    ].where((String f) => !declaredFamilies.contains(f))) {
       final FontLoader loader = FontLoader(family)
         ..addFont(Future<ByteData>.value(ByteData.sublistView(bytes)));
       await loader.load();
     }
   });
-  return 'sdk-fallback';
+  return found;
 }
 
 /// The usable surface, in logical px.
