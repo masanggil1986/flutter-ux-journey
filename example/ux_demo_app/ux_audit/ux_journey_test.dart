@@ -179,7 +179,10 @@ void main() {
 /// The errors are kept, not swallowed: an app that drops a failed request is
 /// telling you something, and a report with an empty `appErrors` on an app that
 /// cannot reach its backend would be describing a different app.
-Future<void> _guarded(List<String> sink, Future<void> Function() body) {
+Future<void> _guarded(
+  void Function(Object error) sink,
+  Future<void> Function() body,
+) {
   final Completer<void> done = Completer<void>();
   runZonedGuarded(
     () async {
@@ -199,7 +202,7 @@ Future<void> _guarded(List<String> sink, Future<void> Function() body) {
       // published zero steps and a single appError. The body's own `finally`
       // is the only thing that completes this: an unawaited rejection does not
       // break the body's await chain, and an awaited one reaches that finally.
-      sink.add(error.toString());
+      sink(error);
     },
   );
   return done.future;
@@ -286,10 +289,37 @@ Future<void> walkJourney(
   // the report was published, and the run still read as a framework failure
   // nobody could act on. runZonedGuarded is what catches that half.
   final List<String> appErrors = <String>[];
+  // One entry per error, however many paths it arrives by: an app handler
+  // that chains to ours, or routes into the zone, delivers it twice.
+  final Set<Object> seen = Set<Object>.identity();
+  void record(Object error, String text) {
+    if (seen.add(error)) {
+      appErrors.add(text);
+    }
+  }
+
   final FlutterExceptionHandler? previousOnError = FlutterError.onError;
-  FlutterError.onError = (FlutterErrorDetails details) {
-    appErrors.add(details.exceptionAsString());
-  };
+  FlutterExceptionHandler collector = (FlutterErrorDetails details) =>
+      record(details.exception, details.exceptionAsString());
+  FlutterError.onError = collector;
+  // An app that installs its own handler — logging boilerplate, a crash
+  // reporter, usually first thing in main — replaces this one, and appErrors
+  // then reads [] on an app that is throwing. Measured. So at every step the
+  // walk checks, and when it has been replaced it records first and then
+  // forwards to the app's, which still hears everything it would have.
+  bool appErrorHandlerReplaced = false;
+  void keepCollecting() {
+    final FlutterExceptionHandler? app = FlutterError.onError;
+    if (identical(app, collector)) {
+      return;
+    }
+    appErrorHandlerReplaced = true;
+    collector = (FlutterErrorDetails details) {
+      record(details.exception, details.exceptionAsString());
+      app?.call(details);
+    };
+    FlutterError.onError = collector;
+  }
 
   // Declared outside the zone because the report reads them after it closes.
   // The zone can only write them, which is also what makes a walk cut short by
@@ -302,8 +332,9 @@ Future<void> walkJourney(
   bool setupFailed = false;
   int taps = 0;
 
-  await _guarded(appErrors, () async {
+  await _guarded((Object error) => record(error, error.toString()), () async {
     launch();
+    keepCollecting();
     // Wait for the APP, not for a quiet frame. `launch` is typed void, so an
     // async main's Future is dropped, and flutter_test has already painted its
     // own "Test starting..." frame — measured: with `main` awaiting one
@@ -314,6 +345,7 @@ Future<void> walkJourney(
     entryReached = first == null || first.action == 'back'
         ? null // nothing on screen to wait for
         : await _awaitEntry(tester, first.target);
+    keepCollecting();
     // NOT pumpAndSettle: it waits out a 10-minute timeout on any app that
     // animates continuously. This fixture does not, but the generated walker
     // must, so the fixture exercises the same code path.
@@ -338,6 +370,7 @@ Future<void> walkJourney(
       final Stopwatch sw = Stopwatch()..start();
       final StepOutcome out = await performStep(tester, step);
       sw.stop();
+      keepCollecting();
       // One screenshot, and only on failure: it is the whole evidence for "the
       // gate is what blocked this", and a passing setup step has nothing to show.
       final String? shotName = out.status != 'OK'
@@ -391,6 +424,7 @@ Future<void> walkJourney(
         final Stopwatch sw = Stopwatch()..start();
         final StepOutcome out = await performStep(tester, step);
         sw.stop();
+        keepCollecting();
         // Counted AFTER it lands. `_tapTarget` throws when the target cannot be
         // resolved or is off screen, and a gesture that was never dispatched is
         // not reach cost.
@@ -500,7 +534,13 @@ Future<void> walkJourney(
     // entry may correct something the walk could only guess — `platform`
     // reads the HOST under `flutter test` — and a silent disagreement between
     // the two is worse than either value.
-    'conditions': <String, Object?>{...conditionsOf(tester), ...runContext},
+    'conditions': <String, Object?>{
+      ...conditionsOf(tester),
+      // When true, appErrors is still complete — the walk kept recording in
+      // front of the app's handler — but the app's own reporting ran too.
+      'appErrorHandlerReplaced': appErrorHandlerReplaced,
+      ...runContext,
+    },
   };
   // Never swallowed. Every measurement is already made by this point, so a
   // publish that fails quietly means a green run with no artifact — the one

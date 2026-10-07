@@ -9,6 +9,7 @@
 // writes into someone else's app must stay ONE file, so the alternative to a
 // public helper is an untested one.
 
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -2171,6 +2172,81 @@ void main() {
         publish: (Map<String, Object?> r) async => report = r,
       );
       expect(report!['appErrors'], contains(contains('late voucher fetch')));
+    });
+
+    // An app that installs its own FlutterError.onError in main — logging
+    // boilerplate, a crash reporter — replaced the walk's collector, and
+    // appErrors read [] on an app that was throwing. Three shapes: a handler
+    // that drops the error, one that chains to the previous handler, and one
+    // that routes it into the zone. Each must be heard exactly once.
+    for (final String shape in <String>[
+      'drops it',
+      'chains it',
+      'routes it into the zone',
+    ]) {
+      testWidgets('an app with its own FlutterError.onError is still heard '
+          '(a handler that $shape)', (WidgetTester tester) async {
+        final List<String> appSink = <String>[];
+        Map<String, Object?>? report;
+        await walkJourney(
+          tester,
+          launch: () {
+            final FlutterExceptionHandler? previous = FlutterError.onError;
+            FlutterError.onError = switch (shape) {
+              'drops it' => (FlutterErrorDetails d) => appSink.add('$d'),
+              'chains it' => (FlutterErrorDetails d) {
+                appSink.add('$d');
+                previous?.call(d);
+              },
+              _ => (FlutterErrorDetails d) => Zone.current.handleUncaughtError(
+                d.exception,
+                d.stack ?? StackTrace.current,
+              ),
+            };
+            runApp(const UxDemoApp());
+            Future<void>.delayed(
+              const Duration(milliseconds: 300),
+              () => FlutterError.reportError(
+                FlutterErrorDetails(exception: StateError('detail screen bug')),
+              ),
+            );
+          },
+          journey: journey,
+          publish: (Map<String, Object?> r) async => report = r,
+        );
+        expect(
+          (report!['appErrors']! as List<Object?>).where(
+            (Object? e) => '$e'.contains('detail screen bug'),
+          ),
+          hasLength(1),
+          reason: '${report!['appErrors']}',
+        );
+        expect(
+          (report!['conditions']!
+              as Map<String, Object?>)['appErrorHandlerReplaced'],
+          isTrue,
+        );
+        if (shape != 'routes it into the zone') {
+          expect(appSink, isNotEmpty, reason: 'the app still hears it too');
+        }
+      });
+    }
+
+    testWidgets('an app that leaves the handler alone is not flagged', (
+      WidgetTester tester,
+    ) async {
+      Map<String, Object?>? report;
+      await walkJourney(
+        tester,
+        launch: () => runApp(const UxDemoApp()),
+        journey: journey,
+        publish: (Map<String, Object?> r) async => report = r,
+      );
+      expect(
+        (report!['conditions']!
+            as Map<String, Object?>)['appErrorHandlerReplaced'],
+        isFalse,
+      );
     });
 
     testWidgets('an unawaited failure the app drops is evidence too', (
