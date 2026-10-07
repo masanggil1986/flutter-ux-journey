@@ -37,11 +37,19 @@ See that a failed sign-in tells the user what to do next. Done = the message is 
 ## Setup (excluded from measurement and scoring)
 1. dismiss the notification permission dialog
 
+## Device (optional)
+`iphone-se`
+- textScale 3.0
+- dark
+
 ## Steps
 1. type "ux-audit@example.invalid" into "email" — expect the field to hold it
 2. type "not-a-real-password" into "password" — expect the sign-in button
 3. tap "Sign in" — expect an error the user can act on
 4. back — expect the email still filled in
+5. scroll until "Forgot password?" — expect "Forgot password?"
+6. tap "Forgot password?" — expect no "Sign in"
+7. system back — expect "Sign in"
 
 ## Priorities (optional)
 1. sign in
@@ -55,12 +63,24 @@ parenthetical above is a reminder to whoever reads the file, so a bare `## Setup
 heading. Nothing parses this file but the agent reading it — the lists it produces are the ones it
 generates into the walker.
 
-A step is `tap`, `type` or `back`. `back` presses the on-screen back affordance; it fails when
+A step is `tap "X"`, `long-press "X"`, `type "…" into "X"`, `scroll until "X"`, `back` or
+`system back`, followed by `— expect "Y"` or `— expect no "Y"` (the absence oracle: Y must be gone).
+`back` presses the on-screen back affordance; it fails when
 there is none, which is a DEAD-END **candidate**, not the evidence — `tester.pageBack` only looks
 for a tooltip-"Back" or Cupertino back button, so it also fails on a screen whose exit is a "Close"
-button. Confirm with the measured predicate. Add `nth: N` (1-based) to a step whose label
+button. Confirm with the measured predicate. `system back` is the platform's back button instead;
+it fails when nothing in the app takes the pop, because on Android that closes the app.
+`long-press` resolves and refuses exactly as `tap` does and counts as reach the same way.
+`scroll until "X"` drags the vertical list that holds X, at most 20 times, until X can be tapped
+where it stands; it reaches a declared target and is never a crawl, and its drags are recorded
+apart from taps. Add `nth: N` (1-based) to a step whose label
 legitimately matches more than one node; the walker's ambiguity error lists the candidates and
 their sizes so one re-run is enough.
+
+`## Device` names the screen (`iphone-se`, or explicit logical-px numbers) and may add one
+condition per line: `- textScale 3.0`, `- dark`, `- locale ko-KR`, `- boldText`. Leave a line out
+and that condition stays at the test default. One set per run — a second condition set is a
+second run, because app globals leak between walks in one process.
 
 `## Priorities` is **optional and never inferred.** It is a ranked list of what the app is for, in
 the user's own words. It is the only legitimate source of "this feature matters more than that

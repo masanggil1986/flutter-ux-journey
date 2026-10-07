@@ -22,21 +22,25 @@ import 'package:ux_demo_app/main.dart' as app;
 /// One journey step: perform [action] on [target], then require [expected] to
 /// be on screen. The `expected` check is the oracle — without it a walk reports
 /// a dispatch instead of a result, which is why integration_test was chosen.
-/// [action] is 'tap', 'type' or 'back'. For 'type', [text] is the value entered
-/// — always ARBITRARY data. The walker never receives real credentials: an
-/// audit tool must not ask for them, and must not authenticate against
-/// production.
+/// [action] is 'tap', 'long-press', 'type', 'scroll', 'back' or 'system back'.
+/// 'scroll' drags until [target] is on screen; 'back' and 'system back' take
+/// no target and carry ''. For 'type', [text] is the value entered — always
+/// ARBITRARY data. The walker never receives real credentials: an audit tool
+/// must not ask for them, and must not authenticate against production.
 /// [nth] disambiguates the TARGET when a label legitimately appears more than
 /// once — a shortcut tile and a nav tab can carry the SAME text, and no amount
 /// of matching cleverness can guess which one a journey means. 1-based, over
 /// the matches as the ambiguity error numbers them; null means "there must be
 /// exactly one". The expectation needs no nth: it only has to be present.
+/// [absent] turns the oracle around (`expect no "X"`): [expected] must be GONE
+/// from the screen. A removal is only proven by what is no longer there.
 typedef Step = ({
   String action,
   String target,
   int? nth,
   String? text,
   String expected,
+  bool absent,
 });
 
 const List<Step> journey = <Step>[
@@ -45,6 +49,7 @@ const List<Step> journey = <Step>[
     target: 'Walnut Side Table',
     nth: null,
     text: null,
+    absent: false,
     expected: '189,000 KRW',
   ),
   (
@@ -52,6 +57,7 @@ const List<Step> journey = <Step>[
     target: 'Remove from list',
     nth: null,
     text: null,
+    absent: false,
     expected: 'Cancel',
   ),
   (
@@ -59,6 +65,7 @@ const List<Step> journey = <Step>[
     target: 'Back',
     nth: null,
     text: null,
+    absent: false,
     expected: 'Saved items',
   ),
 ];
@@ -113,6 +120,50 @@ final DeviceProfile device = deviceProfileByName('iphone-se');
 /// one.
 const bool deviceDeclared = true;
 
+/// The conditions `## Device` may declare beside the screen: `textScale 3.0`,
+/// `dark`, `locale ko-KR`, `boldText`. Null (false for boldText) is "not
+/// declared", which leaves the test default exactly as it was.
+typedef DeviceConditions = ({
+  double? textScale,
+  Brightness? brightness,
+  Locale? locale,
+  bool boldText,
+});
+
+/// example/journey.md declares none.
+const DeviceConditions deviceConditions = (
+  textScale: null,
+  brightness: null,
+  locale: null,
+  boldText: false,
+);
+
+/// Hand [c] to the app the way the OS would: through the dispatcher, which is
+/// also what `conditions` reads back, so the report quotes what was set. The
+/// caller clears it.
+///
+/// ONE set per run. A matrix of them in one process is unsound — app globals
+/// leak from one walk into the next (measured) — so a second condition set is
+/// a second run.
+void applyConditions(TestPlatformDispatcher pd, DeviceConditions c) {
+  if (c.textScale case final double scale) {
+    pd.textScaleFactorTestValue = scale;
+  }
+  if (c.brightness case final Brightness b) {
+    pd.platformBrightnessTestValue = b;
+  }
+  if (c.locale case final Locale l) {
+    // Both: an app resolves its locale from the LIST.
+    pd.localeTestValue = l;
+    pd.localesTestValue = <Locale>[l];
+  }
+  if (c.boldText) {
+    pd.accessibilityFeaturesTestValue = const FakeAccessibilityFeatures(
+      boldText: true,
+    );
+  }
+}
+
 /// One output root, the one SKILL.md declares. Never `screenshots/`, which is a
 /// conventionally TRACKED directory in a Flutter app and not ours to claim.
 const String outDir = 'ux-audit-out';
@@ -134,6 +185,10 @@ void main() {
     debugDefaultTargetPlatformOverride = device.targetPlatform;
     applyDevice(tester, device);
     addTearDown(tester.view.reset);
+    // A teardown is right here: these are dispatcher test values, not
+    // foundation debug variables, so _verifyInvariants does not check them.
+    applyConditions(tester.platformDispatcher, deviceConditions);
+    addTearDown(tester.platformDispatcher.clearAllTestValues);
     final String fontSource = await loadFonts(tester);
 
     // A previous run's PNGs are not this run's evidence. Writes only create
@@ -349,6 +404,8 @@ Future<void> walkJourney(
   String? entryScreenshot;
   bool setupFailed = false;
   int taps = 0;
+  // Scroll effort, apart from reach: a drag is not a tap.
+  int drags = 0;
 
   // The network barrier in place NOW — flutter_test's deny-all mock, or the
   // caller's stub — is the one the walk runs under, whatever the app does.
@@ -370,9 +427,16 @@ Future<void> walkJourney(
     // app's entry, every guideline passing on a screen with no controls. A
     // static splash on a timer is the same trap: quiet, and not ready.
     final Step? first = <Step>[...setup, ...journey].firstOrNull;
-    entryReached = first == null || first.action == 'back'
+    entryReached =
+        first == null || first.action == 'back' || first.action == 'system back'
         ? null // nothing on screen to wait for
-        : await _awaitEntry(tester, first.target);
+        : await _awaitEntry(
+            tester,
+            first.target,
+            // A scroll's target may be past the cache extent; the list that
+            // will carry it there is what the app has to have drawn.
+            orScrollable: first.action == 'scroll',
+          );
     keepCollecting();
     // NOT pumpAndSettle: it waits out a 10-minute timeout on any app that
     // animates continuously. This fixture does not, but the generated walker
@@ -412,9 +476,12 @@ Future<void> walkJourney(
         'nth': step.nth,
         'text': recordedText(step, out.obscured),
         'expected': scrubbed(step.expected, step, out.obscured),
+        'absent': step.absent,
         'expectedBefore': out.expectedBefore,
         'resolved': out.resolved,
         'centreHitsHandler': out.centreHitsHandler,
+        'drags': out.drags,
+        'popHandled': out.popHandled,
         'status': out.status,
         'error': scrubbed(out.error, step, out.obscured),
         'elapsedMs': sw.elapsedMilliseconds,
@@ -460,6 +527,7 @@ Future<void> walkJourney(
         if (out.tapped) {
           taps++;
         }
+        drags += out.drags ?? 0;
 
         steps.add(<String, Object?>{
           'index': i,
@@ -468,9 +536,12 @@ Future<void> walkJourney(
           'nth': step.nth,
           'text': recordedText(step, out.obscured),
           'expected': scrubbed(step.expected, step, out.obscured),
+          'absent': step.absent,
           'expectedBefore': out.expectedBefore,
           'resolved': out.resolved,
           'centreHitsHandler': out.centreHitsHandler,
+          'drags': out.drags,
+          'popHandled': out.popHandled,
           'status': out.status,
           'error': scrubbed(out.error, step, out.obscured),
           'elapsedMs': sw.elapsedMilliseconds, // EVIDENCE ONLY — never scored
@@ -575,6 +646,7 @@ Future<void> walkJourney(
     'appErrors': appErrors,
     'networkCalls': networkCalls,
     'taps': taps,
+    'drags': drags,
     // The scope clause in the report quotes this. Without it the clause is
     // a claim about a condition nobody recorded. runContext comes LAST: an
     // entry may correct something the walk could only guess — `platform`
@@ -599,8 +671,9 @@ Future<void> walkJourney(
 }
 
 /// What one step did. `tapped` is separate from `dispatched` because only a tap
-/// is reach cost, and a `type` that dispatched is not a tap. `obscured` is true
-/// when the field typed into hides its own value — see [recordedText].
+/// or a long press is reach cost, and a `type` that dispatched is not a tap.
+/// `obscured` is true when the field typed into hides its own value — see
+/// [recordedText].
 typedef StepOutcome = ({
   String status,
   String? error,
@@ -610,10 +683,11 @@ typedef StepOutcome = ({
   bool dispatched,
   bool tapped,
   bool obscured,
-  // Was `expected` already on screen BEFORE the action? Then the oracle
-  // passing proves nothing about the action — the fixture's own step 1
-  // expects a price its list row already shows. Recorded, not judged: the
-  // status is unchanged and the report decides what an unproven OK is worth.
+  // Did the oracle already hold BEFORE the action — `expected` on screen, or
+  // for `expect no`, already gone? Then the oracle passing proves nothing
+  // about the action — the fixture's own step 1 expects a price its list row
+  // already shows. Recorded, not judged: the status is unchanged and the
+  // report decides what an unproven OK is worth.
   bool expectedBefore,
   // The node the target resolved to, read before acting: `target` is only the
   // needle, and without this a mis-resolution leaves no trace in the artifact.
@@ -623,7 +697,14 @@ typedef StepOutcome = ({
   // handler? false is a tap into dead space — a MergeSemantics row whose
   // centre falls between its label and its switch — which changes nothing
   // and reads as a dead control on both layers. Null for any other step.
+  // A long press asks the same about a long-press handler.
   bool? centreHitsHandler,
+  // A `scroll` step only: how many drags it took, including on failure.
+  // Scroll effort, kept apart from taps: a drag is not reach cost.
+  int? drags,
+  // A `system back` step only: did anything in the app take the pop? false
+  // means the platform would have closed the app.
+  bool? popHandled,
 });
 
 /// Perform one step and say what happened. **Never throws**: a failing step IS
@@ -644,7 +725,11 @@ Future<StepOutcome> performStep(WidgetTester tester, Step step) async {
   // not there — wrote the value into the artifact verbatim.
   bool obscured = step.action == 'type';
   bool? centreHitsHandler;
-  final bool expectedBefore = _present(tester, step.expected);
+  final bool scroll = step.action == 'scroll';
+  int drags = 0;
+  bool? popHandled;
+  bool oracleHolds() => _present(tester, step.expected) != step.absent;
+  final bool expectedBefore = oracleHolds();
   Map<String, Object?>? resolved;
   try {
     switch (step.action) {
@@ -663,14 +748,39 @@ Future<StepOutcome> performStep(WidgetTester tester, Step step) async {
         // fullscreenDialog route, for one. A throw here is a DEAD-END
         // CANDIDATE, never the evidence: read surface.canPop first.
         await tester.pageBack();
+      case 'system back':
+        // What Android's back button sends, not the on-screen arrow — so a
+        // screen with no back affordance can still be left this way, and
+        // `back` stays the DEAD-END probe it is.
+        dispatched = true;
+        // This file IS a test — it runs under `flutter test` — but it lives
+        // outside test/ (see walking.md), which is all the analyzer sees.
+        // ignore: invalid_use_of_protected_member, invalid_use_of_visible_for_testing_member
+        popHandled = await tester.binding.handlePopRoute();
+        if (!popHandled) {
+          // Failed, not left to the oracle: the screen it would read is the
+          // one the user just left, in an app that is no longer open.
+          throw StateError(
+            'system back was not handled: nothing in the app took the pop, '
+            'so on Android it closes the app',
+          );
+        }
+      case 'scroll':
+        resolved = _provenance(await _scrollUntil(tester, step, () => drags++));
       case 'tap':
+      case 'long-press':
         final Map<String, Object?> node = resolve(
           tester,
           step.target,
           step.nth,
         );
         resolved = _provenance(node);
-        centreHitsHandler = await _tapTarget(tester, node, step.target);
+        centreHitsHandler = await _tapTarget(
+          tester,
+          node,
+          step.target,
+          long: step.action == 'long-press',
+        );
         tapped = true;
       default:
         throw StateError('unknown action "${step.action}"');
@@ -681,14 +791,21 @@ Future<StepOutcome> performStep(WidgetTester tester, Step step) async {
     // awaiting Future schedules no frames, so a screen that renders an
     // empty state while a request is in flight reports settled within one
     // pump and the step then fails for the wrong reason.
-    settled = await settle(
-      tester,
-      until: () => _present(tester, step.expected),
-    );
-    _requireOnScreen(tester, step.expected); // the oracle
+    settled = await settle(tester, until: oracleHolds);
+    // the oracle
+    if (!step.absent) {
+      _requireOnScreen(tester, step.expected);
+    } else if (_present(tester, step.expected)) {
+      throw StateError('"${step.expected}" is still on screen');
+    }
   } catch (e) {
     status = 'FAILED';
     error = e.toString();
+  }
+  // A scroll that found its target already on screen sent nothing, and one
+  // that gave up after N drags sent N.
+  if (scroll) {
+    dispatched = drags > 0;
   }
   return (
     status: status,
@@ -700,6 +817,8 @@ Future<StepOutcome> performStep(WidgetTester tester, Step step) async {
     expectedBefore: expectedBefore,
     resolved: resolved,
     centreHitsHandler: centreHitsHandler,
+    drags: scroll ? drags : null,
+    popHandled: popHandled,
   );
 }
 
@@ -796,6 +915,7 @@ Future<bool> settle(
 Future<bool> _awaitEntry(
   WidgetTester tester,
   String target, {
+  bool orScrollable = false,
   Duration limit = const Duration(seconds: 12),
 }) async {
   const Duration tick = Duration(milliseconds: 100);
@@ -807,7 +927,8 @@ Future<bool> _awaitEntry(
       () => Future<void>.delayed(const Duration(milliseconds: 10)),
     );
     await tester.pump(tick);
-    if (_hits(tester, target).isNotEmpty) {
+    if (_hits(tester, target).isNotEmpty ||
+        (orScrollable && _scroller(tester, null) != null)) {
       return true;
     }
   }
@@ -1622,6 +1743,10 @@ List<Map<String, Object?>> _hits(WidgetTester tester, String needle) {
       .toList();
 }
 
+/// Does normalised [hay] hold normalised [n] as a run of whole words?
+bool _wholeWords(String hay, String n) =>
+    RegExp('(?<![a-z0-9])${RegExp.escape(n)}(?![a-z0-9])').hasMatch(hay);
+
 /// The one node a step's TARGET means. Matches like [_hits], and ERRORS on
 /// ambiguity instead of silently auditing a different widget.
 Map<String, Object?> resolve(WidgetTester tester, String needle, [int? nth]) {
@@ -1639,7 +1764,7 @@ Map<String, Object?> resolve(WidgetTester tester, String needle, [int? nth]) {
   // ("상품" in "상품을"), so Hangul and CJK keep substring matching.
   if (hits.length == 1) {
     final String hay = _hay(hits.single);
-    if (!RegExp('(?<![a-z0-9])${RegExp.escape(n)}(?![a-z0-9])').hasMatch(hay)) {
+    if (!_wholeWords(hay, n)) {
       throw StateError(
         'no semantics node matches "$needle" — only "$hay" contains it, '
         'inside a word',
@@ -1774,48 +1899,31 @@ bool _owns(WidgetTester tester, int id, Element field) {
   return false;
 }
 
-/// Tap [node]'s centre. Returns whether a real hit test at that point crosses
-/// a tap handler — see `StepOutcome.centreHitsHandler`.
+/// Tap [node]'s centre, or with [long] long-press it. Returns whether a real
+/// hit test at that point crosses a matching handler — see
+/// `StepOutcome.centreHitsHandler`.
 Future<bool> _tapTarget(
   WidgetTester tester,
   Map<String, Object?> node,
-  String needle,
-) async {
-  if (node['tappable'] != true) {
+  String needle, {
+  bool long = false,
+}) async {
+  if (!long && node['tappable'] != true) {
     throw StateError('"$needle" carries no tap action');
   }
-  final List<double> r = node['rect']! as List<double>;
-  final Offset centre = Offset(r[0] + r[2] / 2, r[1] + r[3] / 2);
-  // Refuse only what is genuinely unreachable. A node can be in the dump and
-  // off the surface — a scrollable's cache extent holds rows above and below
-  // the viewport — and tapping there dispatches into nothing: the gesture is
-  // recorded as sent, the semantics do not change, and a working list row gets
-  // reported as a dead control. That is the exact false finding this tool
-  // exists not to produce.
-  final Map<String, Object?> vp = viewportOf(tester);
-  final double? foldY = vp['foldY'] as double?;
-  final Rect surface = Rect.fromLTWH(
-    0,
-    0,
-    vp['width']! as double,
-    vp['height']! as double,
-  );
-  // The CENTRE must be on the surface, not merely the rect. A node can overlap
-  // the surface and still have its middle off it — measured while a route was
-  // sliding in, where the tap went to x=431 on a 375-wide screen and hit
-  // nothing at all.
-  if (node['onScreen'] != true || !surface.contains(centre)) {
-    throw StateError(
-      '"$needle" is not reachable: its centre is at '
-      '(${centre.dx.toStringAsFixed(1)}, ${centre.dy.toStringAsFixed(1)}) on a '
-      '${surface.width.toStringAsFixed(0)}x${surface.height.toStringAsFixed(0)} surface',
-    );
+  // Asked of the node itself: the dump records a tap action only, and a
+  // control that answers ONLY a long press has none.
+  if (long &&
+      _semanticsById(tester)[node['id']]?.getSemanticsData().hasAction(
+            SemanticsAction.longPress,
+          ) !=
+          true) {
+    throw StateError('"$needle" carries no long-press action');
   }
-  if (foldY != null && centre.dy > foldY) {
-    throw StateError(
-      '"$needle" has its centre below the fold at y=${centre.dy} '
-      '(visible to y=$foldY) — this journey cannot reach it without scrolling',
-    );
+  final Offset centre = _centre(node);
+  final String? unreachable = _unreachable(tester, node, needle);
+  if (unreachable != null) {
+    throw StateError(unreachable);
   }
   // NOT refused for being covered. `centreCovered` is geometry, not a hit
   // test: the semantics tree has no opacity and no IgnorePointer, and a
@@ -1835,11 +1943,215 @@ Future<bool> _tapTarget(
     HitTestEntry entry,
   ) {
     final Object t = entry.target;
+    if (long) {
+      return (t is RenderSemanticsGestureHandler && t.onLongPress != null) ||
+          (t is SemanticsAnnotationsMixin && t.properties.onLongPress != null);
+    }
     return (t is RenderSemanticsGestureHandler && t.onTap != null) ||
         (t is SemanticsAnnotationsMixin && t.properties.onTap != null);
   });
-  await tester.tapAt(centre); // logical px
+  if (long) {
+    await tester.longPressAt(centre);
+  } else {
+    await tester.tapAt(centre); // logical px
+  }
   return hitsHandler;
+}
+
+Offset _centre(Map<String, Object?> node) {
+  final List<double> r = node['rect']! as List<double>;
+  return Offset(r[0] + r[2] / 2, r[1] + r[3] / 2);
+}
+
+/// Why a press at [node]'s centre would not reach it, or null when it would.
+///
+/// Refuse only what is genuinely unreachable. A node can be in the dump and
+/// off the surface — a scrollable's cache extent holds rows above and below
+/// the viewport — and tapping there dispatches into nothing: the gesture is
+/// recorded as sent, the semantics do not change, and a working list row gets
+/// reported as a dead control. That is the exact false finding this tool
+/// exists not to produce.
+String? _unreachable(
+  WidgetTester tester,
+  Map<String, Object?> node,
+  String needle,
+) {
+  final Offset centre = _centre(node);
+  final Map<String, Object?> vp = viewportOf(tester);
+  final double? foldY = vp['foldY'] as double?;
+  final Rect surface = Rect.fromLTWH(
+    0,
+    0,
+    vp['width']! as double,
+    vp['height']! as double,
+  );
+  // The CENTRE must be on the surface, not merely the rect. A node can overlap
+  // the surface and still have its middle off it — measured while a route was
+  // sliding in, where the tap went to x=431 on a 375-wide screen and hit
+  // nothing at all.
+  if (node['onScreen'] != true || !surface.contains(centre)) {
+    return '"$needle" is not reachable: its centre is at '
+        '(${centre.dx.toStringAsFixed(1)}, ${centre.dy.toStringAsFixed(1)}) on a '
+        '${surface.width.toStringAsFixed(0)}x${surface.height.toStringAsFixed(0)} surface';
+  }
+  if (foldY != null && centre.dy > foldY) {
+    return '"$needle" has its centre below the fold at y=${centre.dy} '
+        '(visible to y=$foldY) — this journey cannot reach it without scrolling';
+  }
+  return null;
+}
+
+/// Every live semantics node by id. The dump keeps what a report needs; this
+/// is for the two questions it does not record — which actions a node has,
+/// and which node holds it.
+Map<int, SemanticsNode> _semanticsById(WidgetTester tester) {
+  final Map<int, SemanticsNode> out = <int, SemanticsNode>{};
+  void visit(SemanticsNode n) {
+    out[n.id] = n;
+    n.visitChildren((SemanticsNode c) {
+      visit(c);
+      return true;
+    });
+  }
+
+  final SemanticsNode? root =
+      tester.binding.renderViews.first.owner?.semanticsOwner?.rootSemanticsNode;
+  if (root != null) {
+    visit(root);
+  }
+  return out;
+}
+
+/// The most drags one `scroll until` step may spend. A bound, because this
+/// reaches a DECLARED target; it is not a crawl looking for one.
+const int maxScrollDrags = 20;
+
+/// Drag until [step]'s target can be pressed where it stands — the same
+/// reachability a tap requires — and return it.
+///
+/// The drag goes to the vertical scrollable that HOLDS the target, found by
+/// walking up its semantics parents — a short inner list inside a page is
+/// dragged, not the page. A target not in the tree yet (past the cache
+/// extent) has no holder to ask, so the largest vertical scrollable on screen
+/// is dragged towards its end until the target appears.
+///
+/// Half the holder's visible band per drag, so a target coming from below
+/// cannot be carried past the band in one go; the next pass corrects an
+/// overshoot either way. Vertical only — a horizontal carousel is not reached
+/// by this. Done means what a tap's refusal means, so it shares that ceiling:
+/// a list drawn UNDER a floating bar leaves a row's centre under the bar.
+Future<Map<String, Object?>> _scrollUntil(
+  WidgetTester tester,
+  Step step,
+  void Function() dragged,
+) async {
+  final String n = _norm(step.target);
+  bool searchBelow = true;
+  for (int i = 0; ; i++) {
+    // Not here yet is what this step exists for, and a hit INSIDE a word is
+    // not here: on the way back up to "Row 1", rows 13 to 19 are on screen
+    // and resolve calls that ambiguous. Measured. A real ambiguity still
+    // throws.
+    final Map<String, Object?>? node =
+        _hits(
+          tester,
+          step.target,
+        ).any((Map<String, Object?> h) => _wholeWords(_hay(h), n))
+        ? resolve(tester, step.target, step.nth)
+        : null;
+    if (node != null && _unreachable(tester, node, step.target) == null) {
+      return node;
+    }
+    final ({Rect band, bool more})? holder = _scroller(
+      tester,
+      node?['id'] as int?,
+    );
+    if (holder == null) {
+      throw StateError('nothing on screen scrolls "${step.target}" into view');
+    }
+    if (i == maxScrollDrags) {
+      throw StateError(
+        '"${step.target}" is not on screen after $maxScrollDrags drags'
+        '${node == null ? ' — it never entered the semantics tree' : ''}',
+      );
+    }
+    final Rect band = holder.band;
+    // A target not built yet is looked for below first, then — once the list
+    // has nothing more below — above, for good: a journey that scrolled down
+    // and wants the top again. Re-deciding every pass oscillated at the end
+    // of the list until the bound ran out. Measured.
+    searchBelow = searchBelow && holder.more;
+    final bool revealBelow = node == null
+        ? searchBelow
+        : _centre(node).dy >= band.bottom;
+    await tester.dragFrom(
+      band.center,
+      Offset(0, (revealBelow ? -1 : 1) * band.height / 2),
+    );
+    dragged();
+    await settle(tester);
+  }
+}
+
+/// The vertical scrollable holding semantics node [id] — or, for null, the
+/// largest one on screen: its visible band (logical px, cut at the fold), and
+/// whether it can still reveal content BELOW (`scrollUp` in semantics terms).
+({Rect band, bool more})? _scroller(WidgetTester tester, int? id) {
+  final Map<String, Object?> dump = dumpSemantics(tester);
+  final Map<String, Object?> vp = dump['viewport']! as Map<String, Object?>;
+  final Rect visible = Rect.fromLTRB(
+    0,
+    0,
+    vp['width']! as double,
+    (vp['foldY'] ?? vp['height'])! as double,
+  );
+  final Map<int, Rect> onScreen = <int, Rect>{};
+  for (final Map<String, Object?> n
+      in dump['nodes']! as List<Map<String, Object?>>) {
+    if (n['onScreen'] == true) {
+      final List<double> r = n['rect']! as List<double>;
+      onScreen[n['id']! as int] = Rect.fromLTWH(
+        r[0],
+        r[1],
+        r[2],
+        r[3],
+      ).intersect(visible);
+    }
+  }
+  final Map<int, SemanticsNode> byId = _semanticsById(tester);
+  // At either end a list loses one of the two actions, never both.
+  bool scrolls(SemanticsNode n) {
+    final SemanticsData d = n.getSemanticsData();
+    return onScreen.containsKey(n.id) &&
+        (d.hasAction(SemanticsAction.scrollUp) ||
+            d.hasAction(SemanticsAction.scrollDown));
+  }
+
+  double area(SemanticsNode n) =>
+      onScreen[n.id]!.width * onScreen[n.id]!.height;
+
+  SemanticsNode? holder;
+  if (id != null) {
+    for (SemanticsNode? n = byId[id]?.parent; n != null; n = n.parent) {
+      if (scrolls(n)) {
+        holder = n;
+        break;
+      }
+    }
+  } else {
+    for (final SemanticsNode n in byId.values.where(scrolls)) {
+      if (holder == null || area(n) > area(holder)) {
+        holder = n;
+      }
+    }
+  }
+  if (holder == null) {
+    return null;
+  }
+  return (
+    band: onScreen[holder.id]!,
+    more: holder.getSemanticsData().hasAction(SemanticsAction.scrollUp),
+  );
 }
 
 /// The oracle: [needle] must be ON SCREEN, as the [Step] contract says. A

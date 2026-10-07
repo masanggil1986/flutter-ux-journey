@@ -145,7 +145,8 @@ non-obvious line.
 **Five things change per app, and nothing else:**
 
 1. the `package:<app>/main.dart` import,
-2. the `journey` list, generated from `## Steps` in `journey.md`,
+2. the `journey` list, generated from `## Steps` in `journey.md` — one `Step` record per line, see
+   [Step lines → `Step` records](#step-lines--step-records),
 3. the `setup` list, generated from `## Setup`, plus `HttpOverrides.global = StubHttpOverrides();`
    ahead of the launch if the journey has to pass a gate (`references/network-stub.md`),
 4. `networkCalls`, wired to the stub's own call list when there is a stub,
@@ -176,7 +177,60 @@ non-obvious line.
    journey is about. It is what the framework is told to be, and it changes which typography the
    theme asks for — which is what `loadFonts` registers against.
 
+   The condition lines under `## Device` become the `deviceConditions` const. A line left out is
+   `null` (`false` for `boldText`), which sets nothing — a journey with no condition lines runs
+   exactly as before:
+
+   ```dart
+   // ## Device: `iphone-se` / - textScale 3.0 / - dark / - locale ko-KR / - boldText
+   const DeviceConditions deviceConditions = (
+     textScale: 3.0,
+     brightness: Brightness.dark,
+     locale: Locale('ko', 'KR'),
+     boldText: true,
+   );
+   ```
+
+   `main()` hands it to `applyConditions` before launch, which sets the `TestPlatformDispatcher`
+   test values — the same dispatcher `conditions` reads back, so the report quotes what was set —
+   and a teardown clears them (dispatcher test values, unlike `debugDefaultTargetPlatformOverride`,
+   are not checked by `_verifyInvariants`). **One set per run.** A matrix of condition sets in one
+   process is unsound: app globals leak from one walk into the next, measured. A second set is a
+   second run. `test/recipe_sync_test.dart` checks the const against the journey's lines.
+
 The rest of this file explains *why* the parts that look replaceable are not.
+
+### Step lines → `Step` records
+
+Every step line becomes one record of `(action, target, nth, text, expected, absent)`. The tail
+`— expect "Y"` is `expected: 'Y', absent: false`; `— expect no "Y"` is `expected: 'Y', absent: true`
+and the oracle then requires Y to be GONE from the screen. `test/recipe_sync_test.dart` pins
+`example/journey.md` to the walker's list on exactly these rules.
+
+| line | `action` | `target` |
+|---|---|---|
+| `tap "X"` | `'tap'` | `'X'` |
+| `long-press "X"` | `'long-press'` | `'X'` |
+| `type "T" into "X"` | `'type'` (and `text: 'T'`) | `'X'` |
+| `scroll until "X"` | `'scroll'` | `'X'` |
+| `back` | `'back'` | `''` |
+| `system back` | `'system back'` | `''` |
+
+- **`long-press`** resolves and refuses exactly as `tap` does — ambiguity, no long-press action,
+  centre off the surface or below the fold — then `tester.longPressAt` the same point. It counts
+  in `tapsSoFar`: a long press is reach.
+- **`scroll until`** drags the vertical scrollable that HOLDS the target (found by walking up its
+  semantics parents), or the largest one on screen while the target is not built yet, half its
+  visible band per drag, until the target passes the same reachability check a tap does. At most
+  20 drags (`maxScrollDrags`); the step records `drags`, and the run totals them in `drags`, apart
+  from `taps` — scrolling is not reach cost. Vertical only. It reaches a DECLARED target; it is not
+  a crawl. Two traps measured while writing it: a hit inside a word ("Row 13" for "Row 1") is
+  "not here yet", not an ambiguity, and once a search for an unbuilt target has hit the bottom it
+  must keep going up rather than re-deciding each pass, which oscillates until the bound runs out.
+- **`system back`** calls `tester.binding.handlePopRoute()` — what Android's back button sends —
+  and records `popHandled`. An unhandled pop FAILS the step: on Android it closes the app, and the
+  oracle would read a screen the user has already left. `back` is unchanged and stays the
+  on-screen-affordance probe DEAD-END relies on.
 
 ### The walk is entered through `walkJourney`, which does not launch the app
 

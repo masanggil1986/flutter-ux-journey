@@ -14,7 +14,7 @@ import '../integration_test/gated_journey_test.dart'
 // Both journey files export `journey`, so both imports are prefixed.
 import '../ux_audit/ux_journey_test.dart'
     as walker
-    show Step, journey, kIphoneSe;
+    show Step, deviceConditions, journey, kIphoneSe;
 
 const String _recipe = '../../skills/flutter-ux-journey/references/walking.md';
 const String _walker = 'ux_audit/ux_journey_test.dart';
@@ -26,10 +26,10 @@ const String _stubTemplate =
     '../../skills/flutter-ux-journey/references/network-stub.md';
 const String _stub = 'integration_test/gate_stub.dart';
 
-/// The numbered lines under `## <heading>`, in document order. Stops at the
+/// The lines under `## <heading>`, trimmed, in document order. Stops at the
 /// next `##` so that `## Priorities`, which is also a numbered list, cannot be
 /// mistaken for steps.
-List<String> _numbered(String md, String heading) {
+List<String> _section(String md, String heading) {
   final List<String> out = <String>[];
   bool inside = false;
   for (final String line in md.split('\n')) {
@@ -37,12 +37,17 @@ List<String> _numbered(String md, String heading) {
       inside = line.startsWith('## $heading');
       continue;
     }
-    if (inside && RegExp(r'^\d+\.\s').hasMatch(line)) {
+    if (inside) {
       out.add(line.trim());
     }
   }
   return out;
 }
+
+List<String> _numbered(String md, String heading) => _section(
+  md,
+  heading,
+).where((String l) => RegExp(r'^\d+\.\s').hasMatch(l)).toList();
 
 /// Pins one `##` section of a journey file to the const list the walker will
 /// actually execute. Everything a step line quotes — the target, the text to
@@ -59,19 +64,27 @@ void _pin(String label, List<String> lines, List<walker.Step> steps) {
   );
   for (int i = 0; i < lines.length; i++) {
     final walker.Step step = steps[i];
+    // The document's words for the action: a scroll is `scroll until "X"`.
+    final String said = step.action == 'scroll' ? 'scroll until' : step.action;
     expect(
       lines[i],
-      startsWith('${i + 1}. ${step.action} '),
+      startsWith('${i + 1}. $said '),
+      reason: '$label step ${i + 1}: the document does not say "$said"',
+    );
+    expect(
+      lines[i].contains('expect no "'),
+      step.absent,
       reason:
-          '$label step ${i + 1}: the document does not say '
-          '"${step.action}"',
+          '$label step ${i + 1}: `expect no` in the document and `absent` in '
+          'the walker disagree, so one of them checks the opposite',
     );
     expect(
       RegExp('"([^"]*)"')
           .allMatches(lines[i])
           .map((RegExpMatch m) => m.group(1)!),
       unorderedEquals(<String>[
-        step.target,
+        // `back` and `system back` have no target; the walker carries ''.
+        if (step.target.isNotEmpty) step.target,
         step.expected,
         if (step.text != null) step.text!,
       ]),
@@ -252,6 +265,36 @@ void main() {
         reason: '$path names a preset that is not `${walker.kIphoneSe.name}`',
       );
     }
+  });
+
+  test('the walker applies the conditions the journey declares', () {
+    // `deviceDeclared`'s failure one level down: the journey says
+    // `- textScale 3.0` and the walk runs at 1.0, or the reverse, and
+    // `conditions` faithfully reports a run nobody asked for.
+    final File file = File(_journey);
+    if (!file.existsSync()) {
+      markTestSkipped('$_journey not present — running outside the repo');
+      return;
+    }
+    final List<String> declared = _section(file.readAsStringSync(), 'Device')
+        .where((String l) => l.startsWith('- '))
+        .map((String l) => l.substring(2).trim())
+        .toList();
+    String? arg(String key) => declared
+        .where((String l) => l == key || l.startsWith('$key '))
+        .map((String l) => l.substring(key.length).trim())
+        .firstOrNull;
+    final String? scale = arg('textScale');
+    expect(
+      walker.deviceConditions.textScale,
+      scale == null ? null : double.parse(scale),
+    );
+    expect(
+      walker.deviceConditions.brightness?.name == 'dark',
+      arg('dark') != null,
+    );
+    expect(walker.deviceConditions.locale?.toLanguageTag(), arg('locale'));
+    expect(walker.deviceConditions.boldText, arg('boldText') != null);
   });
 
   test('the walker admits whether the journey declared a device', () {
