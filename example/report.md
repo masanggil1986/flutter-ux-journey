@@ -3,7 +3,7 @@
 **Goal:** Remove one product from the saved list and get back to the list to keep browsing.
 **Result:** not reached — the screen the removal lands on has no way out, measured.
 **Run:** 3 steps + outcome, 2 taps landed, 3 screens, 7 findings (2 critical, 1 major, 4 minor), 4 positives
-**Environment:** Flutter 3.47.2 · iPhone SE (3rd gen) simulator · iOS 18.6 · 2026-09-23
+**Environment:** Flutter 3.47.2 · iPhone SE (3rd gen) simulator · iOS 18.6 · 2026-10-07
 
 > This is the worked example: `example/journey.md` walked against `example/ux_demo_app`, a fixture
 > with six deliberately seeded defects. Every number below came out of the run; none was authored.
@@ -14,25 +14,33 @@ A user who removes a saved item cannot get back to their list: the screen they l
 to tap and nowhere to go, so the second half of what they came to do is impossible. The removal
 itself happens on the first tap, with no confirmation and no undo, so a mis-tap costs the product
 permanently. On the way in, the thing they came for is the sixth control on the home screen, behind
-five the app was never declared to be for. One declared path, walked once, on one device size, in
-the light theme at text scale 1.0 as recorded by the run — nothing here says how often real users
+five the app was never declared to be for. One declared path, walked once, on one device size —
+as the run recorded it: `mode: drive` on the iPhone SE (3rd gen) simulator (`targetPlatform: iOS`,
+`deviceProfile: device-supplied`, `fontSource: device`, `renderer: device`), `platformBrightness:
+light` at `textScaleFactor: 1.0`, no accessibility flags set. Nothing here says how often real users
 hit it.
 
 ## Journey walk
 
 | Step | Action | Expected | Status | Taps | Screen | Screenshot |
 |---|---|---|---|---|---|---|
-| 1 | tap "Walnut Side Table" | 189,000 KRW | OK | 1 | `a9582ba2` | `screens/step_1.png` |
+| 1 | tap "Walnut Side Table" | 189,000 KRW | OK — *not proven* | 1 | `a9582ba2` | `screens/step_1.png` |
 | 2 | tap "Remove from list" | Cancel | **FAILED** — `no semantics node matches "Cancel"` | 2 | `4ddc18db` | `screens/step_2.png` |
 | 3 | tap "Back" | Saved items | **FAILED** — `no semantics node matches "Back"` | 2 | `3afe0168` | `screens/step_3.png` |
 | outcome | — | — | OK | 2 | `3afe0168` | `screens/step_4.png` |
 
 No setup: the fixture has no backend and no login.
 
+**Step 1 proves nothing.** It records `expectedBefore: true`: "189,000 KRW" was already on the list
+row before the tap, so its expectation held whether or not the tap did anything. The status stays
+OK, but nothing in this report leans on it. That the tap did navigate is a separate measurement —
+`semanticsUnchanged: false`, and step 2 is dumped on a different screen (`4ddc18db`).
+
 Two columns are worth reading together. Step 3's tap is **not** counted (`dispatched: false`): it
 failed while resolving its target, so no gesture ever reached the app — which is also why it is not
-a dead control. And step 2 records `settled: false`: the walk waited out its whole bound for a
-"Cancel" that was never going to appear.
+a dead control, and why it records `settled: null`: no settle ran. And step 2 records
+`settled: false`: the walk waited out its whole bound for a "Cancel" that was never going to
+appear.
 
 Positions inside a guideline `reason` string are node-local and do not match the dump's global
 rects; sizes are comparable, positions are not. See Tool notes.
@@ -144,8 +152,8 @@ is very nearly invisible; a user skimming the saved list does not read it at all
 **Evidence.**
 - RUNTIME: `textContrastGuideline` — `SemanticsNode#8(..., label: "Free returns within 14 days"):
   Expected contrast ratio of at least 4.5 but found 1.03 for a font size of 13.0`.
-- The guideline's **ratio is advisory** — its light/dark partition returned `#FFFFFF` as the dark
-  colour. The authored pair is `#DDDDDD` on `#FFFFFF`, which is 1.36:1. The **node** is the signal;
+- The guideline's **ratio is advisory** — its light/dark partition returned `#FCFCFC`, an
+  anti-aliased near-white, as the dark colour. The authored pair is `#DDDDDD` on `#FFFFFF`, which is 1.36:1. The **node** is the signal;
   both numbers are far under 4.5.
 
 **Why severity 2.** Informational copy, not on the goal path; the journey completes without reading
@@ -159,7 +167,7 @@ entry screen of the journey.
 
 **Evidence.**
 - STATIC: `lib/main.dart:75` `IconButton` — "neither `tooltip:` nor `semanticLabel:` — the control
-  has no name." (confidence medium on its own.)
+  has no name." (probe name-match confidence medium; `STATIC` alone is low.)
 - RUNTIME confirms it on a walked screen: `labeledTapTargetGuideline` — `SemanticsNode#21(...,
   flags: [isButton, hasEnabledState, isEnabled, isFocusable]): expected tappable node to have
   semantic label, but none was found.` The dump puts it at `[279.0, 24.0, 48.0, 48.0]` lpx. Its
@@ -210,7 +218,8 @@ preference: NN/g's eye-tracking study (120 users, ~130,000 fixations) found 57% 
 above the fold. Here everything fits above it, so the finding is about *order*, not visibility.
 
 **Effective tap area.** Every tap target on every walked screen measured `effectivePct: 1.00` and
-`centreCovered: false` — nothing in this app is covered by an overlay.
+`centreCovered: false` — nothing in this app is covered by an overlay. Both taps that went out hit a
+tap handler at the point tapped (`centreHitsHandler: true` on steps 1 and 2).
 
 **Dead taps.** None. Step 3 reports `semanticsUnchanged: null`, not `true` — the gesture never
 dispatched, because the target could not be resolved. A selector miss is not a dead control.
@@ -224,8 +233,9 @@ dispatched, because the target could not be resolved. A selector miss is not a d
   `canPop: true`). The dead end is created by the removal flow, not by the detail screen.
 - ✓ Nothing on any walked screen is obscured: `effectivePct: 1.00` and `centreCovered: false`
   throughout.
-- ✓ The app raised no errors of its own (`appErrors: []`), and every screen the walk settled on did
-  settle (the one `settled: false` is step 2 waiting for a control that does not exist).
+- ✓ The app raised no errors of its own (`appErrors: []`, with `appErrorHandlerReplaced: false`, so
+  nothing displaced the walk's collector), and of the three steps that ran a settle, the only one
+  that did not settle is step 2, waiting for a control that does not exist.
 
 ## Direction
 
@@ -256,8 +266,11 @@ edges:
 | Saved list | entry point (`ListScreen`) | ✓ |
 | Product detail | `_ListScreenState` → `DetailScreen`, `push` (`main.dart:167`) | ✓ |
 | Removal confirmation | `DetailScreen` → `RemovedScreen`, `pushAndRemoveUntil` (`main.dart:219`) | ✓ |
+| Saved list, behind the sign-in gate | `_SignInScreenState` → `ListScreen`, `pushReplacement` (`main_gated.dart:115`) | not audited — second entrypoint |
 
-Walked 3 of 3 screens the probe found (100%). `declared` is empty and so is `notAssessable`: the
+Walked 3 of 3 screens the probe found (100%). The gated edge is not audited by this journey: it
+starts from `lib/main_gated.dart`, which [`journey-gated.md`](journey-gated.md) walks. Its target is
+a screen this journey did walk, so it adds no unwalked screen to the count. `declared` is empty and so is `notAssessable`: the
 fixture uses plain `Navigator` with no declarative router, so there is no route table to reconcile
 against — that is a fact about the app, not a failed scan. See Not Assessable.
 
@@ -270,7 +283,7 @@ The coverage column is not the probe's: it compares the edges above against `wal
 | Tap target ≥44/48 lpx | screens with zero violations / screens measured | 2 / 3 |
 | Text contrast | screens passing `textContrastGuideline` | 2 / 3 |
 | Accessible name | screens passing `labeledTapTargetGuideline` | 2 / 3 |
-| Screen stability | steps that settled | 3 / 4 |
+| Screen stability | steps that settled / steps that ran a settle (step 3, `settled: null`, never dispatched) | 2 / 3 |
 | Reach | screens with a way out / screens visited | 2 / 3 |
 | Error handling | qualitative — no error state was reached | — |
 
@@ -285,12 +298,17 @@ score does not cover copy, visual design, conversion, or any screen the journey 
   rank-1 task are unranked because nobody ranked the entry surface, not because they are
   unimportant — rank them and the next run can say which of the five belongs there and which is
   taking the slot.
+- Step 1's expectation, "189,000 KRW", is already on the list row, so the step proves nothing
+  (`expectedBefore: true`). Declare one only the detail screen carries — "Remove from list" — and
+  the next run proves the tap.
 
 **Not reached, or not measurable here** — nothing the reader can do.
 - Steps 2 and 3 did not reach their expected screens, so nothing past the removal screen was
   walked. Whether a real confirmation dialog would itself be accessible is untested, not clean.
 - The app uses plain `Navigator`, so there is no declared route table, no route names and no
   navigation graph. Screens are identified by their semantics signature instead.
+- The probe's gated edge, `_SignInScreenState` → `ListScreen` (`main_gated.dart:115`), is not
+  audited here: it belongs to the second entrypoint, walked by `journey-gated.md`.
 - Static candidates the walk refuted, kept rather than deleted: `lib/main.dart:126` and
   `lib/main.dart:165` (`InkWell` with `onTap` and no enclosing `Semantics`, confidence low). At
   runtime both nodes carry non-empty merged labels, so the probe's name matching missed the labels
@@ -298,9 +316,11 @@ score does not cover copy, visual design, conversion, or any screen the journey 
   check mark on the removal screen; it produces no semantics node of its own.
 - Screen-reader announcement order, focus order, keyboard navigation, dynamic type, motion and
   reduced-motion: not measured by this run.
-- Platform, from `conditions`: iOS 18.6 simulator (iPhone SE 3rd gen, dpr 2.0),
-  `platformBrightness: light`, `textScaleFactor: 1.0`, no accessibility flags set. One device size.
-  Real devices untested. The SE has a home button, so `padBottom` is genuinely 0.0 here — a notched
+- Platform, from `conditions`: `targetPlatform: iOS` on `platform: ios`
+  (`Version 18.6 (Build 22G86)`), `mode: drive`, one device size (`deviceProfile: device-supplied` —
+  the iPhone SE (3rd gen) simulator, dpr 2.0), `platformBrightness: light` at `textScaleFactor: 1.0`,
+  locale `en-US`, text metrics from `fontSource: device`, contrast from `renderer: device`, no
+  accessibility flags set. Real devices untested. The SE has a home button, so `padBottom` is genuinely 0.0 here — a notched
   device would move the fold line and this run cannot say by how much.
 - Other themes and text sizes: not measured here, and each is a separate run. Measured on this same
   fixture at `accessibility-extra-extra-extra-large`, the third product row leaves the semantics
@@ -310,7 +330,7 @@ score does not cover copy, visual design, conversion, or any screen the journey 
 ## Method
 
 Static pass (`package:analyzer`, name matching, no type resolution) · journey walk
-(`integration_test` under `flutter drive`, measured semantics rects in logical px, the four built-in
+(`integration_test` under `flutter drive` — `conditions.mode: drive` — measured semantics rects in logical px, the four built-in
 Flutter accessibility guidelines, viewport and fold, effective tap area, route state) · visual pass
 (screenshots read by the model) · merge and goal-relative rescoring.
 
@@ -340,3 +360,7 @@ host round-trip under a test harness, not user-perceived latency.
   returned mid-transition and every rect on the next screen came back shifted by 244 lpx; and a
   step that failed to resolve its target was being reported as a dead control. All three are pinned
   by tests now.
+- Re-walked on 2026-10-07 with a walker that also records `expectedBefore`, `resolved`,
+  `centreHitsHandler`, and `settled: null` for a step that never dispatched. Every semantics node,
+  guideline result and screenshot came back identical to the 2026-09-23 run. What moved: step 3's
+  `settled` (true → null) and the Screen stability row with it, and step 1 is now marked not proven.
