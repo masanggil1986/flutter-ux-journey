@@ -5,7 +5,8 @@
 // that would otherwise be checked only when someone remembered to check it.
 // Several are the answers a wrong stub gives, because the whole no-credentials
 // design rests on a wrong stub making a step go red and say why. The rest hold
-// down what the stub answers.
+// down the network boundary itself: what the stub answers, and what the drive
+// entry refuses.
 
 import 'dart:async';
 import 'dart:convert';
@@ -20,8 +21,11 @@ import 'package:ux_demo_app/main_gated.dart' show GatedDemoApp;
 
 import '../integration_test/gate_stub.dart';
 import '../integration_test/gated_journey_test.dart' show setup;
+import '../integration_test/ux_journey_drive.dart' show NetworkCut;
 import '../ux_audit/ux_journey_test.dart'
     show Step, StepOutcome, performStep, settle;
+
+const String _driveEntry = 'integration_test/ux_journey_drive.dart';
 
 void main() {
   // DEFECT 6 mutates this top-level list, and test 2 walks past the gate onto
@@ -232,6 +236,66 @@ void main() {
     expect(queries[6], 'q=1');
     expect(queries[12], 'q=1');
     expect(stubCalls, List<String>.filled(opened.length, '/m'));
+  });
+
+  test(
+    'the drive entry cuts the network: refused, recorded, never sent',
+    () async {
+      // A listener the cut must never reach. Loopback, so a broken cut sends
+      // nothing beyond this machine either.
+      final ServerSocket server = await ServerSocket.bind(
+        InternetAddress.loopbackIPv4,
+        0,
+      );
+      int connections = 0;
+      server.listen((Socket s) {
+        connections++;
+        s.destroy();
+      });
+      final List<String> calls = <String>[];
+      final HttpClient client = NetworkCut(calls).createHttpClient(null);
+      try {
+        final Uri url = Uri(
+          scheme: 'http',
+          host: server.address.address,
+          port: server.port,
+          path: '/auth/login',
+        );
+        await expectLater(
+          client.postUrl(url).then((HttpClientRequest r) => r.close()),
+          throwsA(isA<SocketException>()),
+        );
+        expect(calls, <String>['/auth/login']);
+        expect(connections, 0);
+      } finally {
+        client.close(force: true);
+        await server.close();
+      }
+    },
+  );
+
+  test('the drive entry installs the cut before launch, and reports it', () {
+    // The drive entry runs only on a device, so nothing else would notice
+    // either line going missing — and without them an iOS-simulator run
+    // reaches whatever backend the app names while the report says nothing.
+    final String src = File(_driveEntry).readAsStringSync();
+    const String cut = 'HttpOverrides.global = NetworkCut(calls);';
+    final int cutAt = src.indexOf(cut);
+    final int walkAt = src.indexOf('await walkJourney(');
+    expect(cutAt, isNonNegative, reason: '$_driveEntry lost `$cut`');
+    expect(walkAt, isNonNegative, reason: '$_driveEntry lost its walk');
+    expect(
+      cutAt < walkAt,
+      isTrue,
+      reason:
+          'the cut must be in before the app launches, or its first frame '
+          'has already sent what the cut exists to stop',
+    );
+    expect(
+      src.contains('networkCalls: calls,'),
+      isTrue,
+      reason: 'the refused paths are the evidence; unwired, the field is []',
+    );
   });
 }
 
