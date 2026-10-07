@@ -40,11 +40,22 @@ void main() {
   }
 
   testWidgets('ux journey', (WidgetTester tester) async {
+    // BEFORE app.main(), which walkJourney calls: an app that probes on its
+    // first frame has sent that request by the time a later override lands.
+    // A journey that has to get past a gate swaps this line for
+    // `HttpOverrides.global = StubHttpOverrides();` AND passes
+    // `networkCalls: stubCalls` below — gated_journey_test.dart does both.
+    final List<String> calls = <String>[];
+    HttpOverrides.global = NetworkCut(calls);
+
     await walkJourney(
       tester,
       launch: app.main,
       setup: setup,
       journey: journey,
+      // The paths the cut refused. Without this the field ships [] and reads
+      // as "the journey made no requests".
+      networkCalls: calls,
       shot: Platform.isIOS ? shot : null,
       // MUTATE, never replace: takeScreenshot appends each PNG into
       // reportData['screenshots'], and that list is how the driver's
@@ -68,4 +79,32 @@ void main() {
       },
     );
   });
+}
+
+/// The drive path's network posture: every `dart:io` HttpClient request is
+/// refused at connect, as under airplane mode, and its path recorded.
+///
+/// `flutter test` gets this for free — flutter_test answers every request with
+/// a 400 — but the drive binding installs nothing, so without this a run on
+/// the iOS simulator (which shares the host's network) sends the journey's
+/// sign-in to whatever backend the app names. It is the REAL HttpClient with
+/// one hook: connectionFactory is consulted before any DNS lookup or socket,
+/// so nothing is sent.
+///
+/// Its ceiling: only HttpClient, only in this isolate, only one built after
+/// this is installed, and only while the app does not set its own
+/// connectionFactory. network-stub.md lists what that leaves out.
+class NetworkCut extends HttpOverrides {
+  NetworkCut(this.calls);
+
+  final List<String> calls;
+
+  @override
+  HttpClient createHttpClient(SecurityContext? context) =>
+      super.createHttpClient(context)
+        ..connectionFactory =
+            (Uri url, String? proxyHost, int? proxyPort) async {
+              calls.add(url.path);
+              throw const SocketException('ux audit: network cut');
+            };
 }

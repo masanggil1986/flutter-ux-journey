@@ -13,7 +13,9 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
-/// path suffix -> (status, json body). First match wins, so order matters.
+/// path substring -> (status, json body). First match wins, so order matters:
+/// '/session' also matches '/session/refresh', so put the longer path first.
+/// Only the path is matched — method, query and body are not.
 typedef StubRoute = ({String match, int status, Object body});
 
 const List<StubRoute> _routes = <StubRoute>[
@@ -79,6 +81,51 @@ class _StubClient implements HttpClient {
   Future<HttpClientRequest> openUrl(String method, Uri url) async =>
       _StubRequest(method, url);
 
+  // Every other way to open a request lands on openUrl. Left to noSuchMethod
+  // they answer null, and the caller reports a TypeError the app does not
+  // have — NetworkImage asks for getUrl, so every image past the gate did.
+  // resolve(), not `path:`, so a query stays a query, as in dart:io.
+  @override
+  Future<HttpClientRequest> open(
+    String method,
+    String host,
+    int port,
+    String path,
+  ) => openUrl(
+    method,
+    Uri(scheme: 'http', host: host, port: port).resolve(path),
+  );
+  @override
+  Future<HttpClientRequest> get(String host, int port, String path) =>
+      open('GET', host, port, path);
+  @override
+  Future<HttpClientRequest> post(String host, int port, String path) =>
+      open('POST', host, port, path);
+  @override
+  Future<HttpClientRequest> put(String host, int port, String path) =>
+      open('PUT', host, port, path);
+  @override
+  Future<HttpClientRequest> delete(String host, int port, String path) =>
+      open('DELETE', host, port, path);
+  @override
+  Future<HttpClientRequest> patch(String host, int port, String path) =>
+      open('PATCH', host, port, path);
+  @override
+  Future<HttpClientRequest> head(String host, int port, String path) =>
+      open('HEAD', host, port, path);
+  @override
+  Future<HttpClientRequest> getUrl(Uri url) => openUrl('GET', url);
+  @override
+  Future<HttpClientRequest> postUrl(Uri url) => openUrl('POST', url);
+  @override
+  Future<HttpClientRequest> putUrl(Uri url) => openUrl('PUT', url);
+  @override
+  Future<HttpClientRequest> deleteUrl(Uri url) => openUrl('DELETE', url);
+  @override
+  Future<HttpClientRequest> patchUrl(Uri url) => openUrl('PATCH', url);
+  @override
+  Future<HttpClientRequest> headUrl(Uri url) => openUrl('HEAD', url);
+
   @override
   void close({bool force = false}) {}
 
@@ -105,6 +152,9 @@ class _StubRequest implements HttpClientRequest {
   bool persistentConnection = true;
   @override
   Encoding encoding = utf8;
+  // Mutable: a cookie jar adds to it before sending.
+  @override
+  final List<Cookie> cookies = <Cookie>[];
 
   @override
   void add(List<int> data) {}
@@ -113,13 +163,20 @@ class _StubRequest implements HttpClientRequest {
   Future<void> addStream(Stream<List<int>> stream) => stream.drain<void>();
 
   @override
-  Future<HttpClientResponse> close() async {
+  Future<void> flush() async {}
+
+  // One answer per request, however often it is asked for: a client that
+  // awaits both close() and done would otherwise be recorded twice.
+  @override
+  late final Future<HttpClientResponse> done = _answer();
+
+  @override
+  Future<HttpClientResponse> close() => done;
+
+  Future<HttpClientResponse> _answer() async {
     final ({int status, Object body}) r = _resolve(uri);
     return _StubResponse(r.status, utf8.encode(jsonEncode(r.body)));
   }
-
-  @override
-  Future<HttpClientResponse> get done => close();
 
   @override
   dynamic noSuchMethod(Invocation invocation) => null;
@@ -145,6 +202,8 @@ class _StubResponse extends Stream<List<int>> implements HttpClientResponse {
       HttpClientResponseCompressionState.notCompressed;
   @override
   List<RedirectInfo> get redirects => const <RedirectInfo>[];
+  @override
+  List<Cookie> get cookies => const <Cookie>[];
   @override
   HttpHeaders get headers => _StubHeaders()..contentType = ContentType.json;
 
