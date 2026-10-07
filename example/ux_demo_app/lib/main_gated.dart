@@ -15,7 +15,7 @@
 //                                               # the default audit mode —
 //                                               # offline, arbitrary data,
 //                                               # the failure path nobody tests.
-//   flutter drive --driver=test_driver/integration_test.dart \
+//   flutter drive --driver=test_driver/ux_journey_driver.dart \
 //     --target=integration_test/gated_journey_test.dart -d <device-id>
 //                                               # with the stub installed, the
 //                                               # gate opens and the journey

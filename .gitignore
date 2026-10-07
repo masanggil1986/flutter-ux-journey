@@ -22,7 +22,7 @@ report.md
 **/ux_audit/net_stub.dart
 **/integration_test/ux_journey_drive.dart
 **/integration_test/net_stub.dart
-**/test_driver/integration_test.dart
+**/test_driver/ux_journey_driver.dart
 
 # 화면 캡처·녹화 — 실 앱 화면은 그 자체가 제품 유출이다.
 # 예외는 아래 "유일한 예외" 블록뿐이고, 그 안에서도 CI Leak guard (b)가 파일명 단위

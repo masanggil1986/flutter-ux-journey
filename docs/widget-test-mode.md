@@ -105,7 +105,7 @@ Future<void> walkJourney(
 | 바인딩 | `TestWidgetsFlutterBinding` | `IntegrationTestWidgetsFlutterBinding` |
 | `shot` | `writePng(tester, 'ux-audit-out/screens/$name.png')` | iOS: `takeScreenshot` / Android: `null` |
 | `publish` | `File('ux-audit-out/walk.json').writeAsStringSync(...)` | `(binding.reportData ??= {}).addAll(r)` |
-| 앱에 생기는 파일 | **1개** — 워커 자신 | 3개 — 워커 + `ux_journey_drive.dart` + `test_driver/integration_test.dart` |
+| 앱에 생기는 파일 | **1개** — 워커 자신 | 3개 — 워커 + `ux_journey_drive.dart` + `test_driver/ux_journey_driver.dart` |
 | 네트워크 | **기본 차단**(SDK가 400 반환), airplane-mode 불필요 | airplane-mode 토글 필요 |
 
 두 바인딩을 한 파일에 둘 수는 없다 — 바인딩은 다른 무엇보다 먼저 정해져야 하고,

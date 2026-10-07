@@ -166,7 +166,7 @@ to the audited app's `.gitignore`:
 ux-audit-out/
 ux_audit/
 integration_test/ux_journey_drive.dart
-test_driver/integration_test.dart
+test_driver/ux_journey_driver.dart
 ```
 
 The default mode writes ONE file into the app — `ux_audit/ux_journey_test.dart` — plus
@@ -300,10 +300,10 @@ connected". `ux_audit/` is outside it, and outside `test/` too, so the audited a
 
 **Fallback** — the app needs a real device under it (plugins that throw `MissingPluginException`,
 platform views that must actually render). Also generate `integration_test/ux_journey_drive.dart`
-and `test_driver/integration_test.dart`, add `integration_test` to dev_dependencies, and run:
+and `test_driver/ux_journey_driver.dart`, add `integration_test` to dev_dependencies, and run:
 
 ```bash
-flutter drive --driver=test_driver/integration_test.dart \
+flutter drive --driver=test_driver/ux_journey_driver.dart \
               --target=integration_test/ux_journey_drive.dart -d <device-id>
 ```
 

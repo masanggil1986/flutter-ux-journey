@@ -8,7 +8,7 @@ substitute remembered ones.
 - [Why the walker runs inside the app](#why-the-walker-runs-inside-the-app)
 - [Prerequisites in the audited app](#prerequisites-in-the-audited-app)
 - [Two modes, and which files each one needs](#two-modes-and-which-files-each-one-needs)
-- [File 1 — test_driver/integration_test.dart (fallback only)](#file-1--test_driverintegration_testdart-fallback-only)
+- [File 1 — test_driver/ux_journey_driver.dart (fallback only)](#file-1--test_driverux_journey_driverdart-fallback-only)
 - [File 2 — ux_audit/ux_journey_test.dart](#file-2--ux_auditux_journey_testdart)
 - [Trap 1 — semantics rects are local and physical](#trap-1--semantics-rects-are-local-and-physical)
 - [Trap 2 — tooltip is not the label](#trap-2--tooltip-is-not-the-label)
@@ -55,9 +55,9 @@ run; a team that wants them as a regression test promotes them deliberately.
 
 | | default | fallback |
 |---|---|---|
-| run | `flutter test ux_audit/ux_journey_test.dart` | `flutter drive --driver=test_driver/integration_test.dart --target=integration_test/ux_journey_drive.dart -d <id>` |
+| run | `flutter test ux_audit/ux_journey_test.dart` | `flutter drive --driver=test_driver/ux_journey_driver.dart --target=integration_test/ux_journey_drive.dart -d <id>` |
 | device | none | a booted simulator or emulator |
-| files in the app | `ux_audit/ux_journey_test.dart` (+ `ux_audit/net_stub.dart` for a gate) | those, plus `integration_test/ux_journey_drive.dart` and `test_driver/integration_test.dart` |
+| files in the app | `ux_audit/ux_journey_test.dart` (+ `ux_audit/net_stub.dart` for a gate) | those, plus `integration_test/ux_journey_drive.dart` and `test_driver/ux_journey_driver.dart` |
 | dev_dependencies | `flutter_test` | `flutter_test` and `integration_test` |
 | screenshots | `OffsetLayer.toImage()`, any host | `takeScreenshot`, iOS only |
 | network | already cut: `flutter_test` answers every request with an empty 400 | cut it yourself (`adb shell cmd connectivity airplane-mode enable`) |
@@ -73,11 +73,20 @@ The fallback exists for one measured reason: the walk has not been run against a
 throw `MissingPluginException`, and platform views do not render headlessly at all. Neither mode
 changes a line of the app's source.
 
-## File 1 — test_driver/integration_test.dart (fallback only)
+## File 1 — test_driver/ux_journey_driver.dart (fallback only)
 
-Verbatim, whole file. The `responseDataCallback` strip is not optional: `takeScreenshot` also stuffs
-every PNG into `reportData['screenshots']` as a JSON int array, which turned a 45 KB PNG into a
-561 KB JSON in the verification run.
+**Not `test_driver/integration_test.dart`.** That is the name Flutter's own `integration_test` README
+tells every app to create, so an app that needs this fallback is the app most likely to have one
+already — and a `.gitignore` line cannot hide a tracked file, so overwriting it puts a changed driver
+one `git add -A` from that app's history. This file has its own name and is passed with `--driver`,
+which `flutter drive` takes as given. If `test_driver/ux_journey_driver.dart` already exists and is
+not this file, stop and ask; never write over it.
+
+Verbatim, whole file — the copy that runs is `example/ux_demo_app/test_driver/ux_journey_driver.dart`.
+The `responseDataCallback` strip is not optional: `takeScreenshot` also stuffs every PNG into
+`reportData['screenshots']` as a JSON int array, which turned a 45 KB PNG into a 561 KB JSON in the
+verification run. Emptying `ux-audit-out/screens/` first is not optional either: a PNG an earlier run
+left there passes as this run's, and a missing `setup_N.png` is how a reader knows the setup passed.
 
 ```dart
 import 'dart:io';
@@ -85,17 +94,24 @@ import 'dart:io';
 import 'package:integration_test/integration_test_driver_extended.dart';
 
 Future<void> main() async {
+  // ONE output root, the one SKILL.md declares. `screenshots/` — the default
+  // this file used to write — is a conventionally TRACKED directory in a
+  // Flutter app, so a walk against somebody's repo dropped their product
+  // screenshots where `git add -A` would take them.
+  final Directory screens = Directory('ux-audit-out/screens');
+  // Emptied first: a PNG left by an earlier run would pass as this run's, and
+  // a missing setup_N.png is how a reader knows the setup passed.
+  if (screens.existsSync()) {
+    screens.deleteSync(recursive: true);
+  }
   await integrationDriver(
-    onScreenshot: (String name, List<int> bytes, [Map<String, Object?>? args]) async {
-      // ONE output root, the one SKILL.md declares. `screenshots/` — the
-      // default this file used to write — is a conventionally TRACKED
-      // directory in a Flutter app, so a walk against somebody's repo dropped
-      // their product screenshots where `git add -A` would take them.
-      final File f = File('ux-audit-out/screens/$name.png');
-      f.parent.createSync(recursive: true);
-      f.writeAsBytesSync(bytes);
-      return true;
-    },
+    onScreenshot:
+        (String name, List<int> bytes, [Map<String, Object?>? args]) async {
+          final File f = File('${screens.path}/$name.png');
+          f.parent.createSync(recursive: true);
+          f.writeAsBytesSync(bytes);
+          return true;
+        },
     // The PNGs already went to disk above. takeScreenshot ALSO stuffs each one
     // into reportData['screenshots'] as a JSON int array, which inflated a
     // 45 KB PNG into 561 KB of JSON in the Day 1 run.
@@ -579,7 +595,7 @@ Fallback — on a device:
 
 ```bash
 cd <app-root>
-flutter drive --driver=test_driver/integration_test.dart \
+flutter drive --driver=test_driver/ux_journey_driver.dart \
               --target=integration_test/ux_journey_drive.dart -d <device-id>
 ```
 

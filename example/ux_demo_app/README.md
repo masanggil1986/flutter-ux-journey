@@ -41,7 +41,7 @@ meant to fail; the run still exits 0, so read `steps[].status`, never `$?`.
 On a device instead, for an app whose plugins or platform views need one:
 
 ```bash
-flutter drive --driver=test_driver/integration_test.dart \
+flutter drive --driver=test_driver/ux_journey_driver.dart \
               --target=integration_test/ux_journey_drive.dart -d <device-id>
 ```
 
@@ -81,7 +81,7 @@ publicly exercised: the ungated fixture has no HTTP layer at all, so the one mec
 audit past a real app's front door had only ever been verified in private.
 
 ```bash
-flutter drive --driver=test_driver/integration_test.dart \
+flutter drive --driver=test_driver/ux_journey_driver.dart \
               --target=integration_test/gated_journey_test.dart -d <device-id>
 ```
 
