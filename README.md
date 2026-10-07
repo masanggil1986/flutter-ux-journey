@@ -139,20 +139,26 @@ into the app under audit. What *does* land in the audited app is spelled out und
    ## Setup (excluded from measurement and scoring)
    1. dismiss the notification permission dialog
 
+   ## Device (optional)
+   `iphone-se`
+   - textScale 3.0
+
    ## Steps
    1. tap "Shop" — expect the product list
-   2. tap "Walnut Side Table" — expect a price and "Add to cart"
-   3. tap "Add to cart" — expect the cart badge to read 1
-   4. tap "Checkout" — expect the payment form
-   5. tap "Pay" — expect a confirmation naming the order
+   2. scroll until "Walnut Side Table" — expect "Walnut Side Table"
+   3. tap "Walnut Side Table" — expect a price and "Add to cart"
+   4. tap "Add to cart" — expect the cart badge to read 1
+   5. tap "Checkout" — expect the payment form
+   6. tap "Pay" — expect a confirmation naming the order
 
    ## Priorities (optional)
    1. buy something
    2. check an order's status
    ```
 
-   The four headings are the format, not decoration: `## Steps` is what the walker is generated
-   from, and `## Setup` is what keeps a permission dialog out of your score. Full spec in
+   The five headings are the format, not decoration: `## Steps` is what the walker is generated
+   from, `## Setup` is what keeps a permission dialog out of your score, and `## Device` is the
+   screen and the conditions (text scale, dark, locale, bold text) the walk is measured under. Full spec in
    [`SKILL.md`](skills/flutter-ux-journey/SKILL.md); a real one in
    [`example/journey.md`](example/journey.md).
 
