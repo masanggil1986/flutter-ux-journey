@@ -70,6 +70,10 @@ jobs:
       - name: Leak guard
         run: |
           set +e -uo pipefail
+          # Byte semantics. In a UTF-8 locale grep drops a record that is not
+          # valid UTF-8 (an EUC-KR or Latin-1 file name) with only "binary file
+          # matches" on stderr. Every pattern below is ASCII, so nothing is lost.
+          export LC_ALL=C
           rc=0
 
           # Hosts a public repo may legitimately name: vendor and standards docs,
@@ -101,28 +105,39 @@ jobs:
           www.lunary.ai.kr
           www.w3.org'
 
+          # File names travel NUL-separated. A plain `git ls-files` C-quotes any
+          # non-ASCII name ("\354\212\244..."), and macOS names its screenshots
+          # in the user's language and, since macOS 14, with U+202F before AM/PM,
+          # so a quoted name never matched a pattern below.
+
           # (a) A tracked file that .gitignore also matches is a negation hole.
           # `!example/ux_demo_app/**` switches every guard above it back off
           # inside the demo app, so a walk run there could commit its own
-          # output. --no-index is load-bearing: check-ignore skips tracked paths
-          # without it, which makes the obvious form of this check a silent
-          # no-op that can never fail.
+          # output. The index answers "tracked and ignored" itself, so no name
+          # is ever parsed as a pathspec (`check-ignore --stdin` dies on a name
+          # like `:!x` and stops checking the rest).
           echo '--- (a) tracked files that .gitignore also matches ---'
-          hole=$(git ls-files | while read -r f; do git check-ignore -q --no-index "$f" && echo "$f"; done)
+          hole=$(git ls-files -z -ci --exclude-standard | tr '\0' '\n')
           if [ -n "$hole" ]; then echo "$hole"; rc=1; else echo none; fi
 
           # (b) The only images this repo may carry are the demo fixture's four
-          # screenshots and the launcher icons `flutter create` wrote. Anything
-          # else is a picture of somebody's product.
-          echo '--- (b) tracked images and video outside the allowlist ---'
-          media=$(git ls-files \
-            | grep -iE '\.(png|jpe?g|gif|webp|bmp|ico|tiff?|avif|mp4|mov|webm)$' \
-            | grep -vE '^example/screens/[^/]+\.png$' \
-            | grep -vE '^example/ux_demo_app/(ios|android)/')
+          # screenshots and the icons `flutter create` wrote, each pinned by
+          # name, so a capture saved beside them does not pass with them.
+          # Anything else is a picture of somebody's product. A new demo image
+          # needs its own line here, not only a .gitignore negation.
+          echo '--- (b) tracked images, documents and video outside the allowlist ---'
+          media=$(git ls-files -z \
+            | grep -ziE '\.(png|jpe?g|gif|webp|bmp|ico|tiff?|avif|heic|heif|svg|pdf|mp4|mov|webm)$' \
+            | grep -zvE '^example/screens/step_[1-4]\.png$' \
+            | grep -zvE '^example/ux_demo_app/android/app/src/main/res/mipmap-[a-z]+/ic_launcher\.png$' \
+            | grep -zvE '^example/ux_demo_app/ios/Runner/Assets\.xcassets/(AppIcon\.appiconset/Icon-App-[0-9.]+x[0-9.]+@[1-3]x|LaunchImage\.imageset/LaunchImage(@[23]x)?)\.png$' \
+            | tr '\0' '\n')
           if [ -n "$media" ]; then echo "$media"; rc=1; else echo none; fi
 
+          # `--` keeps a tracked file named like an option (`-q`) from turning
+          # grep quiet for the whole tree.
           echo '--- (c1) hosts outside the allowlist ---'
-          hosts=$(git ls-files -z | xargs -0 grep -ohIE '://[a-zA-Z0-9._-]+' \
+          hosts=$(git ls-files -z | xargs -0 grep -ohIE '://[a-zA-Z0-9._-]+' -- \
             | cut -c4- | sort -u | grep -vxF "$ALLOWED_HOSTS")
           if [ -n "$hosts" ]; then echo "$hosts"; rc=1; else echo none; fi
 
@@ -130,12 +145,16 @@ jobs:
           # 180 times in this tree, nearly all of it prose about token budgets or
           # localhost URLs, so the human grep's pattern cannot be a gate as
           # written. Narrowed to the shape a real credential has -- one of those
-          # words assigned a string literal -- less the placeholder vocabulary
-          # the fixture and the stub template use on purpose.
+          # words assigned a string literal. Each assignment is judged by its own
+          # value: it is exempt only when that value starts with a whole
+          # placeholder word the fixture and the stub template use on purpose
+          # ('stub', 'not-a-real-password', 'example.invalid'). Not the path and
+          # not the rest of the line: example/ is where artifacts are committed
+          # on purpose, and `// for example` after a real key proves nothing.
           echo '--- (c2) credential words assigned a literal ---'
-          creds=$(git ls-files -z | xargs -0 grep -inIHE \
-            "(token|secret|password|passwd|api[_-]?key|bearer)['\"]?[[:space:]]*[:=][[:space:]]*['\"][^'\"]" \
-            | grep -viE 'stub|example|not-a-real|placeholder|redacted')
+          assign="(token|secret|password|passwd|api[_-]?key|bearer)['\"]?[[:space:]]*[:=][[:space:]]*['\"]"
+          creds=$(git ls-files -z | xargs -0 grep -inIHoE "${assign}[^'\"]+" -- \
+            | grep -viE "${assign}(stub|example|not-a-real|placeholder|redacted)\b")
           if [ -n "$creds" ]; then echo "$creds"; rc=1; else echo none; fi
 
           exit $rc

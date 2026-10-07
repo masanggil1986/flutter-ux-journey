@@ -25,8 +25,8 @@ report.md
 **/test_driver/integration_test.dart
 
 # 화면 캡처·녹화 — 실 앱 화면은 그 자체가 제품 유출이다.
-# 공개 데모 앱의 정당한 스크린샷을 추가할 땐 그때 명시적으로 negate 한다
-# (예: !examples/demo-app/screens/*.png). 지금은 전부 막는다.
+# 예외는 아래 "유일한 예외" 블록뿐이고, 그 안에서도 CI Leak guard (b)가 파일명 단위
+# 허용 목록으로 다시 막는다. 여기 없는 형식(heic·pdf·svg 등)도 (b)가 잡는다.
 *.png
 *.jpg
 *.jpeg
