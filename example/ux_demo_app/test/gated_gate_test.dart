@@ -18,12 +18,13 @@ import 'package:flutter/widgets.dart' show Image, SizedBox;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:ux_demo_app/main.dart' show Product, products;
 import 'package:ux_demo_app/main_gated.dart' show GatedDemoApp;
+import 'package:ux_demo_app/main_gated.dart' as gated_app show main;
 
 import '../integration_test/gate_stub.dart';
-import '../integration_test/gated_journey_test.dart' show setup;
+import '../integration_test/gated_journey_test.dart' show journey, setup;
 import '../integration_test/ux_journey_drive.dart' show NetworkCut;
 import '../ux_audit/ux_journey_test.dart'
-    show Step, StepOutcome, performStep, settle;
+    show Step, StepOutcome, performStep, settle, walkJourney;
 
 const String _driveEntry = 'integration_test/ux_journey_drive.dart';
 
@@ -93,11 +94,7 @@ void main() {
   ) async {
     final SemanticsHandle handle = await _pumpGate(
       tester,
-      _MisfilledOverrides(
-        (Uri url) => url.path.contains('/auth/login')
-            ? (status: 500, body: <String, Object?>{})
-            : (status: 401, body: <String, Object?>{'error': 'no session'}),
-      ),
+      _MisfilledOverrides(_signInRefused),
     );
     final List<StepOutcome> out = await _runSetup(tester);
 
@@ -156,6 +153,48 @@ void main() {
     expect(find.textContaining('could not sign you in'), findsOneWidget);
     expect(find.text('Saved items'), findsNothing);
     handle.dispose();
+  });
+
+  testWidgets('a walk through the gate sets up, then walks the journey', (
+    WidgetTester tester,
+  ) async {
+    // The ## Setup path at walkJourney level, which is where setupFailed and
+    // the setup screenshots are decided. performStep alone (above) never
+    // reaches that code.
+    final ({Map<String, Object?> report, List<String> shots}) r = await _walk(
+      tester,
+      StubHttpOverrides(),
+    );
+    final List<Object?> setupSteps = r.report['setupSteps']! as List<Object?>;
+    expect(r.report['setupFailed'], isFalse);
+    expect(_field(setupSteps, 'status'), <String>['OK', 'OK', 'OK']);
+    // Every journey step plus the outcome screen.
+    expect((r.report['steps']! as List<Object?>).length, journey.length + 1);
+    expect(r.report['networkCalls'], <String>['/session', '/auth/login']);
+    expect(r.shots.where((String s) => s.startsWith('setup_')), isEmpty);
+  });
+
+  testWidgets('a walk the gate stops reports the gate, and no journey', (
+    WidgetTester tester,
+  ) async {
+    final ({Map<String, Object?> report, List<String> shots}) r = await _walk(
+      tester,
+      _MisfilledOverrides(_signInRefused),
+    );
+    final List<Object?> setupSteps = r.report['setupSteps']! as List<Object?>;
+    // Reporting the steps that did run as a journey would describe a short,
+    // healthy app. A setup failure is a setup failure.
+    expect(r.report['setupFailed'], isTrue);
+    expect(r.report['steps'], isEmpty);
+    expect(r.report['taps'], 0);
+    expect(_field(setupSteps, 'status'), <String>['OK', 'OK', 'FAILED']);
+    // One screenshot, of the step the gate stopped: it is the whole evidence.
+    expect(_field(setupSteps, 'screenshot'), <String?>[
+      null,
+      null,
+      'setup_3.png',
+    ]);
+    expect(r.shots, <String>['setup_3']);
   });
 
   testWidgets('a network image is answered by the stub, not by a TypeError', (
@@ -297,6 +336,39 @@ void main() {
       reason: 'the refused paths are the evidence; unwired, the field is []',
     );
   });
+}
+
+/// What a route table that refuses the sign-in does: the probe still answers
+/// 401, so the gate renders, and the step that needs the server goes red.
+({int status, Object body}) _signInRefused(Uri url) =>
+    url.path.contains('/auth/login')
+    ? (status: 500, body: <String, Object?>{})
+    : (status: 401, body: <String, Object?>{'error': 'no session'});
+
+/// One field of each recorded step, in order.
+List<Object?> _field(List<Object?> steps, String key) =>
+    steps.map((Object? s) => (s! as Map<String, Object?>)[key]).toList();
+
+/// The shipped gated setup and journey through the real walkJourney, as the
+/// gated drive entry runs them, minus the device. [shots] is every name the
+/// walk asked to capture; nothing is written.
+Future<({Map<String, Object?> report, List<String> shots})> _walk(
+  WidgetTester tester,
+  HttpOverrides overrides,
+) async {
+  HttpOverrides.global = overrides;
+  final List<String> shots = <String>[];
+  late Map<String, Object?> report;
+  await walkJourney(
+    tester,
+    launch: gated_app.main,
+    setup: setup,
+    journey: journey,
+    networkCalls: stubCalls,
+    shot: (String name) async => shots.add(name),
+    publish: (Map<String, Object?> r) async => report = r,
+  );
+  return (report: report, shots: shots);
 }
 
 /// Install [overrides], pump the gated app, and wait for the session probe to
